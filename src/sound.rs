@@ -541,9 +541,9 @@ impl Sound {
 
     /// Resample the sound to a new sample rate using sinc interpolation
     ///
-    /// This method uses windowed sinc interpolation (Lanczos-like) for
-    /// high-quality resampling. It's used internally for formant analysis
-    /// where Praat resamples to 2 × max_formant before LPC.
+    /// This method uses windowed sinc interpolation matching Praat's Sound_resample
+    /// exactly. It's used internally for formant analysis where Praat resamples
+    /// to 2 × max_formant before LPC.
     ///
     /// # Arguments
     /// * `new_sample_rate` - Target sample rate in Hz
@@ -551,12 +551,21 @@ impl Sound {
     /// # Returns
     /// A new Sound at the target sample rate
     pub fn resample(&self, new_sample_rate: f64) -> Sound {
-        if self.samples.is_empty() || (new_sample_rate - self.sample_rate).abs() < 0.01 {
+        if self.samples.is_empty() {
             return self.clone();
         }
 
-        let ratio = new_sample_rate / self.sample_rate;
-        let new_num_samples = ((self.samples.len() as f64) * ratio).round() as usize;
+        let upfactor = new_sample_rate / self.sample_rate;
+
+        // If ratio is ~1, return copy
+        if (upfactor - 1.0).abs() < 1e-6 {
+            return self.clone();
+        }
+
+        // Praat: numberOfSamples = round((xmax - xmin) * samplingFrequency)
+        let xmin = self.start_time;
+        let xmax = self.start_time + self.duration();
+        let new_num_samples = ((xmax - xmin) * new_sample_rate).round() as usize;
 
         if new_num_samples == 0 {
             return Sound {
@@ -567,21 +576,37 @@ impl Sound {
         }
 
         // For downsampling, apply FFT-based anti-aliasing filter first
-        let filtered_samples = if ratio < 1.0 {
-            self.fft_lowpass_filter(ratio)
+        let filtered_samples = if upfactor < 1.0 {
+            self.fft_lowpass_filter(upfactor)
         } else {
             self.samples.clone()
         };
 
+        // Praat time conventions:
+        // Original: x1_orig = xmin + 0.5 * dx_orig (time of first sample center)
+        // The new sound uses:
+        // x1_new = 0.5 * (xmin + xmax - (numberOfSamples - 1) / samplingFrequency)
+        let dx_orig = 1.0 / self.sample_rate;
+        let dx_new = 1.0 / new_sample_rate;
+        let x1_orig = xmin + 0.5 * dx_orig;
+        let x1_new = 0.5 * (xmin + xmax - (new_num_samples - 1) as f64 * dx_new);
+
         let mut new_samples = vec![0.0; new_num_samples];
 
         // Sinc interpolation precision (Praat default is 50)
-        let precision = 50;
+        let precision: isize = 50;
 
         for i in 0..new_num_samples {
-            // Time position in original signal coordinates
-            let index = i as f64 / ratio;
-            new_samples[i] = sinc_interpolate(&filtered_samples, index, precision);
+            // Time of new sample i (0-based, but Praat formula uses 1-based)
+            // Praat: x = Sampled_indexToX(thee, i) = x1 + (i - 1) * dx (1-based)
+            // For 0-based: x = x1_new + i * dx_new
+            let x = x1_new + i as f64 * dx_new;
+
+            // Index in original (1-based for sinc_interpolate_1based)
+            // Praat: index = Sampled_xToIndex(me, x) = (x - x1) / dx + 1.0
+            let index = (x - x1_orig) / dx_orig + 1.0;
+
+            new_samples[i] = sinc_interpolate_1based(&filtered_samples, index, precision);
         }
 
         Sound {
@@ -591,43 +616,69 @@ impl Sound {
         }
     }
 
-    /// Apply FFT-based low-pass filter for anti-aliasing
-    fn fft_lowpass_filter(&self, cutoff_ratio: f64) -> Vec<f64> {
+    /// Apply FFT-based low-pass filter for anti-aliasing (matches Praat's Sound_resample)
+    ///
+    /// Praat's algorithm from Sound.cpp:
+    /// 1. Pad signal with zeros (antiTurnAround = 1000 on each side)
+    /// 2. FFT to frequency domain using NUMrealft
+    /// 3. Zero frequencies: data[floor(upfactor * nfft)..nfft] and data[2] (Nyquist)
+    /// 4. Inverse FFT back to time domain
+    /// 5. Scale by 1/nfft
+    fn fft_lowpass_filter(&self, upfactor: f64) -> Vec<f64> {
         use crate::utils::fft::Fft;
         use num_complex::Complex;
 
         let n = self.samples.len();
-        // Pad to power of 2 with turnaround
+        // Pad to power of 2 with turnaround (Praat uses 1000 on each side)
         let anti_turn_around = 1000;
         let nfft = (n + 2 * anti_turn_around).next_power_of_two();
 
-        // Create padded signal (mirror padding at edges like Praat)
+        // Create padded signal with zeros and signal in the middle (like Praat)
+        // Praat does NOT use mirror padding for resampling - just zeros
         let mut padded = vec![0.0; nfft];
-        for i in 0..anti_turn_around.min(n) {
-            padded[anti_turn_around - 1 - i] = self.samples[i];
-        }
+        // Place original signal in the middle (after antiTurnAround zeros)
         for i in 0..n {
             padded[anti_turn_around + i] = self.samples[i];
         }
-        for i in 0..anti_turn_around.min(n) {
-            padded[anti_turn_around + n + i] = self.samples[n - 1 - i];
-        }
+        // Rest is already zeros
 
-        // Forward FFT
+        // Forward FFT (complex output of size nfft)
         let mut fft = Fft::new();
         let mut spectrum = fft.real_fft(&padded, nfft);
 
-        // Zero out frequencies above cutoff (low-pass filter)
-        let cutoff_bin = ((cutoff_ratio * nfft as f64) / 2.0).ceil() as usize;
-        for i in cutoff_bin..spectrum.len() {
+        // Match Praat's filtering: zero from floor(upfactor * nfft) to nfft in packed format
+        // In Praat's packed format:
+        //   data[1] = DC, data[2] = Nyquist, data[3..nfft] = complex frequency pairs
+        //   Zeroing data[floor(upfactor*nfft)..nfft] zeros upper frequencies
+        //
+        // In our complex FFT format:
+        //   spectrum[0] = DC
+        //   spectrum[1..nfft/2-1] = positive frequencies
+        //   spectrum[nfft/2] = Nyquist
+        //   spectrum[nfft/2+1..nfft-1] = negative frequencies
+        //
+        // Praat's cutoff index floor(upfactor * nfft) in packed format corresponds to
+        // approximately (floor(upfactor * nfft) - 1) / 2 in frequency bins
+        // Which simplifies to floor(upfactor * nfft / 2) bins to keep
+
+        // Calculate cutoff bin (keep bins 0 to cutoff_bin-1, zero cutoff_bin and above)
+        let cutoff_bin = (upfactor * nfft as f64 / 2.0).floor() as usize;
+
+        // Zero Nyquist (Praat always zeros data[2])
+        spectrum[nfft / 2] = Complex::new(0.0, 0.0);
+
+        // Zero positive frequencies from cutoff_bin to nfft/2-1
+        for i in cutoff_bin..(nfft / 2) {
             spectrum[i] = Complex::new(0.0, 0.0);
         }
-        // Also zero the symmetric part for proper inverse FFT
-        for i in 1..cutoff_bin.min(spectrum.len()) {
-            spectrum[nfft - i] = Complex::new(0.0, 0.0);
+
+        // Zero corresponding negative frequencies (nfft-cutoff_bin+1 to nfft-1)
+        // But we need to keep symmetry. For a real signal, bin nfft-k is conjugate of bin k
+        for i in (nfft / 2 + 1)..(nfft - cutoff_bin + 1) {
+            spectrum[i] = Complex::new(0.0, 0.0);
         }
 
-        // Inverse FFT
+        // Inverse FFT (includes 1/nfft normalization)
         let time_domain = fft.inverse_fft(&spectrum);
 
         // Extract the original portion
@@ -639,41 +690,102 @@ impl Sound {
     }
 }
 
-/// Sinc interpolation matching Praat's NUMinterpolate_sinc exactly
-/// From Praat's dwsys/NUM2.cpp
-fn sinc_interpolate(samples: &[f64], x: f64, max_depth: usize) -> f64 {
-    let n = samples.len();
-    if n == 0 {
-        return 0.0;
+/// Sinc interpolation matching Praat's NUM_interpolate_sinc exactly
+/// From Praat's melder/NUMinterpol.cpp
+///
+/// Note: This function uses 1-BASED indexing to match Praat exactly.
+/// So x=1.0 refers to samples[0], x=2.0 refers to samples[1], etc.
+fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize) -> f64 {
+    let n = samples.len() as isize;
+    if n < 1 {
+        return f64::NAN;
     }
 
-    // Praat: ix = floor(x), then iterate from ix - maxDepth to ix + maxDepth
-    let ix = x.floor() as isize;
-    let max_depth = max_depth as isize;
+    // Boundary handling: constant extrapolation
+    if x < 1.0 {
+        return samples[0];
+    }
+    if x > n as f64 {
+        return samples[(n - 1) as usize];
+    }
+
+    let midleft = x.floor() as isize;
+    let midright = midleft + 1;
+
+    // If x is exactly on a sample, return that sample
+    if x == midleft as f64 {
+        return samples[(midleft - 1) as usize];
+    }
+
+    // Clip max_depth to valid range
+    let max_depth = max_depth.min(midright - 1).min(n - midleft);
+
+    // For linear interpolation (maxDepth <= 1)
+    if max_depth <= 1 {
+        let yl = samples[(midleft - 1) as usize];
+        let yr = samples[(midright - 1) as usize];
+        return yl + (x - midleft as f64) * (yr - yl);
+    }
+
+    let left = midright - max_depth;
+    let right = midleft + max_depth;
 
     let mut result = 0.0;
 
-    for i in (ix - max_depth)..=(ix + max_depth) {
-        // Skip samples outside the valid range
-        if i < 0 || i >= n as isize {
-            continue;
+    // Left half: from midleft down to left
+    {
+        let left_depth = max_depth as f64 + 0.5;
+        let window_phase_step = std::f64::consts::PI / left_depth;
+        let sin_window_phase_step = window_phase_step.sin();
+        let cos_window_phase_step = window_phase_step.cos();
+
+        let mut left_phase = std::f64::consts::PI * (x - midleft as f64);
+        let mut half_sin_left_phase = 0.5 * left_phase.sin();
+
+        let window_phase = left_phase / left_depth;
+        let mut sin_window_phase = window_phase.sin();
+        let mut cos_window_phase = window_phase.cos();
+
+        for ix in (left..=midleft).rev() {
+            let sinc_times_window = half_sin_left_phase / left_phase * (1.0 + cos_window_phase);
+            result += samples[(ix - 1) as usize] * sinc_times_window;
+
+            left_phase += std::f64::consts::PI;
+            half_sin_left_phase = -half_sin_left_phase;
+
+            let next_sin = cos_window_phase * sin_window_phase_step + sin_window_phase * cos_window_phase_step;
+            let next_cos = cos_window_phase * cos_window_phase_step - sin_window_phase * sin_window_phase_step;
+            sin_window_phase = next_sin;
+            cos_window_phase = next_cos;
         }
+    }
 
-        // Distance from the interpolation point
-        let d = x - i as f64;
+    // Right half: from midright up to right
+    {
+        let right_depth = max_depth as f64 + 0.5;
+        let window_phase_step = std::f64::consts::PI / right_depth;
+        let sin_window_phase_step = window_phase_step.sin();
+        let cos_window_phase_step = window_phase_step.cos();
 
-        // Sinc function: sin(π*d) / (π*d), or 1.0 when d == 0
-        let sinc = if d == 0.0 {
-            1.0
-        } else {
-            let pid = std::f64::consts::PI * d;
-            pid.sin() / pid
-        };
+        let mut right_phase = std::f64::consts::PI * (midright as f64 - x);
+        let mut half_sin_right_phase = 0.5 * right_phase.sin();
 
-        // Praat's window: 0.5 + 0.5 * cos(π * d / (maxDepth + 0.5))
-        let window = 0.5 + 0.5 * (std::f64::consts::PI * d / (max_depth as f64 + 0.5)).cos();
+        let window_phase = right_phase / right_depth;
+        let mut sin_window_phase = window_phase.sin();
+        let mut cos_window_phase = window_phase.cos();
 
-        result += samples[i as usize] * sinc * window;
+        for ix in midright..=right {
+            let sinc_times_window = half_sin_right_phase / right_phase * (1.0 + cos_window_phase);
+            result += samples[(ix - 1) as usize] * sinc_times_window;
+
+            right_phase += std::f64::consts::PI;
+            half_sin_right_phase = -half_sin_right_phase;
+
+            let next_sin = cos_window_phase * sin_window_phase_step + sin_window_phase * cos_window_phase_step;
+            let next_cos = cos_window_phase * cos_window_phase_step - sin_window_phase * sin_window_phase_step;
+            sin_window_phase = next_sin;
+            cos_window_phase = next_cos;
+        }
     }
 
     result

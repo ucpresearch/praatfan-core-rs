@@ -183,11 +183,13 @@ pub fn lpc_to_formants(coefficients: &[f64], sample_rate: f64) -> Vec<FormantCan
     let mut roots = find_polynomial_roots_eigen(&poly_coeffs);
 
     // Fix roots into unit circle (Praat's Roots_fixIntoUnitCircle)
+    // Praat: roots[i] = 1.0 / conj(roots[i]) = roots[i] / |roots[i]|^2
+    // This keeps the sign of the imaginary part (important for formant extraction)
     for root in &mut roots {
         let mag = root.norm();
         if mag > 1.0 {
-            // Map to 1/conj(z) = conj(z) / |z|^2
-            *root = root.conj() / (mag * mag);
+            // Map to 1/conj(z) = z / |z|^2 (NOT conj(z) / |z|^2)
+            *root = *root / (mag * mag);
         }
     }
 
@@ -476,7 +478,7 @@ fn francis_qr_step(h: &mut [Vec<f64>], lo: usize, hi: usize) {
         }
 
         let sign = if x >= 0.0 { 1.0 } else { -1.0 };
-        let beta = sign * norm;
+        let _beta = sign * norm;
         let v0 = x + sign;
         let v_norm_sq = v0 * v0 + y * y + z * z;
 
