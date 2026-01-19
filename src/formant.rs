@@ -128,25 +128,31 @@ impl Formant {
 
         let sample_rate = emphasized.sample_rate();
         let samples = emphasized.samples();
+        let dx = 1.0 / sample_rate;
+        // Praat's x1 is the time of the first sample: xmin + 0.5*dx
+        let x1_sound = emphasized.start_time() + 0.5 * dx;
 
-        // LPC order: 2 × max_formants + 2 (Praat convention)
+        // LPC order: 2 × max_formants (Praat convention for Sound -> Formant)
         // Each formant needs 2 poles (complex conjugate pair)
-        let lpc_order = 2 * max_num_formants + 2;
+        let lpc_order = 2 * max_num_formants;
 
-        // Window parameters
-        let window_samples = (window_length * sample_rate).round() as usize;
-        let half_window = window_samples / 2;
+        // CRITICAL: window_length parameter is actually halfdt_window in Praat!
+        // The actual analysis window is TWICE this value.
+        // See Sound_to_Formant.cpp: dt_window = 2.0 * halfdt_window
+        let halfdt_window = window_length;
+        let dt_window = 2.0 * halfdt_window;
+        let nsamp_window = (dt_window / dx).floor() as usize;
+        let halfnsamp_window = nsamp_window / 2;
 
         // Generate Praat's exact Gaussian window for formant analysis
-        let window = praat_formant_window(window_samples);
+        let window = praat_formant_window(nsamp_window);
 
-        // Frame timing - match Praat's actual output (verified with parselmouth)
-        // Praat uses margin = window_length on each side
-        let duration = sound.duration();
-        let margin = window_length;
-        let analysis_duration = duration - 2.0 * margin;
+        // Frame timing - exactly as Praat does it (verified with source code)
+        // physicalDuration = nx * dx
+        let physical_duration = samples.len() as f64 * dx;
+        let num_frames = 1 + ((physical_duration - dt_window) / time_step).floor() as usize;
 
-        if analysis_duration <= 0.0 || samples.is_empty() {
+        if num_frames == 0 || samples.is_empty() {
             return Self {
                 frames: Vec::new(),
                 start_time: sound.start_time(),
@@ -156,38 +162,45 @@ impl Formant {
             };
         }
 
-        // Number of frames that fit
-        let num_frames = (analysis_duration / time_step).floor() as usize + 1;
-
-        // Center the frames: x1 = xmin + (duration - (n-1)*dx) / 2
+        // t1 = x1 + 0.5 * (physicalDuration - dx - (numberOfFrames - 1) * dt)
+        // This is Praat's exact formula from Sound_to_Formant.cpp
         let first_frame_time =
-            sound.start_time() + (duration - (num_frames - 1) as f64 * time_step) / 2.0;
+            x1_sound + 0.5 * (physical_duration - dx - (num_frames - 1) as f64 * time_step);
 
         let mut frames = Vec::with_capacity(num_frames);
 
         for frame_idx in 0..num_frames {
             let frame_time = first_frame_time + frame_idx as f64 * time_step;
-            // Convert time to sample index in the processed signal
-            let center_sample = ((frame_time - emphasized.start_time()) * sample_rate).round() as usize;
-            let center_sample = center_sample.min(samples.len().saturating_sub(1));
 
-            // Extract windowed frame
-            let start_sample = center_sample.saturating_sub(half_window);
-            let end_sample = (center_sample + half_window).min(samples.len());
+            // Sample extraction - exactly as Praat does it (Sound_to_Formant.cpp)
+            // leftSample = floor((t - x1) / dx)
+            // rightSample = leftSample + 1
+            // startSample = rightSample - halfnsamp_window
+            // endSample = leftSample + halfnsamp_window
+            let left_sample = ((frame_time - x1_sound) / dx).floor() as isize;
+            let right_sample = left_sample + 1;
+            let start_sample_raw = right_sample - halfnsamp_window as isize;
+            let end_sample_raw = left_sample + halfnsamp_window as isize;
 
-            let mut windowed = Vec::with_capacity(window_samples);
+            // Clamp to valid range
+            let start_sample = start_sample_raw.max(0) as usize;
+            let end_sample = (end_sample_raw as usize).min(samples.len().saturating_sub(1));
+            let actual_frame_length = if end_sample >= start_sample {
+                end_sample - start_sample + 1
+            } else {
+                0
+            };
+
+            // Extract windowed frame - apply Gaussian window to samples
+            let mut windowed = Vec::with_capacity(actual_frame_length);
             let mut energy = 0.0;
 
-            for (i, sample_idx) in (start_sample..end_sample).enumerate() {
+            for i in 0..actual_frame_length {
+                let sample_idx = start_sample + i;
                 let w = if i < window.len() { window[i] } else { 0.0 };
                 let s = samples[sample_idx] * w;
                 windowed.push(s);
                 energy += s * s;
-            }
-
-            // Pad if necessary
-            while windowed.len() < window_samples {
-                windowed.push(0.0);
             }
 
             // Add tiny dither to prevent exactly zero samples.

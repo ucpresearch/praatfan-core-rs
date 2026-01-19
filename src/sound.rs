@@ -566,7 +566,7 @@ impl Sound {
             };
         }
 
-        // For downsampling, apply FFT-based anti-aliasing filter first (like Praat)
+        // For downsampling, apply FFT-based anti-aliasing filter first
         let filtered_samples = if ratio < 1.0 {
             self.fft_lowpass_filter(ratio)
         } else {
@@ -639,60 +639,41 @@ impl Sound {
     }
 }
 
-/// Sinc interpolation matching Praat's NUM_interpolate_sinc
-/// Based on Praat's sinc interpolation with Hann (raised cosine) window
-fn sinc_interpolate(samples: &[f64], index: f64, max_depth: usize) -> f64 {
+/// Sinc interpolation matching Praat's NUMinterpolate_sinc exactly
+/// From Praat's dwsys/NUM2.cpp
+fn sinc_interpolate(samples: &[f64], x: f64, max_depth: usize) -> f64 {
     let n = samples.len();
     if n == 0 {
         return 0.0;
     }
 
-    // Get the integer and fractional parts
-    let midleft = index.floor() as isize;
-    let fraction = index - midleft as f64;
-
-    // Handle exact integer index
-    if fraction < 1e-10 {
-        if midleft >= 0 && (midleft as usize) < n {
-            return samples[midleft as usize];
-        }
-        return 0.0;
-    }
-    if fraction > 1.0 - 1e-10 {
-        let idx = midleft + 1;
-        if idx >= 0 && (idx as usize) < n {
-            return samples[idx as usize];
-        }
-        return 0.0;
-    }
-
-    // Praat's sinc interpolation formula
-    let mut result = 0.0;
+    // Praat: ix = floor(x), then iterate from ix - maxDepth to ix + maxDepth
+    let ix = x.floor() as isize;
     let max_depth = max_depth as isize;
 
-    for i in -max_depth..=max_depth {
-        let sample_idx = midleft + 1 + i;
-        if sample_idx < 0 || sample_idx >= n as isize {
+    let mut result = 0.0;
+
+    for i in (ix - max_depth)..=(ix + max_depth) {
+        // Skip samples outside the valid range
+        if i < 0 || i >= n as isize {
             continue;
         }
 
         // Distance from the interpolation point
-        let d = fraction + i as f64;
+        let d = x - i as f64;
 
-        // Sinc function
-        let sinc = if d.abs() < 1e-12 {
+        // Sinc function: sin(π*d) / (π*d), or 1.0 when d == 0
+        let sinc = if d == 0.0 {
             1.0
         } else {
             let pid = std::f64::consts::PI * d;
             pid.sin() / pid
         };
 
-        // Raised cosine (Hann) window
-        // window_phase goes from 0 to 1 across the window
-        let window_phase = (0.5 + 0.5 * d / (max_depth as f64 + 1.0)).clamp(0.0, 1.0);
-        let window = 0.5 - 0.5 * (2.0 * std::f64::consts::PI * window_phase).cos();
+        // Praat's window: 0.5 + 0.5 * cos(π * d / (maxDepth + 0.5))
+        let window = 0.5 + 0.5 * (std::f64::consts::PI * d / (max_depth as f64 + 0.5)).cos();
 
-        result += samples[sample_idx as usize] * sinc * window;
+        result += samples[i as usize] * sinc * window;
     }
 
     result

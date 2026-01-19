@@ -364,10 +364,9 @@ fn test_formant_comparison() {
         };
 
         let sound = load_sound(name, "wav").expect("Failed to load sound");
-        // Use 0.0 for time_step (automatic) to match Praat's behavior
-        // Praat's automatic time step is window_length / 4
+        // Use the same time_step as the ground truth for accurate comparison
         let formant = sound.to_formant_burg(
-            0.0, // automatic time step like Praat
+            gt.formant.time_step,
             gt.formant.max_num_formants,
             gt.formant.max_formant_hz,
             gt.formant.window_length,
