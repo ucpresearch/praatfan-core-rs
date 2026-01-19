@@ -1,0 +1,16 @@
+# Build artifacts
+target
+target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Session state
+CLAUDE.md
+
+# Temporary files
+*.tmp
