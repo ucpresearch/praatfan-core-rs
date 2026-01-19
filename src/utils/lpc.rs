@@ -182,6 +182,9 @@ pub fn lpc_to_formants(coefficients: &[f64], sample_rate: f64) -> Vec<FormantCan
     // Find roots using eigenvalue method (companion matrix)
     let mut roots = find_polynomial_roots_eigen(&poly_coeffs);
 
+    // Polish roots using Newton-Raphson (matches Praat's Roots_Polynomial_polish)
+    polish_roots(&poly_coeffs, &mut roots);
+
     // Fix roots into unit circle (Praat's Roots_fixIntoUnitCircle)
     // Praat: roots[i] = 1.0 / conj(roots[i]) = roots[i] / |roots[i]|^2
     // This keeps the sign of the imaginary part (important for formant extraction)
@@ -231,12 +234,163 @@ pub fn lpc_to_formants(coefficients: &[f64], sample_rate: f64) -> Vec<FormantCan
     formants
 }
 
+/// Evaluate polynomial and its derivative at a complex point using Horner's method
+///
+/// This matches Praat's Polynomial_evaluateWithDerivative_z from Roots.cpp
+fn evaluate_polynomial_with_derivative(
+    coefficients: &[f64],
+    z: Complex<f64>,
+) -> (Complex<f64>, Complex<f64>) {
+    let n = coefficients.len();
+    if n == 0 {
+        return (Complex::new(0.0, 0.0), Complex::new(0.0, 0.0));
+    }
+
+    // coefficients[0] is constant term, coefficients[n-1] is leading coefficient
+    // Horner's method: p(z) = c[n-1]*z^(n-1) + ... + c[1]*z + c[0]
+    //                       = ((...((c[n-1])*z + c[n-2])*z + ...)*z + c[1])*z + c[0]
+    let x = z.re;
+    let y = z.im;
+
+    // Start with leading coefficient
+    let mut pr = coefficients[n - 1];
+    let mut pi = 0.0;
+    let mut dpr = 0.0;
+    let mut dpi = 0.0;
+
+    for i in (0..n - 1).rev() {
+        // Update derivative: dp = dp * z + p
+        let tr = dpr;
+        dpr = dpr * x - dpi * y + pr;
+        dpi = tr * y + dpi * x + pi;
+
+        // Update value: p = p * z + c[i]
+        let tr = pr;
+        pr = pr * x - pi * y + coefficients[i];
+        pi = tr * y + pi * x;
+    }
+
+    (Complex::new(pr, pi), Complex::new(dpr, dpi))
+}
+
+/// Polish a complex root using Newton-Raphson iteration
+///
+/// This matches Praat's Polynomial_polish_complexroot_nr from Roots.cpp
+fn polish_complex_root(coefficients: &[f64], root: &mut Complex<f64>, max_iter: usize) {
+    let eps = 1e-15; // Machine epsilon approximation
+    let mut best = *root;
+    let mut min_residual = f64::MAX;
+
+    for _ in 0..max_iter {
+        let (p, dp) = evaluate_polynomial_with_derivative(coefficients, *root);
+        let residual = p.norm();
+
+        // Stop if residual is increasing or not improving
+        if residual >= min_residual || (min_residual - residual).abs() < eps {
+            *root = best;
+            return;
+        }
+
+        min_residual = residual;
+        best = *root;
+
+        // Stop if derivative is zero (can't continue)
+        if dp.norm() == 0.0 {
+            return;
+        }
+
+        // Newton-Raphson step: root = root - p(root) / p'(root)
+        *root = *root - p / dp;
+    }
+}
+
+/// Polish a real root using Newton-Raphson iteration
+///
+/// This matches Praat's Polynomial_polish_realroot from Roots.cpp
+fn polish_real_root(coefficients: &[f64], root: &mut f64, max_iter: usize) {
+    let eps = 1e-15;
+    let mut best = *root;
+    let mut min_residual = f64::MAX;
+
+    for _ in 0..max_iter {
+        // Evaluate polynomial and derivative at real root
+        let n = coefficients.len();
+        if n == 0 {
+            return;
+        }
+
+        let mut p = coefficients[n - 1];
+        let mut dp = 0.0;
+
+        for i in (0..n - 1).rev() {
+            dp = dp * (*root) + p;
+            p = p * (*root) + coefficients[i];
+        }
+
+        let residual = p.abs();
+
+        if residual >= min_residual || (min_residual - residual).abs() < eps {
+            *root = best;
+            return;
+        }
+
+        min_residual = residual;
+        best = *root;
+
+        if dp.abs() == 0.0 {
+            return;
+        }
+
+        *root = *root - p / dp;
+    }
+}
+
+/// Polish all roots using Newton-Raphson iteration
+///
+/// This matches Praat's Roots_Polynomial_polish from Roots.cpp
+/// Complex roots come in conjugate pairs, so we only need to polish
+/// one of each pair and mirror the result.
+fn polish_roots(coefficients: &[f64], roots: &mut [Complex<f64>]) {
+    const MAX_ITER: usize = 80;
+
+    let mut i = 0;
+    while i < roots.len() {
+        let im = roots[i].im;
+        let re = roots[i].re;
+
+        if im.abs() > 1e-15 {
+            // Complex root - polish it
+            polish_complex_root(coefficients, &mut roots[i], MAX_ITER);
+
+            // Check if next root is conjugate pair
+            if i + 1 < roots.len() {
+                let next_im = roots[i + 1].im;
+                let next_re = roots[i + 1].re;
+                if (next_im + im).abs() < 1e-10 && (next_re - re).abs() < 1e-10 {
+                    // Mirror the polished result to conjugate
+                    roots[i + 1] = roots[i].conj();
+                    i += 1;
+                }
+            }
+        } else {
+            // Real root
+            let mut real_root = roots[i].re;
+            polish_real_root(coefficients, &mut real_root, MAX_ITER);
+            roots[i] = Complex::new(real_root, 0.0);
+        }
+
+        i += 1;
+    }
+}
+
 /// Find polynomial roots using the companion matrix eigenvalue method
 ///
 /// This matches Praat's Polynomial_to_Roots which uses LAPACK's dhseqr
-/// (QR algorithm on Hessenberg matrix). We use a similar approach with
-/// the companion matrix.
+/// (QR algorithm on Hessenberg matrix). We use nalgebra's eigenvalue
+/// solver which is more robust and WASM-compatible.
 fn find_polynomial_roots_eigen(coefficients: &[f64]) -> Vec<Complex<f64>> {
+    use nalgebra::DMatrix;
+
     let n = coefficients.len() - 1; // Degree of polynomial
 
     if n == 0 {
@@ -279,22 +433,44 @@ fn find_polynomial_roots_eigen(coefficients: &[f64]) -> Vec<Complex<f64>> {
     }
 
     // Build companion matrix for polynomial c0 + c1*z + ... + c(n-1)*z^(n-1) + z^n
-    // The companion matrix is:
-    // [ 0  0  0 ... -c0   ]
-    // [ 1  0  0 ... -c1   ]
-    // [ 0  1  0 ... -c2   ]
-    // [ ...              ]
-    // [ 0  0  0  1  -c(n-1)]
-    let mut companion = vec![vec![0.0; n]; n];
+    // Praat uses the form from Polynomial_to_Roots in Roots.cpp:
+    // uh_CM [1] [n] = -c[1]/c[n+1]
+    // uh_CM [irow] [irow-1] = 1.0; uh_CM [irow] [n] = -c[irow]/c[n+1]
+    //
+    // In column-major (as Praat uses with colStride=n):
+    // [  0   0  ...  0  -c0   ]
+    // [  1   0  ...  0  -c1   ]
+    // [  0   1  ...  0  -c2   ]
+    // ...
+    // [  0   0  ...  1  -c(n-1)]
+    let mut companion = DMatrix::<f64>::zeros(n, n);
+
+    // Praat's companion matrix form (coefficients in last column)
     for i in 1..n {
-        companion[i][i - 1] = 1.0;
+        companion[(i, i - 1)] = 1.0;
     }
     for i in 0..n {
-        companion[i][n - 1] = -normalized[i];
+        companion[(i, n - 1)] = -normalized[i];
     }
 
-    // Find eigenvalues using QR iteration
-    qr_eigenvalues(&companion)
+    // Find eigenvalues using nalgebra's implementation
+    match companion.complex_eigenvalues().try_into() {
+        Ok(eigenvalues) => {
+            let eigvals: nalgebra::OVector<nalgebra::Complex<f64>, nalgebra::Dyn> = eigenvalues;
+            eigvals.iter().map(|c| Complex::new(c.re, c.im)).collect()
+        }
+        Err(_) => {
+            // Fallback to our QR implementation if nalgebra fails
+            let mut comp_vec = vec![vec![0.0; n]; n];
+            for i in 0..n - 1 {
+                comp_vec[i][i + 1] = 1.0;
+            }
+            for i in 0..n {
+                comp_vec[n - 1][i] = -normalized[i];
+            }
+            qr_eigenvalues(&comp_vec)
+        }
+    }
 }
 
 /// QR iteration to find eigenvalues of a matrix

@@ -225,17 +225,13 @@ impl Formant {
                 // Valid formants must have:
                 // - Frequency in range [50, max_formant_hz]
                 // - Positive bandwidth (pole inside unit circle)
-                // - Bandwidth less than max_formant_hz (Praat's criterion)
-                // - Bandwidth shouldn't be excessively large relative to frequency
-                //   (a formant with bandwidth >> frequency is poorly defined)
+                // Note: Praat does NOT filter by bandwidth, so we don't either
                 let mut valid_formants: Vec<FormantCandidate> = candidates
                     .into_iter()
                     .filter(|f| {
                         f.frequency > 50.0
                             && f.frequency < max_formant_hz
                             && f.bandwidth > 0.0
-                            && f.bandwidth < max_formant_hz
-                            && f.bandwidth < f.frequency * 2.0 // Bandwidth < 2x frequency
                     })
                     .collect();
 
