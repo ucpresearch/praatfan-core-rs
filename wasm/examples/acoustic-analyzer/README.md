@@ -1,11 +1,11 @@
 # Acoustic Analyzer - Browser Example
 
-A browser-based acoustic analysis tool demonstrating praat-core-wasm.
+A browser-based acoustic analysis tool demonstrating praatfan-core-wasm.
 
 ## Features
 
 - **Drag & drop** audio file upload (WAV, FLAC, MP3, OGG)
-- **Real-time analysis** using praat-core-wasm
+- **Real-time analysis** using praatfan-core-wasm
 - **Extracted features:**
   - Pitch (F0) in Hz
   - Intensity in dB
@@ -25,7 +25,15 @@ cd wasm
 wasm-pack build --target web
 ```
 
-2. Serve this directory with a local HTTP server:
+2. Copy (or symlink) the `pkg/` directory into this example directory:
+
+```bash
+cd wasm/examples/acoustic-analyzer
+ln -s ../../pkg pkg
+# Or copy: cp -r ../../pkg .
+```
+
+3. Serve this directory with a local HTTP server:
 
 ```bash
 # Using Python
@@ -35,13 +43,13 @@ python -m http.server 8000
 npx serve .
 ```
 
-3. Open http://localhost:8000/examples/acoustic-analyzer/ in your browser.
+4. Open http://localhost:8000 in your browser.
 
 ## How It Works
 
 The example:
 1. Uses the Web Audio API to decode uploaded audio files
-2. Creates a praat-core-wasm `Sound` object from the decoded samples
+2. Creates a praatfan-core-wasm `Sound` object from the decoded samples
 3. Computes pitch, intensity, formants, and harmonicity
 4. Displays results in an interactive table with summary statistics
 

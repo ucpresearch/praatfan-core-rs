@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare spectrogram analysis between Praat (parselmouth) and praat-core-rs.
+"""Compare spectrogram analysis between Praat (parselmouth) and praatfan-core-rs.
 
 Usage:
     python scripts/compare_spectrogram.py path/to/audio.wav [options]
@@ -66,7 +66,7 @@ def get_praat_spectrogram(audio_path: str, window_length: float, max_freq: float
 
 def get_rust_spectrogram(audio_path: str, window_length: float, max_freq: float,
                          time_step: float, freq_step: float) -> dict:
-    """Extract spectrogram using praat-core-rs."""
+    """Extract spectrogram using praatfan-core-rs."""
     project_root = Path(__file__).parent.parent
     rust_binary = project_root / "target" / "release" / "examples" / "spectrogram_json"
 
@@ -91,7 +91,7 @@ def get_rust_spectrogram(audio_path: str, window_length: float, max_freq: float,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare spectrogram analysis: Praat vs praat-core-rs")
+    parser = argparse.ArgumentParser(description="Compare spectrogram analysis: Praat vs praatfan-core-rs")
     parser.add_argument("audio_file", help="Path to audio file")
     parser.add_argument("--window-length", type=float, default=0.005, help="Window length (default: 0.005)")
     parser.add_argument("--max-freq", type=float, default=5000.0, help="Max frequency (default: 5000)")
@@ -118,7 +118,7 @@ def main():
     print(f"done ({ps['n_times']} times × {ps['n_freqs']} freqs)")
 
     # Get Rust spectrogram
-    print("Extracting spectrogram with praat-core-rs...", end=" ", flush=True)
+    print("Extracting spectrogram with praatfan-core-rs...", end=" ", flush=True)
     try:
         rust_data = get_rust_spectrogram(str(audio_path), args.window_length, args.max_freq,
                                           args.time_step, args.freq_step)

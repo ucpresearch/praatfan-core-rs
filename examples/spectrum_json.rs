@@ -2,7 +2,7 @@
 //!
 //! Usage: spectrum_json <audio_file>
 
-use praat_core::Sound;
+use praatfan_core::Sound;
 use serde::Serialize;
 use std::env;
 

@@ -1,9 +1,9 @@
 [package]
-name = "praat-core-wasm"
+name = "praatfan-core-wasm"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0"
-description = "WebAssembly bindings for praat-core-rs acoustic analysis library"
+description = "WebAssembly bindings for praatfan-core-rs acoustic analysis library"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -17,7 +17,7 @@ js-sys = "0.3"
 console_error_panic_hook = { version = "0.1", optional = true }
 
 # Core library without file I/O features
-praat-core-rs = { path = "..", default-features = false }
+praatfan-core-rs = { path = "..", default-features = false }
 
 # For serde support in WASM
 serde = { version = "1.0", features = ["derive"] }

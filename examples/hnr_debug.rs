@@ -1,4 +1,4 @@
-use praat_core::{Sound, Interpolation};
+use praatfan_core::{Sound, Interpolation};
 
 fn main() {
     let sound = Sound::from_file("tests/fixtures/one_two_three_four_five.wav").unwrap();

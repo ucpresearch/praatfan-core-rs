@@ -218,7 +218,7 @@ The `nalgebra` crate has pure-Rust eigenvalue decomposition that's WASM-compatib
 
 ### Formant Comparison Script
 
-**`scripts/compare_formants.py`** - Python script comparing Praat (parselmouth) vs praat-core-rs formant analysis.
+**`scripts/compare_formants.py`** - Python script comparing Praat (parselmouth) vs praatfan-core-rs formant analysis.
 
 ```bash
 source ~/local/scr/commonpip/bin/activate
@@ -253,7 +253,7 @@ cargo build --release --example formant_json
 | **MP3** | Partial | Works but decoder timing differences cause large formant errors |
 | **OGG** | Rust only | Praat/parselmouth doesn't support OGG natively |
 
-**MP3 Warning:** MP3 decoders handle encoder delay differently. Symphonia (used by praat-core-rs) and Praat's internal decoder may produce different sample counts and timing. For accurate comparison, use lossless formats (WAV, FLAC).
+**MP3 Warning:** MP3 decoders handle encoder delay differently. Symphonia (used by praatfan-core-rs) and Praat's internal decoder may produce different sample counts and timing. For accurate comparison, use lossless formats (WAV, FLAC).
 
 ### Stereo File Handling
 

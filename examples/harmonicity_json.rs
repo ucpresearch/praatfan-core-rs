@@ -3,7 +3,7 @@
 //! Usage: harmonicity_json <audio_file> <time_step> <min_pitch> <silence_threshold> <periods_per_window> [method]
 //! method: "ac" for autocorrelation, "cc" for cross-correlation (default: cc)
 
-use praat_core::{Sound, harmonicity_from_channels_ac, harmonicity_from_channels_cc};
+use praatfan_core::{Sound, harmonicity_from_channels_ac, harmonicity_from_channels_cc};
 use serde::Serialize;
 use std::env;
 

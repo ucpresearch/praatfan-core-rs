@@ -1,4 +1,4 @@
-use praat_core::{Sound, Interpolation};
+use praatfan_core::{Sound, Interpolation};
 
 fn main() {
     let sound = Sound::from_file("tests/fixtures/one_two_three_four_five.wav").unwrap();
@@ -40,9 +40,9 @@ fn main() {
     println!("{}", "-".repeat(90));
 
     for (frame, t, praat_f1, praat_f2, praat_f3) in praat_frame_times {
-        let f1 = formant.get_value_at_time(1, t, praat_core::FrequencyUnit::Hertz, Interpolation::Linear);
-        let f2 = formant.get_value_at_time(2, t, praat_core::FrequencyUnit::Hertz, Interpolation::Linear);
-        let f3 = formant.get_value_at_time(3, t, praat_core::FrequencyUnit::Hertz, Interpolation::Linear);
+        let f1 = formant.get_value_at_time(1, t, praatfan_core::FrequencyUnit::Hertz, Interpolation::Linear);
+        let f2 = formant.get_value_at_time(2, t, praatfan_core::FrequencyUnit::Hertz, Interpolation::Linear);
+        let f3 = formant.get_value_at_time(3, t, praatfan_core::FrequencyUnit::Hertz, Interpolation::Linear);
 
         let f1_str = f1.map_or("undef".to_string(), |v| format!("{:.0}", v));
         let f2_str = f2.map_or("undef".to_string(), |v| format!("{:.0}", v));

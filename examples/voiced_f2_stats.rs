@@ -1,4 +1,4 @@
-use praat_core::Sound;
+use praatfan_core::Sound;
 use std::fs::File;
 use std::io::BufReader;
 use serde::Deserialize;
@@ -54,7 +54,7 @@ fn main() {
         }
 
         let expected = gt.formant.f2.get(i).and_then(|v| *v);
-        let actual = formant.get_value_at_time(2, time, praat_core::FrequencyUnit::Hertz, praat_core::Interpolation::Linear);
+        let actual = formant.get_value_at_time(2, time, praatfan_core::FrequencyUnit::Hertz, praatfan_core::Interpolation::Linear);
 
         match (expected, actual) {
             (Some(e), Some(a)) if e > 0.0 && a.is_finite() => {

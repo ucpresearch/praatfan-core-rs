@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate ground truth values from parselmouth for testing praat-core-rs.
+Generate ground truth values from parselmouth for testing praatfan-core-rs.
 
 This script analyzes audio files using parselmouth (Python bindings for Praat)
 and outputs JSON files with the expected values for comparison testing.

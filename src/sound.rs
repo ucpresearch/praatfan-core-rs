@@ -45,7 +45,7 @@ impl Sound {
     ///
     /// # Example
     /// ```
-    /// use praat_core::Sound;
+    /// use praatfan_core::Sound;
     ///
     /// let samples = vec![0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5];
     /// let sound = Sound::from_samples(&samples, 44100.0);

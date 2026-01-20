@@ -1,4 +1,4 @@
-use praat_core::Sound;
+use praatfan_core::Sound;
 
 fn main() {
     let sound = Sound::from_file("tests/fixtures/one_two_three_four_five.wav").unwrap();
@@ -27,8 +27,8 @@ fn main() {
     for &t in &times {
         let f1 = formant.get_value_at_time(
             1, t,
-            praat_core::FrequencyUnit::Hertz,
-            praat_core::Interpolation::Linear
+            praatfan_core::FrequencyUnit::Hertz,
+            praatfan_core::Interpolation::Linear
         );
         match f1 {
             Some(f) if f.is_finite() => println!("  t={:.3}: F1={:.1}", t, f),

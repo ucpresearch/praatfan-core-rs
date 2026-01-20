@@ -2,7 +2,7 @@
 //!
 //! Usage: intensity_json <audio_file> <min_pitch> <time_step>
 
-use praat_core::{Interpolation, Sound};
+use praatfan_core::{Interpolation, Sound};
 use serde::Serialize;
 use std::env;
 

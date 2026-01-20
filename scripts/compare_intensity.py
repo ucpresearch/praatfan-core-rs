@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare intensity analysis between Praat (parselmouth) and praat-core-rs.
+"""Compare intensity analysis between Praat (parselmouth) and praatfan-core-rs.
 
 Usage:
     python scripts/compare_intensity.py path/to/audio.wav [--min-pitch 100] [--time-step 0.01]
@@ -46,7 +46,7 @@ def get_praat_intensity(audio_path: str, min_pitch: float, time_step: float,
 
 
 def get_rust_intensity(audio_path: str, min_pitch: float, time_step: float) -> dict:
-    """Extract intensity using praat-core-rs."""
+    """Extract intensity using praatfan-core-rs."""
     project_root = Path(__file__).parent.parent
     rust_binary = project_root / "target" / "release" / "examples" / "intensity_json"
 
@@ -125,7 +125,7 @@ def compare_intensity(praat_data: dict, rust_data: dict) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare intensity analysis: Praat vs praat-core-rs")
+    parser = argparse.ArgumentParser(description="Compare intensity analysis: Praat vs praatfan-core-rs")
     parser.add_argument("audio_file", help="Path to audio file")
     parser.add_argument("--min-pitch", type=float, default=100.0, help="Minimum pitch (default: 100)")
     parser.add_argument("--time-step", type=float, default=0.0, help="Time step (default: 0.0 = auto)")
@@ -147,7 +147,7 @@ def main():
     print(f"done ({len(praat_data['intensity']['times'])} frames)")
 
     # Get Rust intensity
-    print("Extracting intensity with praat-core-rs...", end=" ", flush=True)
+    print("Extracting intensity with praatfan-core-rs...", end=" ", flush=True)
     try:
         rust_data = get_rust_intensity(str(audio_path), args.min_pitch, args.time_step)
         print(f"done ({len(rust_data['intensity']['times'])} frames)")

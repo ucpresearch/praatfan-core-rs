@@ -1,9 +1,9 @@
-//! Integration tests comparing praat-core-rs against parselmouth ground truth
+//! Integration tests comparing praatfan-core-rs against parselmouth ground truth
 //!
 //! These tests load audio files in various formats and compare analysis results
 //! against pre-computed values from parselmouth (Praat).
 
-use praat_core::{
+use praatfan_core::{
     FrequencyUnit, Interpolation, PitchUnit, Sound, WindowShape,
 };
 use serde::Deserialize;

@@ -1,4 +1,4 @@
-# praat-core
+# praatfan-core
 
 Praat-compatible acoustic analysis in Python, powered by Rust.
 
@@ -7,7 +7,7 @@ This package provides exact reimplementations of Praat's acoustic analysis algor
 ## Installation
 
 ```bash
-pip install praat-core
+pip install praatfan-core
 ```
 
 ### Building from source
@@ -23,7 +23,7 @@ maturin develop --release
 ## Quick Start
 
 ```python
-import praat_core as pc
+import praatfan_core as pc
 
 # Load an audio file
 sound = pc.Sound.from_file("speech.wav")
@@ -181,11 +181,11 @@ harmonicity.min(), harmonicity.max(), harmonicity.mean()
 
 ## Comparison with parselmouth
 
-praat-core aims for bit-accurate compatibility with Praat/parselmouth:
+praatfan-core aims for bit-accurate compatibility with Praat/parselmouth:
 
 ```python
 import parselmouth
-import praat_core as pc
+import praatfan_core as pc
 import numpy as np
 
 sound_pm = parselmouth.Sound("speech.wav")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare formant analysis between Praat (parselmouth) and praat-core-rs.
+"""Compare formant analysis between Praat (parselmouth) and praatfan-core-rs.
 
 Usage:
     python scripts/compare_formants.py path/to/audio.wav [--time-step 0.01] [--max-formants 5] [--max-formant-hz 5500]
@@ -8,16 +8,16 @@ Supported formats:
     - WAV (all sample rates, bit depths, mono/stereo): Full support
     - FLAC: Full support
     - MP3: Works but may show timing differences due to different decoder padding
-    - OGG: Only supported by praat-core-rs (Praat doesn't support OGG natively)
+    - OGG: Only supported by praatfan-core-rs (Praat doesn't support OGG natively)
 
 Note on MP3 files:
-    MP3 decoders handle encoder delay differently. Symphonia (used by praat-core-rs)
+    MP3 decoders handle encoder delay differently. Symphonia (used by praatfan-core-rs)
     and Praat's internal decoder may produce slightly different sample counts and
     timing. For accurate comparison, use lossless formats (WAV, FLAC).
 
 Requirements:
     - parselmouth (pip install praat-parselmouth)
-    - praat-core-rs must be built (cargo build --release --example formant_json)
+    - praatfan-core-rs must be built (cargo build --release --example formant_json)
 """
 
 import argparse
@@ -83,7 +83,7 @@ def get_praat_formants(audio_path: str, time_step: float, max_formants: int,
 def get_rust_formants(audio_path: str, time_step: float, max_formants: int,
                       max_formant_hz: float, window_length: float = 0.025,
                       pre_emphasis: float = 50.0) -> dict:
-    """Extract formants using praat-core-rs."""
+    """Extract formants using praatfan-core-rs."""
     # Run the Rust example with JSON output
     project_root = Path(__file__).parent.parent
     rust_binary = project_root / "target" / "release" / "examples" / "formant_json"
@@ -156,7 +156,7 @@ def compare_formants(praat_data: dict, rust_data: dict, formant_num: int) -> dic
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare formant analysis: Praat vs praat-core-rs")
+    parser = argparse.ArgumentParser(description="Compare formant analysis: Praat vs praatfan-core-rs")
     parser.add_argument("audio_file", help="Path to audio file")
     parser.add_argument("--time-step", type=float, default=0.01, help="Time step (default: 0.01)")
     parser.add_argument("--max-formants", type=int, default=5, help="Max number of formants (default: 5)")
@@ -175,7 +175,7 @@ def main():
     # Warn about lossy format limitations
     ext = audio_path.suffix.lower()
     if ext == ".ogg":
-        print("Warning: OGG files are only supported by praat-core-rs, not Praat.", file=sys.stderr)
+        print("Warning: OGG files are only supported by praatfan-core-rs, not Praat.", file=sys.stderr)
         print("         Comparison will fail on the Praat side.", file=sys.stderr)
         print()
     elif ext == ".mp3":
@@ -198,7 +198,7 @@ def main():
           f"{praat_data['n_channels']} ch)")
 
     # Get Rust formants
-    print("Extracting formants with praat-core-rs...", end=" ", flush=True)
+    print("Extracting formants with praatfan-core-rs...", end=" ", flush=True)
     try:
         rust_data = get_rust_formants(
             str(audio_path), args.time_step, args.max_formants,

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Acoustic Analyzer - praat-core-wasm</title>
+    <title>Acoustic Analyzer - praatfan-core-wasm</title>
     <style>
         * {
             box-sizing: border-box;
@@ -174,7 +174,7 @@
 </head>
 <body>
     <h1>Acoustic Analyzer</h1>
-    <p class="subtitle">Browser-based acoustic analysis using <a href="https://github.com/praat-core-rs">praat-core-wasm</a></p>
+    <p class="subtitle">Browser-based acoustic analysis using <a href="https://github.com/praatfan-core-rs">praatfan-core-wasm</a></p>
 
     <div class="drop-zone" id="dropZone">
         <p>Drop an audio file here or click to select</p>
@@ -225,7 +225,7 @@
     </div>
 
     <script type="module">
-        import init, { Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum } from '../../pkg/praat_core_wasm.js';
+        import init, { Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum } from './pkg/praatfan_core_wasm.js';
 
         let wasmReady = false;
         let analysisData = null;
@@ -311,6 +311,11 @@
                 showStatus('Computing harmonicity...');
                 const harmonicity = sound.to_harmonicity_cc(timeStep, pitchFloor, 0.1, 1.0);
 
+                showStatus('Computing spectrum (CoG)...');
+                const spectrum = sound.to_spectrum(true);
+                const globalCog = spectrum.get_center_of_gravity(2.0);
+                spectrum.free();
+
                 showStatus('Extracting values...');
 
                 // Build results array
@@ -363,6 +368,7 @@
                     duration: duration,
                     sampleRate: sampleRate,
                     params: { timeStep, pitchFloor, pitchCeiling, maxFormant },
+                    globalCog: globalCog,
                     frames: results
                 };
 
@@ -431,6 +437,11 @@
                 <div class="stat-card">
                     <h3>Mean F2</h3>
                     <span class="value">${meanF2 ? meanF2.toFixed(0) : '-'}</span>
+                    <span class="unit">Hz</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Center of Gravity</h3>
+                    <span class="value">${data.globalCog ? data.globalCog.toFixed(0) : '-'}</span>
                     <span class="unit">Hz</span>
                 </div>
             `;

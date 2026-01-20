@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Acoustic Feature Extraction using praat-core
+Acoustic Feature Extraction using praatfan-core
 
 This example demonstrates how to extract comprehensive acoustic features
-from audio files using praat-core, matching the functionality of
+from audio files using praatfan-core, matching the functionality of
 parselmouth/Praat. It's designed as a drop-in replacement for the
 acoustic extraction in the ozen project.
 
@@ -33,8 +33,8 @@ from typing import Optional
 
 import numpy as np
 
-# Import praat_core - the Rust-based Praat reimplementation
-from praat_core import Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum
+# Import praatfan_core - the Rust-based Praat reimplementation
+from praatfan_core import Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum
 
 
 @dataclass
@@ -105,7 +105,7 @@ def extract_features(
     Extract acoustic features from an audio file.
 
     This function provides the same features as ozen's acoustic.py but uses
-    praat-core instead of parselmouth.
+    praatfan-core instead of parselmouth.
 
     Args:
         audio_path: Path to audio file (WAV, FLAC, MP3, OGG)
@@ -241,7 +241,7 @@ def extract_features_fast(
     Fast feature extraction using bulk array methods.
 
     This version is much faster than extract_features() because it uses
-    praat-core's bulk array methods instead of querying each time point.
+    praatfan-core's bulk array methods instead of querying each time point.
     However, it doesn't compute per-frame spectral moments.
 
     Args:
@@ -353,7 +353,7 @@ def save_csv(features: AcousticFeatures, output_path: str | Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Extract acoustic features from audio files using praat-core'
+        description='Extract acoustic features from audio files using praatfan-core'
     )
     parser.add_argument('audio', help='Path to audio file')
     parser.add_argument('--output', '-o', help='Output file path (CSV or JSON)')

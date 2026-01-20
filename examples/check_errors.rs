@@ -1,4 +1,4 @@
-use praat_core::{Sound, FrequencyUnit, Interpolation};
+use praatfan_core::{Sound, FrequencyUnit, Interpolation};
 use std::fs::File;
 use std::io::BufReader;
 use serde::Deserialize;
@@ -27,7 +27,7 @@ struct FormantStats {
 }
 
 fn check_formant(praat_values: &[Option<f64>], times: &[f64],
-                 formant: &praat_core::Formant, formant_num: usize, verbose: bool) -> Option<FormantStats> {
+                 formant: &praatfan_core::Formant, formant_num: usize, verbose: bool) -> Option<FormantStats> {
     let mut errors: Vec<(f64, f64, f64, f64)> = Vec::new(); // (error, time, expected, actual)
     for (i, &t) in times.iter().enumerate() {
         if let (Some(e), Some(a)) = (praat_values[i],

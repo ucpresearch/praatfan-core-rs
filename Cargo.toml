@@ -1,10 +1,10 @@
 [package]
-name = "praat-core-rs"
+name = "praatfan-core-rs"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0"
 description = "Rust reimplementation of Praat's core acoustic analysis algorithms"
-repository = "https://github.com/your-username/praat-core-rs"
+repository = "https://github.com/your-username/praatfan-core-rs"
 keywords = ["audio", "speech", "acoustics", "praat", "signal-processing"]
 categories = ["multimedia::audio", "science"]
 
@@ -30,7 +30,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [lib]
-name = "praat_core"
+name = "praatfan_core"
 path = "src/lib.rs"
 
 [profile.release]

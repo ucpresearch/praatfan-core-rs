@@ -2,7 +2,7 @@
 //!
 //! Usage: pitch_json <audio_file> <time_step> <pitch_floor> <pitch_ceiling>
 
-use praat_core::{Sound, pitch_from_channels};
+use praatfan_core::{Sound, pitch_from_channels};
 use serde::Serialize;
 use std::env;
 

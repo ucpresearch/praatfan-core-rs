@@ -1,4 +1,4 @@
-use praat_core::Sound;
+use praatfan_core::Sound;
 use std::f64::consts::PI;
 
 fn main() {

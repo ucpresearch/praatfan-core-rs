@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare harmonicity analysis between Praat (parselmouth) and praat-core-rs.
+"""Compare harmonicity analysis between Praat (parselmouth) and praatfan-core-rs.
 
 Usage:
     python scripts/compare_harmonicity.py path/to/audio.wav [options]
@@ -65,7 +65,7 @@ def get_praat_harmonicity(audio_path: str, time_step: float, min_pitch: float,
 def get_rust_harmonicity(audio_path: str, time_step: float, min_pitch: float,
                          silence_threshold: float, periods_per_window: float,
                          method: str = "cc") -> dict:
-    """Extract harmonicity using praat-core-rs."""
+    """Extract harmonicity using praatfan-core-rs."""
     project_root = Path(__file__).parent.parent
     rust_binary = project_root / "target" / "release" / "examples" / "harmonicity_json"
 
@@ -90,7 +90,7 @@ def get_rust_harmonicity(audio_path: str, time_step: float, min_pitch: float,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare harmonicity analysis: Praat vs praat-core-rs")
+    parser = argparse.ArgumentParser(description="Compare harmonicity analysis: Praat vs praatfan-core-rs")
     parser.add_argument("audio_file", help="Path to audio file")
     parser.add_argument("--time-step", type=float, default=0.01, help="Time step (default: 0.01)")
     parser.add_argument("--min-pitch", type=float, default=75.0, help="Min pitch (default: 75)")
@@ -124,7 +124,7 @@ def main():
     print(f"done ({ph['n_frames']} frames)")
 
     # Get Rust harmonicity
-    print(f"Extracting harmonicity with praat-core-rs ({args.method})...", end=" ", flush=True)
+    print(f"Extracting harmonicity with praatfan-core-rs ({args.method})...", end=" ", flush=True)
     try:
         rust_data = get_rust_harmonicity(str(audio_path), args.time_step, args.min_pitch,
                                          args.silence_threshold, args.periods_per_window,

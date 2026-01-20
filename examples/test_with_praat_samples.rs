@@ -1,4 +1,4 @@
-use praat_core::utils::lpc::{lpc_burg, lpc_to_formants};
+use praatfan_core::utils::lpc::{lpc_burg, lpc_to_formants};
 use std::fs::File;
 use std::io::BufReader;
 use serde::Deserialize;

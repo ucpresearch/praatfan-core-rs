@@ -1,13 +1,13 @@
-//! WebAssembly bindings for praat-core-rs
+//! WebAssembly bindings for praatfan-core-rs
 //!
-//! This module provides JavaScript-friendly bindings for the praat-core-rs
+//! This module provides JavaScript-friendly bindings for the praatfan-core-rs
 //! acoustic analysis library using wasm-bindgen.
 
 use wasm_bindgen::prelude::*;
 use js_sys::Float64Array;
 
-// Re-export from praat-core-rs
-use praat_core::{
+// Re-export from praatfan-core-rs
+use praatfan_core::{
     FrequencyUnit, Interpolation, PitchUnit, WindowShape,
 };
 
@@ -21,7 +21,7 @@ pub fn main() {
 /// Sound type for audio data - WASM wrapper
 #[wasm_bindgen]
 pub struct Sound {
-    inner: praat_core::Sound,
+    inner: praatfan_core::Sound,
 }
 
 #[wasm_bindgen]
@@ -34,7 +34,7 @@ impl Sound {
     pub fn new(samples: &Float64Array, sample_rate: f64) -> Sound {
         let samples: Vec<f64> = samples.to_vec();
         Sound {
-            inner: praat_core::Sound::from_samples_owned(samples, sample_rate),
+            inner: praatfan_core::Sound::from_samples_owned(samples, sample_rate),
         }
     }
 
@@ -110,7 +110,7 @@ impl Sound {
     /// @param pitch_ceiling - Maximum pitch (Hz), typically 600
     pub fn to_pitch(&self, time_step: f64, pitch_floor: f64, pitch_ceiling: f64) -> Pitch {
         Pitch {
-            inner: praat_core::Pitch::from_sound(&self.inner, time_step, pitch_floor, pitch_ceiling),
+            inner: praatfan_core::Pitch::from_sound(&self.inner, time_step, pitch_floor, pitch_ceiling),
         }
     }
 
@@ -130,7 +130,7 @@ impl Sound {
         pre_emphasis_from: f64,
     ) -> Formant {
         Formant {
-            inner: praat_core::Formant::from_sound_burg(
+            inner: praatfan_core::Formant::from_sound_burg(
                 &self.inner,
                 time_step,
                 max_num_formants,
@@ -147,7 +147,7 @@ impl Sound {
     /// @param time_step - Time between frames (0.0 for automatic)
     pub fn to_intensity(&self, min_pitch: f64, time_step: f64) -> Intensity {
         Intensity {
-            inner: praat_core::Intensity::from_sound(&self.inner, min_pitch, time_step, true),
+            inner: praatfan_core::Intensity::from_sound(&self.inner, min_pitch, time_step, true),
         }
     }
 
@@ -156,7 +156,7 @@ impl Sound {
     /// @param fast - If true, use power-of-2 FFT size
     pub fn to_spectrum(&self, fast: bool) -> Spectrum {
         Spectrum {
-            inner: praat_core::Spectrum::from_sound(&self.inner, fast),
+            inner: praatfan_core::Spectrum::from_sound(&self.inner, fast),
         }
     }
 
@@ -177,7 +177,7 @@ impl Sound {
     ) -> Result<Spectrogram, JsError> {
         let ws = parse_window_shape(window_shape)?;
         Ok(Spectrogram {
-            inner: praat_core::Spectrogram::from_sound(
+            inner: praatfan_core::Spectrogram::from_sound(
                 &self.inner,
                 effective_analysis_width,
                 max_frequency,
@@ -197,7 +197,7 @@ impl Sound {
         periods_per_window: f64,
     ) -> Harmonicity {
         Harmonicity {
-            inner: praat_core::Harmonicity::from_sound_ac(
+            inner: praatfan_core::Harmonicity::from_sound_ac(
                 &self.inner,
                 time_step,
                 min_pitch,
@@ -216,7 +216,7 @@ impl Sound {
         periods_per_window: f64,
     ) -> Harmonicity {
         Harmonicity {
-            inner: praat_core::Harmonicity::from_sound_cc(
+            inner: praatfan_core::Harmonicity::from_sound_cc(
                 &self.inner,
                 time_step,
                 min_pitch,
@@ -235,14 +235,14 @@ impl Sound {
         phase: f64,
     ) -> Sound {
         Sound {
-            inner: praat_core::Sound::create_tone(frequency, duration, sample_rate, amplitude, phase),
+            inner: praatfan_core::Sound::create_tone(frequency, duration, sample_rate, amplitude, phase),
         }
     }
 
     /// Create silence
     pub fn create_silence(duration: f64, sample_rate: f64) -> Sound {
         Sound {
-            inner: praat_core::Sound::create_silence(duration, sample_rate),
+            inner: praatfan_core::Sound::create_silence(duration, sample_rate),
         }
     }
 }
@@ -250,7 +250,7 @@ impl Sound {
 /// Pitch contour - WASM wrapper
 #[wasm_bindgen]
 pub struct Pitch {
-    inner: praat_core::Pitch,
+    inner: praatfan_core::Pitch,
 }
 
 #[wasm_bindgen]
@@ -331,7 +331,7 @@ impl Pitch {
 /// Formant contour - WASM wrapper
 #[wasm_bindgen]
 pub struct Formant {
-    inner: praat_core::Formant,
+    inner: praatfan_core::Formant,
 }
 
 #[wasm_bindgen]
@@ -426,7 +426,7 @@ impl Formant {
 /// Intensity contour - WASM wrapper
 #[wasm_bindgen]
 pub struct Intensity {
-    inner: praat_core::Intensity,
+    inner: praatfan_core::Intensity,
 }
 
 #[wasm_bindgen]
@@ -481,7 +481,7 @@ impl Intensity {
 /// Spectrum - WASM wrapper
 #[wasm_bindgen]
 pub struct Spectrum {
-    inner: praat_core::Spectrum,
+    inner: praatfan_core::Spectrum,
 }
 
 #[wasm_bindgen]
@@ -535,7 +535,7 @@ impl Spectrum {
 /// Spectrogram - WASM wrapper
 #[wasm_bindgen]
 pub struct Spectrogram {
-    inner: praat_core::Spectrogram,
+    inner: praatfan_core::Spectrogram,
 }
 
 #[wasm_bindgen]
@@ -601,7 +601,7 @@ impl Spectrogram {
 /// Harmonicity (HNR) - WASM wrapper
 #[wasm_bindgen]
 pub struct Harmonicity {
-    inner: praat_core::Harmonicity,
+    inner: praatfan_core::Harmonicity,
 }
 
 #[wasm_bindgen]

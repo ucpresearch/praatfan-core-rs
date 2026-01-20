@@ -1,8 +1,8 @@
 """
-Parselmouth-compatible API for praat-core.
+Parselmouth-compatible API for praatfan-core.
 
 This module provides a drop-in replacement for parselmouth, allowing existing
-code to work with praat-core with minimal changes.
+code to work with praatfan-core with minimal changes.
 
 Supported functionality:
     - Sound loading and creation
@@ -15,8 +15,8 @@ Supported functionality:
     - Value queries (Get value at time, Get bandwidth at time, etc.)
 
 Usage:
-    from praat_core.compat import parselmouth
-    from praat_core.compat.parselmouth import call
+    from praatfan_core.compat import parselmouth
+    from praatfan_core.compat.parselmouth import call
 
     snd = parselmouth.Sound("audio.wav")
     pitch = call(snd, "To Pitch", 0.01, 75.0, 600.0)
@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any, Optional
 import numpy as np
 
-from praat_core import (
+from praatfan_core import (
     Sound as _Sound,
     Pitch as _Pitch,
     Formant as _Formant,
@@ -171,7 +171,7 @@ def call(obj: Any, method: str, *args) -> Any:
     Call a Praat method on an object.
 
     This function emulates parselmouth's call() function, translating
-    Praat scripting commands to praat-core method calls.
+    Praat scripting commands to praatfan-core method calls.
 
     Args:
         obj: The object to call the method on (Sound, Pitch, Formant, etc.)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare spectrum analysis between Praat (parselmouth) and praat-core-rs.
+"""Compare spectrum analysis between Praat (parselmouth) and praatfan-core-rs.
 
 Usage:
     python scripts/compare_spectrum.py path/to/audio.wav
@@ -54,7 +54,7 @@ def get_praat_spectrum(audio_path: str) -> dict:
 
 
 def get_rust_spectrum(audio_path: str) -> dict:
-    """Extract spectrum using praat-core-rs."""
+    """Extract spectrum using praatfan-core-rs."""
     project_root = Path(__file__).parent.parent
     rust_binary = project_root / "target" / "release" / "examples" / "spectrum_json"
 
@@ -98,7 +98,7 @@ def compare_value(name: str, praat_val, rust_val, tolerance_pct: float = 1.0) ->
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare spectrum analysis: Praat vs praat-core-rs")
+    parser = argparse.ArgumentParser(description="Compare spectrum analysis: Praat vs praatfan-core-rs")
     parser.add_argument("audio_file", help="Path to audio file")
     args = parser.parse_args()
 
@@ -116,7 +116,7 @@ def main():
     print("done")
 
     # Get Rust spectrum
-    print("Extracting spectrum with praat-core-rs...", end=" ", flush=True)
+    print("Extracting spectrum with praatfan-core-rs...", end=" ", flush=True)
     try:
         rust_data = get_rust_spectrum(str(audio_path))
         print("done")

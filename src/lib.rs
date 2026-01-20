@@ -1,4 +1,4 @@
-//! praat-core-rs: Rust reimplementation of Praat's core acoustic analysis algorithms
+//! praatfan-core-rs: Rust reimplementation of Praat's core acoustic analysis algorithms
 //!
 //! This library provides bit-accurate implementations of Praat's acoustic analysis
 //! functions, designed to produce identical output to Praat/parselmouth.
@@ -38,7 +38,7 @@ pub use spectrogram::{Spectrogram, spectrogram_from_channels};
 
 use thiserror::Error;
 
-/// Errors that can occur in praat-core operations
+/// Errors that can occur in praatfan-core operations
 #[derive(Error, Debug)]
 pub enum PraatError {
     #[error("IO error: {0}")]

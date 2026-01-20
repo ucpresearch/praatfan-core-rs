@@ -1,4 +1,4 @@
-use praat_core::praat_formant_window;
+use praatfan_core::praat_formant_window;
 
 fn main() {
     let window = praat_formant_window(275);

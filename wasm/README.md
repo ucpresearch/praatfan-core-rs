@@ -1,6 +1,6 @@
-# praat-core-wasm
+# praatfan-core-wasm
 
-WebAssembly bindings for praat-core-rs, enabling acoustic analysis in the browser.
+WebAssembly bindings for praatfan-core-rs, enabling acoustic analysis in the browser.
 
 ## Building
 
@@ -24,7 +24,7 @@ wasm-pack build --target bundler
 
 ```html
 <script type="module">
-import init, { Sound, Pitch, Formant } from './pkg/praat_core_wasm.js';
+import init, { Sound, Pitch, Formant } from './pkg/praatfan_core_wasm.js';
 
 async function main() {
   await init();
@@ -83,7 +83,7 @@ main();
 ### With npm/webpack
 
 ```javascript
-import init, { Sound } from 'praat-core-wasm';
+import init, { Sound } from 'praatfan-core-wasm';
 
 async function analyze(audioBuffer) {
   await init();

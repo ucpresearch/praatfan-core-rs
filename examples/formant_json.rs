@@ -2,7 +2,7 @@
 //!
 //! Usage: formant_json <audio_file> <time_step> <max_formants> <max_formant_hz> <window_length> <pre_emphasis>
 
-use praat_core::{FrequencyUnit, Interpolation, Sound};
+use praatfan_core::{FrequencyUnit, Interpolation, Sound};
 use serde::Serialize;
 use std::env;
 

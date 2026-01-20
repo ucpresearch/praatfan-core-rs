@@ -504,7 +504,7 @@ impl Sound {
 ///
 /// # Example
 /// ```no_run
-/// use praat_core::{Sound, spectrogram_from_channels, WindowShape};
+/// use praatfan_core::{Sound, spectrogram_from_channels, WindowShape};
 ///
 /// // Load stereo file keeping channels separate
 /// let channels = Sound::from_file_channels("stereo.wav").unwrap();

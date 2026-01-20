@@ -4,7 +4,7 @@
 //!
 //! Handles multi-channel audio with Praat-compatible power averaging.
 
-use praat_core::{Sound, WindowShape, spectrogram_from_channels};
+use praatfan_core::{Sound, WindowShape, spectrogram_from_channels};
 use serde::Serialize;
 use std::env;
 

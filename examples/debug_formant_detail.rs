@@ -1,6 +1,6 @@
-use praat_core::Sound;
-use praat_core::window::praat_formant_window;
-use praat_core::utils::lpc::{lpc_burg, lpc_to_formants};
+use praatfan_core::Sound;
+use praatfan_core::window::praat_formant_window;
+use praatfan_core::utils::lpc::{lpc_burg, lpc_to_formants};
 
 fn main() {
     let sound = Sound::from_file("tests/fixtures/one_two_three_four_five.wav").unwrap();

@@ -1,15 +1,15 @@
 """
-praat_core - Praat-compatible acoustic analysis in Python
+praatfan_core - Praat-compatible acoustic analysis in Python
 
 This package provides exact reimplementations of Praat's acoustic analysis
 algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
 
 Example usage:
 
-    import praat_core
+    import praatfan_core
 
     # Load an audio file
-    sound = praat_core.Sound.from_file("speech.wav")
+    sound = praatfan_core.Sound.from_file("speech.wav")
 
     # Compute pitch
     pitch = sound.to_pitch(0.01, 75.0, 600.0)
@@ -38,7 +38,7 @@ Example usage:
 """
 
 # Import the Rust extension module
-from .praat_core import (
+from .praatfan_core import (
     Sound,
     Pitch,
     Formant,

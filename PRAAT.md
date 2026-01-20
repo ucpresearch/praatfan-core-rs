@@ -37,7 +37,7 @@ Using the same pre-processed windowed samples at t=0.20 on `one_two_three_four_f
 
 3. **Sample indexing**: Different handling of sample boundaries or frame centering.
 
-### Implications for praat-core-rs
+### Implications for praatfan-core-rs
 
 To match Praat's `Sound → To Formant (burg)` output, we must replicate the internal implementation in `Sound_to_Formant.cpp`, NOT the standalone `To LPC (burg)` command.
 

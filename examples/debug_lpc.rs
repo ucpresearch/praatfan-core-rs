@@ -1,9 +1,9 @@
-use praat_core::Sound;
-use praat_core::window::praat_formant_window;
+use praatfan_core::Sound;
+use praatfan_core::window::praat_formant_window;
 
 // Re-export LPC functions for debugging
 mod lpc_debug {
-    pub use praat_core::utils::lpc::{lpc_burg, lpc_to_formants};
+    pub use praatfan_core::utils::lpc::{lpc_burg, lpc_to_formants};
 }
 
 fn main() {

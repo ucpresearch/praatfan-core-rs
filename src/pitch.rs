@@ -2169,7 +2169,7 @@ impl Sound {
 ///
 /// # Example
 /// ```ignore
-/// use praat_core::{Sound, pitch_from_channels};
+/// use praatfan_core::{Sound, pitch_from_channels};
 ///
 /// // Load stereo file keeping channels separate
 /// let channels = Sound::from_file_channels("stereo.wav").unwrap();

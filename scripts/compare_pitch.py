@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare pitch extraction between Praat/parselmouth and praat-core-rs."""
+"""Compare pitch extraction between Praat/parselmouth and praatfan-core-rs."""
 
 import json
 import subprocess

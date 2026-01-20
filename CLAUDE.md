@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**praat-core-rs** - A Rust reimplementation of Praat's core acoustic analysis algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
+**praatfan-core-rs** - A Rust reimplementation of Praat's core acoustic analysis algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
 
 **Goals:**
 - Exact output parity with Praat (within floating-point tolerance)
@@ -188,7 +188,7 @@ spectrogram.get_time_from_frame(frame: usize) -> f64
 ## Directory Structure
 
 ```
-praat-core-rs/
+praatfan-core-rs/
 ├── src/
 │   ├── lib.rs              # Public API
 │   ├── sound.rs            # Sound type and operations
@@ -219,9 +219,9 @@ praat-core-rs/
 ├── benches/                # Performance benchmarks
 ├── python/                 # PyO3 Python bindings
 │   ├── src/lib.rs          # Rust bindings code
-│   ├── python/praat_core/  # Python package
+│   ├── python/praatfan_core/  # Python package
 │   ├── examples/           # Python usage examples (M8)
-│   │   └── ozen_port/      # Port of ozen using praat-core
+│   │   └── ozen_port/      # Port of ozen using praatfan-core
 │   └── README.md           # Python API documentation
 ├── wasm/                   # WASM bindings
 │   ├── src/lib.rs          # Rust WASM bindings
@@ -397,12 +397,22 @@ cd python && maturin build --release
    - PyO3 Python bindings
    - WASM build
 
-8. **M8: Documentation & Examples**
+8. **M8: Documentation & Examples** (current)
+
+9. **M9: CI/CD & Distribution**
+   - GitHub Actions workflow for multi-platform Python wheel builds
+   - Use maturin-action to build wheels for: Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64
+   - Automatic PyPI upload on release
+   - npm publish workflow for WASM package
+
+---
+
+## M8: Documentation & Examples
    - Full documentation for Python bindings with working examples
    - Full documentation for WASM bindings with working examples
 
    **Python Examples:**
-   - Port of [ozen](../ozen) acoustic feature extraction using praat-core-python instead of parselmouth
+   - Port of [ozen](../ozen) acoustic feature extraction using praatfan-core-python instead of parselmouth
    - Should demonstrate all API functionality: Sound loading, Pitch, Formant, Intensity, Spectrum, Spectrogram, Harmonicity
    - Include example scripts showing typical acoustic analysis workflows
 
@@ -634,7 +644,7 @@ Position     Praat              Rust           Diff
 
 ### Formant Comparison Script
 
-**`scripts/compare_formants.py`** - Python script comparing Praat (parselmouth) vs praat-core-rs formant analysis.
+**`scripts/compare_formants.py`** - Python script comparing Praat (parselmouth) vs praatfan-core-rs formant analysis.
 
 **Usage:**
 ```bash
@@ -670,7 +680,7 @@ cargo build --release --example formant_json
 | **MP3** | Partial | Works but decoder timing differences cause large formant errors |
 | **OGG** | Rust only | Praat/parselmouth doesn't support OGG natively |
 
-**MP3 Warning:** MP3 decoders handle encoder delay differently. Symphonia (used by praat-core-rs) and Praat's internal decoder may produce different sample counts and timing. For accurate comparison, use lossless formats (WAV, FLAC).
+**MP3 Warning:** MP3 decoders handle encoder delay differently. Symphonia (used by praatfan-core-rs) and Praat's internal decoder may produce different sample counts and timing. For accurate comparison, use lossless formats (WAV, FLAC).
 
 ### Stereo File Handling
 

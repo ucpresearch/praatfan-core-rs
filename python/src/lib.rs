@@ -1,14 +1,14 @@
-//! Python bindings for praat-core-rs
+//! Python bindings for praatfan-core-rs
 //!
-//! This module provides Python bindings using PyO3 for the praat-core-rs
+//! This module provides Python bindings using PyO3 for the praatfan-core-rs
 //! acoustic analysis library.
 
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-// Import from praat-core-rs (use :: to disambiguate from pymodule name)
-use ::praat_core::{
+// Import from praatfan-core-rs (use :: to disambiguate from pymodule name)
+use ::praatfan_core::{
     FrequencyUnit, Interpolation, PitchUnit, WindowShape,
     Sound as RustSound,
     Pitch as RustPitch,
@@ -816,7 +816,7 @@ fn parse_frequency_unit(s: &str) -> PyResult<FrequencyUnit> {
     }
 }
 
-/// praat_core - Praat-compatible acoustic analysis in Python
+/// praatfan_core - Praat-compatible acoustic analysis in Python
 ///
 /// This module provides exact reimplementations of Praat's acoustic analysis
 /// algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
@@ -830,7 +830,7 @@ fn parse_frequency_unit(s: &str) -> PyResult<FrequencyUnit> {
 /// - Spectrogram: Time-frequency representation
 /// - Harmonicity: HNR (harmonics-to-noise ratio) contour
 #[pymodule]
-fn praat_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn praatfan_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySound>()?;
     m.add_class::<PyPitch>()?;
     m.add_class::<PyFormant>()?;

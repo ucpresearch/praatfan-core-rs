@@ -3,7 +3,7 @@ requires = ["maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "praat-core"
+name = "praatfan-core"
 version = "0.1.0"
 description = "Praat-compatible acoustic analysis in Python (Rust implementation)"
 readme = "README.md"
@@ -36,9 +36,9 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/your-username/praat-core-rs"
+Repository = "https://github.com/your-username/praatfan-core-rs"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "praat_core"
+module-name = "praatfan_core"

@@ -1,4 +1,4 @@
-use praat_core::Sound;
+use praatfan_core::Sound;
 
 fn main() {
     let sound = Sound::from_file("tests/fixtures/one_two_three_four_five.wav").unwrap();
@@ -14,13 +14,13 @@ fn main() {
     for t in [0.026, 0.030, 0.036, 0.040] {
         let f1 = formant.get_value_at_time(
             1, t,
-            praat_core::FrequencyUnit::Hertz,
-            praat_core::Interpolation::Linear
+            praatfan_core::FrequencyUnit::Hertz,
+            praatfan_core::Interpolation::Linear
         );
         let f2 = formant.get_value_at_time(
             2, t,
-            praat_core::FrequencyUnit::Hertz,
-            praat_core::Interpolation::Linear
+            praatfan_core::FrequencyUnit::Hertz,
+            praatfan_core::Interpolation::Linear
         );
         match (f1, f2) {
             (Some(f1), Some(f2)) if f1.is_finite() && f2.is_finite() =>
@@ -35,8 +35,8 @@ fn main() {
         let frame_time = formant.start_time() + i as f64 * formant.time_step();
         let f1 = formant.get_value_at_time(
             1, frame_time,
-            praat_core::FrequencyUnit::Hertz,
-            praat_core::Interpolation::Linear
+            praatfan_core::FrequencyUnit::Hertz,
+            praatfan_core::Interpolation::Linear
         );
         match f1 {
             Some(f) if f.is_finite() => println!("  Frame {} (t={:.4}): F1={:.1}", i+1, frame_time, f),
