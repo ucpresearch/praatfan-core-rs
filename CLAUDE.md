@@ -353,14 +353,28 @@ fn test_pitch_matches_praat() {
 cargo build --release
 ```
 
-### WASM (future)
+### WASM
 ```bash
-wasm-pack build --target web
+cd wasm && wasm-pack build --target web
 ```
 
-### Python Bindings (future)
+### Python Bindings
+
+Install to a virtual environment:
 ```bash
-cd python && maturin build --release
+# Activate your target venv
+source /path/to/your/venv/bin/activate
+
+# Install maturin if not already installed
+pip install maturin
+
+# Install in development mode (editable)
+cd python
+maturin develop --release
+
+# Or build a wheel and install
+maturin build --release
+pip install target/wheels/praatfan_core-*.whl
 ```
 
 ## Milestones

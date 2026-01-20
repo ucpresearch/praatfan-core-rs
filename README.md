@@ -1,0 +1,175 @@
+# praatfan-core-rs
+
+A Rust reimplementation of Praat's core acoustic analysis algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
+
+## Features
+
+- **Exact output parity** with Praat (within floating-point tolerance)
+- **Cross-platform**: Native Rust, Python bindings (PyO3), and WASM
+- **No GUI dependencies** - pure computational library
+
+### Supported Analysis Types
+
+| Type | Description |
+|------|-------------|
+| `Sound` | Audio samples with sample rate |
+| `Pitch` | F0 contour from autocorrelation analysis |
+| `Intensity` | RMS energy contour in dB |
+| `Formant` | LPC-based formant tracks (F1-F4 + bandwidths) |
+| `Harmonicity` | HNR (harmonics-to-noise ratio) contour |
+| `Spectrum` | Single-frame FFT magnitude spectrum |
+| `Spectrogram` | Time-frequency representation |
+
+## Installation
+
+> **Note:** PyPI and npm packages will be available once CI/CD is set up. For now, install from source.
+
+### Native Rust Library
+
+```bash
+cargo build --release
+```
+
+### Python Bindings
+
+```bash
+# Activate your target venv
+source /path/to/your/venv/bin/activate
+
+# Install maturin if not already installed
+pip install maturin
+
+# Install in development mode (editable)
+cd python
+maturin develop --release
+```
+
+Or build and install a wheel:
+
+```bash
+cd python
+maturin build --release
+pip install target/wheels/praatfan_core-*.whl
+```
+
+### WASM
+
+```bash
+cd wasm && wasm-pack build --target web
+```
+
+## Usage
+
+### Python
+
+```python
+from praatfan_core import Sound
+
+# Load audio file
+sound = Sound.from_file("audio.wav")
+
+# Pitch analysis
+pitch = sound.to_pitch(time_step=0.01, pitch_floor=75.0, pitch_ceiling=600.0)
+f0_values = pitch.values()
+times = pitch.times()
+
+# Formant analysis
+formant = sound.to_formant_burg(
+    time_step=0.01,
+    max_num_formants=5,
+    max_formant_hz=5500.0,
+    window_length=0.025,
+    pre_emphasis_from=50.0
+)
+f1_values = formant.formant_values(1)
+f2_values = formant.formant_values(2)
+
+# Intensity analysis
+intensity = sound.to_intensity(min_pitch=100.0, time_step=0.01)
+intensity_values = intensity.values()
+
+# Harmonicity (HNR)
+hnr = sound.to_harmonicity_ac(
+    time_step=0.01,
+    min_pitch=75.0,
+    silence_threshold=0.1,
+    periods_per_window=1.0
+)
+hnr_values = hnr.values()
+
+# Spectrum
+spectrum = sound.to_spectrum(fast=True)
+cog = spectrum.get_center_of_gravity(power=2.0)
+```
+
+### JavaScript (WASM)
+
+```javascript
+import init, { Sound } from './pkg/praatfan_core_wasm.js';
+
+await init();
+
+// Create Sound from samples
+const sound = new Sound(new Float64Array(samples), sampleRate);
+
+// Analysis
+const pitch = sound.to_pitch(0.01, 75.0, 600.0);
+const formant = sound.to_formant_burg(0.01, 5, 5500.0, 0.025, 50.0);
+const intensity = sound.to_intensity(100.0, 0.01);
+
+// Get values
+const f0Values = pitch.values();
+const f1Values = formant.formant_values(1);
+
+// Free memory when done
+pitch.free();
+formant.free();
+intensity.free();
+sound.free();
+```
+
+## Verification
+
+### Rust vs Praat (parselmouth)
+
+Compare native Rust output against parselmouth ground truth:
+
+```bash
+# Requires parselmouth: pip install praat-parselmouth
+cargo build --release --examples
+
+# Compare individual analysis types
+python scripts/compare_formants.py tests/fixtures/one_two_three_four_five.wav
+python scripts/compare_pitch.py tests/fixtures/one_two_three_four_five.wav
+python scripts/compare_intensity.py tests/fixtures/one_two_three_four_five.wav
+python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav --method ac
+python scripts/compare_spectrum.py tests/fixtures/one_two_three_four_five.wav
+python scripts/compare_spectrogram.py tests/fixtures/one_two_three_four_five.wav
+```
+
+### WASM vs Native Rust
+
+Verify WASM output matches native Rust binaries:
+
+```bash
+# Build WASM package for Node.js
+cd wasm && wasm-pack build --target nodejs && cd ..
+
+# Build Rust examples
+cargo build --release --examples
+
+# Run verification
+node scripts/verify_wasm.mjs [audio_file]
+```
+
+This compares Pitch, Formant, Intensity, Spectrum, and Harmonicity outputs between WASM and native Rust, expecting 100% match.
+
+## License
+
+GPL-3.0 - This project reimplements algorithms from [Praat](https://github.com/praat/praat), which is GPL-licensed.
+
+## References
+
+- [Praat source code](https://github.com/praat/praat)
+- [Praat manual](https://www.fon.hum.uva.nl/praat/manual/)
+- [parselmouth](https://parselmouth.readthedocs.io/)
