@@ -437,6 +437,21 @@ impl Sound {
         self.start_time + self.duration()
     }
 
+    /// Get the sample period (time step between samples)
+    ///
+    /// This is 1 / sample_rate. In Praat, this is called `dx`.
+    pub fn dx(&self) -> f64 {
+        1.0 / self.sample_rate
+    }
+
+    /// Get the time of the first sample center
+    ///
+    /// In Praat's terminology, this is x1 = xmin + 0.5 * dx.
+    /// Samples are considered to be centered at their time positions.
+    pub fn x1(&self) -> f64 {
+        self.start_time + 0.5 * self.dx()
+    }
+
     /// Get the time corresponding to a sample index
     ///
     /// Following Praat's convention, the time is at the center of the sample.

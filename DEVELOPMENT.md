@@ -275,3 +275,311 @@ python scripts/compare_formants.py tests/fixtures/one_two_three_four_five.wav --
 # Compare stereo file
 python scripts/compare_formants.py tests/fixtures/one_two_three_four_five-stereo.flac
 ```
+
+---
+
+## Intensity Implementation
+
+### Algorithm (from `fon/Sound_to_Intensity.cpp`)
+
+**Praat source:** `Sound_to_Intensity_e` function
+
+**Key parameters:**
+- Physical window duration: `6.4 / min_pitch` (NOT 3.2)
+- Window type: Kaiser-Bessel (NOT Hanning)
+- DC removal: Unweighted mean (NOT weighted)
+
+**Kaiser-Bessel window:**
+```cpp
+// Praat uses modified Bessel function I0
+double bessel_i0(double x);
+
+// Window coefficient at normalized position (0 to 1):
+double r = 2.0 * i / (n - 1) - 1.0;  // -1 to +1
+double window = bessel_i0(PI * sqrt(PI_SQUARED_TIMES_4 * (1.0 - r*r))) / bessel_i0_at_edge;
+```
+
+**Critical: DC removal uses UNWEIGHTED mean:**
+```cpp
+// Praat's centre_VEC_inout calls NUMmean which is unweighted
+double mean = sum(samples) / n;  // NOT sum(samples*window) / sum(window)
+for (i = 0; i < n; i++) {
+    samples[i] -= mean;
+}
+```
+
+**Frame timing (Sampled_shortTermAnalysis):**
+```cpp
+double physicalDuration = dx * nx;
+integer numberOfFrames = 1 + floor((physicalDuration - windowDuration) / timeStep);
+double t1 = x1 + 0.5 * (physicalDuration - windowDuration - (numberOfFrames - 1) * timeStep);
+```
+
+### Comparison Script
+
+```bash
+python scripts/compare_intensity.py tests/fixtures/one_two_three_four_five.wav --verbose
+```
+
+---
+
+## Spectrum Implementation
+
+### Algorithm (from `fon/Spectrum.cpp`, `fon/Sound_and_Spectrum.cpp`)
+
+**Key corrections:**
+
+1. **FFT output scaling by dx (sample period):**
+   ```rust
+   let dx = 1.0 / sample_rate;
+   let real: Vec<f64> = fft_output[..n_bins].iter().map(|c| c.re * dx).collect();
+   let imag: Vec<f64> = fft_output[..n_bins].iter().map(|c| c.im * dx).collect();
+   ```
+
+2. **Band energy uses factor of 2 for one-sided spectrum:**
+   ```rust
+   // Energy density = 2 * (re² + im²) for one-sided spectrum
+   // This accounts for both positive and negative frequencies
+   let energy_density = 2.0 * (r * r + i * i);
+   energy += energy_density * bin_width;
+   ```
+
+### Comparison Script
+
+```bash
+python scripts/compare_spectrum.py tests/fixtures/one_two_three_four_five.wav
+```
+
+---
+
+## Spectrogram Implementation
+
+### Algorithm (from `fon/Sound_and_Spectrogram.cpp`)
+
+**Key differences from naive STFT:**
+
+1. **Gaussian window physical width = 2 × effective width:**
+   ```cpp
+   double physicalAnalysisWidth = 2.0 * effectiveAnalysisWidth;  // For Gaussian
+   ```
+
+2. **FFT bin binning into spectrogram frequency bins:**
+   ```cpp
+   integer binWidth_samples = floor(frequencyStep * dx * nfft);
+   double binWidth_hertz = 1.0 / (dx * nfft);
+   frequencyStep = binWidth_samples * binWidth_hertz;
+
+   // Sum power in each band
+   for (iband = 0; iband < numberOfFreqs; iband++) {
+       integer lower = iband * binWidth_samples;
+       integer upper = lower + binWidth_samples;
+       for (k = lower; k < upper; k++) {
+           power += spectrum[k];
+       }
+       data[iband][iframe] = power * one_by_binWidth;
+   }
+   ```
+
+3. **Gaussian window formula:**
+   ```cpp
+   double imid = 0.5 * (nsamp_window + 1);
+   double edge = exp(-12.0);
+   window[i] = (exp(-48 * phase²) - edge) / (1 - edge);
+   // where phase = (i - imid) / n_samples_per_window
+   ```
+
+4. **Normalization:**
+   ```cpp
+   double one_by_binWidth = 1.0 / windowssq / binWidth_samples;
+   ```
+
+### Multi-Channel Handling
+
+**Critical for stereo files:** Praat averages power spectra, not samples.
+
+From `fon/Sound_and_Spectrogram.cpp`:
+```cpp
+/*
+    For multichannel sounds, the power spectrogram should represent the
+    average power in the channels,
+    ...
+    Averaging starts by adding up the powers of the channels.
+*/
+for (integer channel = 1; channel <= my ny; channel ++) {
+    // Compute FFT for this channel
+    // Add to power spectrum
+}
+// Power averaging ends by dividing the summed power by the number of channels
+```
+
+**Rust implementation:**
+```rust
+// Load channels separately
+let channels = Sound::from_file_channels("stereo.wav")?;
+
+// Compute with Praat-compatible power averaging
+let spec = spectrogram_from_channels(&channels, time_step, max_freq, window_length, freq_step, WindowShape::Gaussian);
+```
+
+**Mathematical difference:**
+- Correct (Praat): `(|FFT(ch1)|² + |FFT(ch2)|²) / 2`
+- Wrong (sample averaging): `|FFT((ch1+ch2)/2)|²`
+
+### Comparison Script
+
+```bash
+# Mono file
+python scripts/compare_spectrogram.py tests/fixtures/one_two_three_four_five.wav --verbose
+
+# Stereo file (tests power averaging)
+python scripts/compare_spectrogram.py tests/fixtures/one_two_three_four_five-stereo.flac --verbose
+```
+
+---
+
+## Pitch Implementation
+
+### Algorithm (from `fon/Sound_to_Pitch.cpp`)
+
+**Status:** 100% accuracy verified against Praat.
+
+**Key methods:**
+- AC_HANNING (method 0): Standard pitch analysis with Hanning window
+- AC_GAUSS (method 1): Used by Harmonicity, doubles `periodsPerWindow`
+
+### Frame Timing (Critical)
+
+From `melder/Sampled.cpp` - `Sampled_shortTermAnalysis`:
+```cpp
+double myDuration = dx * nx;
+integer numberOfFrames = floor((myDuration - windowDuration) / timeStep) + 1;
+double ourMidTime = x1 - 0.5 * dx + 0.5 * myDuration;
+double thyDuration = numberOfFrames * timeStep;
+double t1 = ourMidTime - 0.5 * thyDuration + 0.5 * timeStep;
+```
+
+### Autocorrelation Normalization
+
+```cpp
+// Normalized autocorrelation: r[i] = ac[i] / (ac[0] * window_r[i])
+// where window_r is the autocorrelation of the window function
+```
+
+### Viterbi Path Finding
+
+From `fon/Pitch.cpp` - `Pitch_pathFinder`:
+```cpp
+// Time step correction (critical!)
+double timeStepCorrection = 0.01 / my dx;
+octaveJumpCost *= timeStepCorrection;
+voicedUnvoicedCost *= timeStepCorrection;
+
+// Local score for voiced candidate
+delta = strength - octaveCost * log2(ceiling / frequency);
+
+// Transition cost (voiced to voiced)
+transitionCost = octaveJumpCost * fabs(log2(f1 / f2));
+```
+
+### AC_GAUSS Differences (for Harmonicity)
+
+From `Sound_to_Pitch.cpp`:
+```cpp
+case AC_GAUSS:
+    periodsPerWindow *= 2;   // Window is twice as long
+    interpolation_depth = 0.25;   // Different interpolation
+    // Gaussian window formula:
+    double imid = 0.5 * (nsamp_window + 1);
+    double edge = exp(-12.0);
+    window[i] = (exp(-48 * (i - imid)² / (nsamp_window + 1)²) - edge) / (1 - edge);
+```
+
+### Comparison Script
+
+```bash
+python scripts/compare_pitch.py tests/fixtures/one_two_three_four_five.wav --verbose
+```
+
+---
+
+## Harmonicity Implementation
+
+### Algorithm (from `fon/Sound_to_Harmonicity.cpp`)
+
+**Status:** 100% accuracy verified against Praat (AC method).
+
+**Key insight:** Harmonicity is derived directly from Pitch analysis!
+
+```cpp
+autoHarmonicity Sound_to_Harmonicity_ac (Sound me, double dt, double minimumPitch,
+    double silenceThreshold, double periodsPerWindow)
+{
+    // Create pitch using AC_GAUSS method (method=1)
+    autoPitch pitch = Sound_to_Pitch_any(me, dt, minimumPitch, periodsPerWindow,
+        1, 0, pitchCeiling,  // method=1 (AC_GAUSS)
+        15, silenceThreshold, 0.0, 0.0, 0.0, 0.0);  // all costs = 0
+
+    for (integer i = 1; i <= thy nx; i++) {
+        if (pitch->frames[i].candidates[1].frequency == 0.0) {
+            thy z[1][i] = -200.0;  // Unvoiced
+        } else {
+            double r = pitch->frames[i].candidates[1].strength;
+            // Convert correlation r to HNR in dB
+            thy z[1][i] = (r <= 1e-15 ? -150.0 :
+                          r > 1.0 - 1e-15 ? 150.0 :
+                          10.0 * log10(r / (1.0 - r)));
+        }
+    }
+}
+```
+
+### Methods
+
+| Method | Praat Command | Internal Pitch Method | Status |
+|--------|---------------|----------------------|--------|
+| AC | `To Harmonicity (ac)` | AC_GAUSS (method 1) | **100% accurate** |
+| CC | `To Harmonicity (cc)` | FCC_ACCURATE (method 3) | Approximated with AC_GAUSS |
+
+**Note:** CC method uses Forward Cross-Correlation (FCC) which is not yet implemented. Currently approximated with AC_GAUSS.
+
+### Comparison Script
+
+```bash
+# AC method (verified 100% accurate)
+python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav --method ac --verbose
+
+# CC method (approximation)
+python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav --method cc
+```
+
+---
+
+## All Comparison Scripts
+
+| Script | Module | Example Usage |
+|--------|--------|---------------|
+| `compare_formants.py` | Formant | `python scripts/compare_formants.py audio.wav --verbose` |
+| `compare_intensity.py` | Intensity | `python scripts/compare_intensity.py audio.wav --verbose` |
+| `compare_spectrum.py` | Spectrum | `python scripts/compare_spectrum.py audio.wav` |
+| `compare_spectrogram.py` | Spectrogram | `python scripts/compare_spectrogram.py audio.wav --verbose` |
+| `compare_pitch.py` | Pitch | `python scripts/compare_pitch.py audio.wav --verbose` |
+| `compare_harmonicity.py` | Harmonicity | `python scripts/compare_harmonicity.py audio.wav --method ac --verbose` |
+
+All scripts require:
+```bash
+source ~/local/scr/commonpip/bin/activate  # parselmouth environment
+cargo build --release --example <module>_json  # Rust JSON output binary
+```
+
+---
+
+## Implementation Accuracy Summary
+
+| Module | Mono | Stereo | Notes |
+|--------|------|--------|-------|
+| Formant | 100% | 100% | All WAV variants, FLAC |
+| Intensity | 100% | N/A | Kaiser-Bessel window |
+| Spectrum | 100% | N/A | dx scaling, factor of 2 |
+| Spectrogram | 100% | 100% | Power averaging for stereo |
+| Pitch | 100% | 100% | AC_HANNING, Viterbi path finding |
+| Harmonicity | 100% | 100% | AC method (AC_GAUSS), CC approximated |

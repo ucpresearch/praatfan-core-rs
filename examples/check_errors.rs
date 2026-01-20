@@ -40,7 +40,7 @@ fn check_formant(praat_values: &[Option<f64>], times: &[f64],
     }
     errors.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-    if verbose && errors.last().unwrap().0 > 10.0 {
+    if verbose && errors.last().unwrap().0 > 1.0 {
         println!("    Worst errors for F{}:", formant_num);
         for (err, t, expected, actual) in errors.iter().rev().take(5) {
             println!("      t={:.3}s: expected={:.1}, actual={:.1}, error={:.1} Hz",
@@ -74,6 +74,11 @@ fn test_file(audio_path: &str, ground_truth_path: &str, verbose: bool) {
             return;
         }
     };
+
+    if verbose {
+        println!("  Loaded: {} Hz, {} samples, {:.6}s", sound.sample_rate(), sound.num_samples(), sound.duration());
+    }
+
     let formant = sound.to_formant_burg(gt.formant.time_step, gt.formant.max_num_formants,
         gt.formant.max_formant_hz, gt.formant.window_length, 50.0);
 
@@ -103,7 +108,7 @@ fn main() {
         ("one_two_three_four_five_8bit", "tests/fixtures/one_two_three_four_five_8bit.wav", false),
         ("one_two_three_four_five_24bit", "tests/fixtures/one_two_three_four_five_24bit.wav", false),
         ("one_two_three_four_five_32float", "tests/fixtures/one_two_three_four_five_32float.wav", false),
-        ("one_two_three_four_five_stereo", "tests/fixtures/one_two_three_four_five_stereo.wav", false),
+        ("one_two_three_four_five_stereo", "tests/fixtures/one_two_three_four_five_stereo.wav", true),
         ("En-US-One", "tests/fixtures/En-US-One.wav", false),
     ];
 
