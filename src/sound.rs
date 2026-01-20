@@ -616,7 +616,7 @@ impl Sound {
         }
     }
 
-    /// Apply FFT-based low-pass filter for anti-aliasing (matches Praat's Sound_resample)
+    /// Apply FFT-based low-pass filter for anti-aliasing (matches Praat's Sound_resample exactly)
     ///
     /// Praat's algorithm from Sound.cpp:
     /// 1. Pad signal with zeros (antiTurnAround = 1000 on each side)
@@ -624,6 +624,10 @@ impl Sound {
     /// 3. Zero frequencies: data[floor(upfactor * nfft)..nfft] and data[2] (Nyquist)
     /// 4. Inverse FFT back to time domain
     /// 5. Scale by 1/nfft
+    ///
+    /// Praat's NUMrealft packed format (1-based):
+    ///   data[1] = DC, data[2] = Nyquist
+    ///   data[2k+1], data[2k+2] = Re, Im of frequency bin k (for k >= 1)
     fn fft_lowpass_filter(&self, upfactor: f64) -> Vec<f64> {
         use crate::utils::fft::Fft;
         use num_complex::Complex;
@@ -633,55 +637,89 @@ impl Sound {
         let anti_turn_around = 1000;
         let nfft = (n + 2 * anti_turn_around).next_power_of_two();
 
-        // Create padded signal with zeros and signal in the middle (like Praat)
-        // Praat does NOT use mirror padding for resampling - just zeros
+        // Create padded signal: zeros, then signal, then zeros
         let mut padded = vec![0.0; nfft];
-        // Place original signal in the middle (after antiTurnAround zeros)
         for i in 0..n {
             padded[anti_turn_around + i] = self.samples[i];
         }
-        // Rest is already zeros
 
-        // Forward FFT (complex output of size nfft)
+        // Forward FFT (complex output)
         let mut fft = Fft::new();
         let mut spectrum = fft.real_fft(&padded, nfft);
 
-        // Match Praat's filtering: zero from floor(upfactor * nfft) to nfft in packed format
-        // In Praat's packed format:
-        //   data[1] = DC, data[2] = Nyquist, data[3..nfft] = complex frequency pairs
-        //   Zeroing data[floor(upfactor*nfft)..nfft] zeros upper frequencies
+        // Praat zeros from index i_start = floor(upfactor * nfft) to nfft (1-based packed format)
+        // In packed format:
+        //   Index 1 = DC
+        //   Index 2 = Nyquist
+        //   Index 2k+1 = Re(bin k), Index 2k+2 = Im(bin k) for k >= 1
         //
-        // In our complex FFT format:
+        // Our complex spectrum:
         //   spectrum[0] = DC
-        //   spectrum[1..nfft/2-1] = positive frequencies
+        //   spectrum[k] = bin k (complex) for k = 1 to nfft/2-1
         //   spectrum[nfft/2] = Nyquist
-        //   spectrum[nfft/2+1..nfft-1] = negative frequencies
-        //
-        // Praat's cutoff index floor(upfactor * nfft) in packed format corresponds to
-        // approximately (floor(upfactor * nfft) - 1) / 2 in frequency bins
-        // Which simplifies to floor(upfactor * nfft / 2) bins to keep
+        //   spectrum[nfft-k] = conj(spectrum[k]) for k = 1 to nfft/2-1
 
-        // Calculate cutoff bin (keep bins 0 to cutoff_bin-1, zero cutoff_bin and above)
-        let cutoff_bin = (upfactor * nfft as f64 / 2.0).floor() as usize;
+        let i_start = (upfactor * nfft as f64).floor() as usize;
 
         // Zero Nyquist (Praat always zeros data[2])
         spectrum[nfft / 2] = Complex::new(0.0, 0.0);
 
-        // Zero positive frequencies from cutoff_bin to nfft/2-1
-        for i in cutoff_bin..(nfft / 2) {
-            spectrum[i] = Complex::new(0.0, 0.0);
+        if i_start <= 1 {
+            // Zero everything including DC
+            for i in 0..spectrum.len() {
+                spectrum[i] = Complex::new(0.0, 0.0);
+            }
+        } else if i_start == 2 {
+            // Zero all bins (DC stays, Nyquist already zeroed above)
+            for i in 1..(nfft / 2) {
+                spectrum[i] = Complex::new(0.0, 0.0);
+            }
+            for i in (nfft / 2 + 1)..nfft {
+                spectrum[i] = Complex::new(0.0, 0.0);
+            }
+        } else {
+            // i_start >= 3: zero from Praat index i_start to nfft
+            // For Praat index i (1-based):
+            //   i odd >= 3: Re part of bin (i-1)/2
+            //   i even >= 4: Im part of bin (i-2)/2 = (i/2) - 1
+
+            // Handle partial bin if i_start is even (only zero imag part of that bin)
+            if i_start % 2 == 0 && i_start >= 4 {
+                let partial_bin = (i_start / 2) - 1; // 0-based bin number
+                if partial_bin > 0 && partial_bin < nfft / 2 {
+                    // Zero only imaginary part of this bin
+                    spectrum[partial_bin] = Complex::new(spectrum[partial_bin].re, 0.0);
+                    // For conjugate symmetry, negative bin also loses its imaginary part
+                    let neg_bin = nfft - partial_bin;
+                    spectrum[neg_bin] = Complex::new(spectrum[neg_bin].re, 0.0);
+                }
+            }
+
+            // First fully zeroed bin
+            let first_full_bin = if i_start % 2 == 0 {
+                i_start / 2  // Next bin after the partial one
+            } else {
+                (i_start - 1) / 2  // This bin's real part starts at i_start
+            };
+
+            // Zero all bins from first_full_bin to nfft/2-1
+            for bin in first_full_bin..(nfft / 2) {
+                spectrum[bin] = Complex::new(0.0, 0.0);
+            }
+
+            // Zero corresponding negative frequency bins
+            for bin in first_full_bin..(nfft / 2) {
+                let neg_bin = nfft - bin;
+                if neg_bin < nfft {
+                    spectrum[neg_bin] = Complex::new(0.0, 0.0);
+                }
+            }
         }
 
-        // Zero corresponding negative frequencies (nfft-cutoff_bin+1 to nfft-1)
-        // But we need to keep symmetry. For a real signal, bin nfft-k is conjugate of bin k
-        for i in (nfft / 2 + 1)..(nfft - cutoff_bin + 1) {
-            spectrum[i] = Complex::new(0.0, 0.0);
-        }
-
-        // Inverse FFT (includes 1/nfft normalization)
+        // Inverse FFT
         let time_domain = fft.inverse_fft(&spectrum);
 
-        // Extract the original portion
+        // Extract the original portion from where we placed it
         let mut result = Vec::with_capacity(n);
         for i in 0..n {
             result.push(time_domain[anti_turn_around + i].re);
