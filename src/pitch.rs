@@ -1857,26 +1857,151 @@ fn compute_pitch_frame_fcc(
     }
 }
 
-/// Sinc interpolation (simplified version of NUM_interpolate_sinc)
-fn sinc_interpolate(r: &[f64], offset: usize, x: f64, _max_depth: i32) -> f64 {
+/// Sinc interpolation with raised cosine window (matches Praat's NUM_interpolate_sinc)
+///
+/// This interpolates between samples using a windowed sinc function, which is the
+/// theoretically optimal interpolation for band-limited signals.
+///
+/// Arguments:
+/// - `r`: the array of samples (with offset applied to indexing)
+/// - `offset`: offset to add to indices when accessing `r`
+/// - `x`: the (fractional) position to interpolate at
+/// - `max_depth`: maximum number of samples to use on each side of x
+fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64 {
     let midleft = x.floor() as isize;
     let midright = midleft + 1;
 
-    let idx_left = (offset as isize + midleft) as usize;
-    let idx_right = (offset as isize + midright) as usize;
+    // Convert to 1-based indexing like Praat (r[1..n] in Praat corresponds to r[0..n-1] here)
+    // The offset is the center of the symmetric autocorrelation array
+    let n = r.len();
 
-    if idx_left >= r.len() || idx_right >= r.len() {
-        return 0.0;
+    // Check bounds (in Praat's 1-based terms: 1 <= x <= y.size)
+    // Since we have offset, actual positions in r are: offset - max_depth to offset + max_depth
+    let idx_midleft = offset as isize + midleft;
+    let idx_midright = offset as isize + midright;
+
+    if idx_midleft < 0 || idx_midright >= n as isize {
+        // Out of bounds - return nearest valid value
+        if idx_midleft < 0 {
+            return r.get(0).copied().unwrap_or(0.0);
+        } else {
+            return r.get(n - 1).copied().unwrap_or(0.0);
+        }
     }
 
+    // If x is exactly an integer, return that sample
     if x == midleft as f64 {
-        return r[idx_left];
+        return r[idx_midleft as usize];
     }
 
-    // Linear interpolation as fallback for simplicity
-    // Full sinc would require more complex implementation
-    let frac = x - midleft as f64;
-    r[idx_left] * (1.0 - frac) + r[idx_right] * frac
+    // Determine actual depth based on available samples
+    let mut max_depth = max_depth as isize;
+    // Limit by samples available on left (midright - 1 from position 0)
+    max_depth = max_depth.min(idx_midright);
+    // Limit by samples available on right (n - midleft - 1)
+    max_depth = max_depth.min(n as isize - 1 - idx_midleft);
+
+    if max_depth <= 0 {
+        // Nearest neighbor
+        let nearest = x.round() as isize;
+        let idx_nearest = (offset as isize + nearest) as usize;
+        return r.get(idx_nearest).copied().unwrap_or(0.0);
+    }
+    if max_depth == 1 {
+        // Linear interpolation
+        let frac = x - midleft as f64;
+        return r[idx_midleft as usize] * (1.0 - frac) + r[idx_midright as usize] * frac;
+    }
+
+    // Full sinc interpolation with raised cosine window
+    let left = idx_midright - max_depth;  // leftmost sample index
+    let right = idx_midleft + max_depth;  // rightmost sample index
+
+    let mut result = 0.0;
+    let depth_float = max_depth as f64 + 0.5;  // Praat uses maxDepth + 0.5
+
+    // Left half: from midleft down to left
+    {
+        let window_phase_step = PI / depth_float;
+        let sin_window_phase_step = window_phase_step.sin();
+        let cos_window_phase_step = window_phase_step.cos();
+
+        // Initialize sinc phase
+        let left_phase_initial = PI * (x - midleft as f64);
+        let mut left_phase = left_phase_initial;
+        let mut half_sin_left_phase = 0.5 * left_phase_initial.sin();
+
+        // Initialize window phase
+        let window_phase_initial = left_phase_initial / depth_float;
+        let mut sin_window_phase = window_phase_initial.sin();
+        let mut cos_window_phase = window_phase_initial.cos();
+
+        let mut ix = idx_midleft;
+        while ix >= left {
+            // Compute sinc * window contribution
+            let sinc_times_window = if left_phase.abs() < 1e-10 {
+                // Avoid division by zero at phase = 0
+                0.5 * (1.0 + cos_window_phase)
+            } else {
+                half_sin_left_phase / left_phase * (1.0 + cos_window_phase)
+            };
+            result += r[ix as usize] * sinc_times_window;
+
+            // Update sinc phase (adding pi flips the sign of sin)
+            left_phase += PI;
+            half_sin_left_phase = -half_sin_left_phase;
+
+            // Update window phase using trig identities
+            let next_sin = cos_window_phase * sin_window_phase_step + sin_window_phase * cos_window_phase_step;
+            let next_cos = cos_window_phase * cos_window_phase_step - sin_window_phase * sin_window_phase_step;
+            sin_window_phase = next_sin;
+            cos_window_phase = next_cos;
+
+            ix -= 1;
+        }
+    }
+
+    // Right half: from midright up to right
+    {
+        let window_phase_step = PI / depth_float;
+        let sin_window_phase_step = window_phase_step.sin();
+        let cos_window_phase_step = window_phase_step.cos();
+
+        // Initialize sinc phase
+        let right_phase_initial = PI * (midright as f64 - x);
+        let mut right_phase = right_phase_initial;
+        let mut half_sin_right_phase = 0.5 * right_phase_initial.sin();
+
+        // Initialize window phase
+        let window_phase_initial = right_phase_initial / depth_float;
+        let mut sin_window_phase = window_phase_initial.sin();
+        let mut cos_window_phase = window_phase_initial.cos();
+
+        let mut ix = idx_midright;
+        while ix <= right {
+            // Compute sinc * window contribution
+            let sinc_times_window = if right_phase.abs() < 1e-10 {
+                0.5 * (1.0 + cos_window_phase)
+            } else {
+                half_sin_right_phase / right_phase * (1.0 + cos_window_phase)
+            };
+            result += r[ix as usize] * sinc_times_window;
+
+            // Update sinc phase
+            right_phase += PI;
+            half_sin_right_phase = -half_sin_right_phase;
+
+            // Update window phase
+            let next_sin = cos_window_phase * sin_window_phase_step + sin_window_phase * cos_window_phase_step;
+            let next_cos = cos_window_phase * cos_window_phase_step - sin_window_phase * sin_window_phase_step;
+            sin_window_phase = next_sin;
+            cos_window_phase = next_cos;
+
+            ix += 1;
+        }
+    }
+
+    result
 }
 
 /// Improve maximum using parabolic interpolation
