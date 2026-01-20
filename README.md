@@ -1,6 +1,7 @@
 # praatfan-core-rs
 
-A Rust reimplementation of Praat's core acoustic analysis algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
+A Rust reimplementation of Praat's core acoustic analysis algorithms, designed to produce bit-accurate output matching 
+Praat/parselmouth. One advantage of using Rust is that code can be webassembled and then used in a browser. 
 
 ## Features
 
@@ -24,7 +25,7 @@ A Rust reimplementation of Praat's core acoustic analysis algorithms, designed t
 
 ### Python (from GitHub Release)
 
-Download the appropriate wheel from the [releases page](https://github.com/yourusername/praatfan-core-rs/releases) and install:
+Download the appropriate wheel from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases) and install:
 
 ```bash
 pip install praatfan_core-0.1.0-cp39-cp39-manylinux_2_17_x86_64.whl
@@ -33,12 +34,12 @@ pip install praatfan_core-0.1.0-cp39-cp39-manylinux_2_17_x86_64.whl
 Or install directly from URL:
 
 ```bash
-pip install https://github.com/yourusername/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp39-cp39-manylinux_2_17_x86_64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp39-cp39-manylinux_2_17_x86_64.whl
 ```
 
 ### WASM (from GitHub Release)
 
-Download `praatfan-core-wasm.zip` from the [releases page](https://github.com/yourusername/praatfan-core-rs/releases), extract, and copy the `pkg/` directory to your web project.
+Download `praatfan-core-wasm.zip` from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases), extract, and copy the `pkg/` directory to your web project.
 
 ### Build from Source
 
@@ -191,3 +192,9 @@ GPL-3.0 - This project reimplements algorithms from [Praat](https://github.com/p
 - [Praat source code](https://github.com/praat/praat)
 - [Praat manual](https://www.fon.hum.uva.nl/praat/manual/)
 - [parselmouth](https://parselmouth.readthedocs.io/)
+
+
+## Authors
+
+- Uriel Cohen Priva designed, tested, and vibe-coded
+- Claude (Opus 4.5) by Anthropic imeplemented
