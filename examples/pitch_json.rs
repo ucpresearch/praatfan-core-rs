@@ -2,7 +2,7 @@
 //!
 //! Usage: pitch_json <audio_file> <time_step> <pitch_floor> <pitch_ceiling>
 
-use praat_core::Sound;
+use praat_core::{Sound, pitch_from_channels};
 use serde::Serialize;
 use std::env;
 
@@ -36,8 +36,9 @@ fn main() {
     let pitch_floor: f64 = args[3].parse().expect("Invalid pitch_floor");
     let pitch_ceiling: f64 = args[4].parse().expect("Invalid pitch_ceiling");
 
-    let sound = Sound::from_file(audio_path).expect("Failed to load audio file");
-    let pitch = sound.to_pitch(time_step, pitch_floor, pitch_ceiling);
+    // Load channels separately to support stereo (Praat sums autocorrelations)
+    let channels = Sound::from_file_channels(audio_path).expect("Failed to load audio file");
+    let pitch = pitch_from_channels(&channels, time_step, pitch_floor, pitch_ceiling);
 
     let mut frames = Vec::with_capacity(pitch.num_frames());
     for i in 0..pitch.num_frames() {

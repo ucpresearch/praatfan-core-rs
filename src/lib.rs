@@ -31,9 +31,9 @@ pub use window::{praat_formant_window, WindowShape};
 pub use interpolation::Interpolation;
 pub use intensity::Intensity;
 pub use spectrum::Spectrum;
-pub use pitch::{Pitch, PitchMethod};
+pub use pitch::{Pitch, PitchMethod, pitch_from_channels};
 pub use formant::Formant;
-pub use harmonicity::Harmonicity;
+pub use harmonicity::{Harmonicity, harmonicity_from_channels_ac, harmonicity_from_channels_cc};
 pub use spectrogram::{Spectrogram, spectrogram_from_channels};
 
 use thiserror::Error;

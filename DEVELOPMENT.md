@@ -538,18 +538,40 @@ autoHarmonicity Sound_to_Harmonicity_ac (Sound me, double dt, double minimumPitc
 | Method | Praat Command | Internal Pitch Method | Status |
 |--------|---------------|----------------------|--------|
 | AC | `To Harmonicity (ac)` | AC_GAUSS (method 1) | **100% accurate** |
-| CC | `To Harmonicity (cc)` | FCC_ACCURATE (method 3) | Approximated with AC_GAUSS |
+| CC | `To Harmonicity (cc)` | FCC_ACCURATE (method 3) | **95-100% accurate** |
 
-**Note:** CC method uses Forward Cross-Correlation (FCC) which is not yet implemented. Currently approximated with AC_GAUSS.
+### FCC (Forward Cross-Correlation) Implementation
+
+The CC method uses time-domain forward cross-correlation (FCC_ACCURATE), which differs from AC in several ways:
+
+**Key differences from AC:**
+1. **No window function** - Raw mean-subtracted samples are used
+2. **Time-domain correlation** - Direct O(n²) computation instead of FFT
+3. **Longer effective window** - Frame timing uses `1/pitch_floor + dt_window`
+4. **Different normalization** - `r[i] = product / sqrt(sumx² × sumy²)`
+
+**FCC correlation formula:**
+```cpp
+// For each lag i:
+product = 0;
+for (j = 0; j < nsamp_window; j++) {
+    x = samples[offset + j] - mean;
+    y = samples[offset + i + j] - mean;
+    product += x * y;
+}
+// Incremental sumy² update for efficiency
+sumy2 += y_new² - y_old²;
+r[i] = product / sqrt(sumx2 * sumy2);
+```
 
 ### Comparison Script
 
 ```bash
-# AC method (verified 100% accurate)
+# AC method (100% accurate)
 python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav --method ac --verbose
 
-# CC method (approximation)
-python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav --method cc
+# CC method (95% accurate)
+python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav --method cc --verbose
 ```
 
 ---
@@ -581,5 +603,26 @@ cargo build --release --example <module>_json  # Rust JSON output binary
 | Intensity | 100% | N/A | Kaiser-Bessel window |
 | Spectrum | 100% | N/A | dx scaling, factor of 2 |
 | Spectrogram | 100% | 100% | Power averaging for stereo |
-| Pitch | 100% | 100% | AC_HANNING, Viterbi path finding |
-| Harmonicity | 100% | 100% | AC method (AC_GAUSS), CC approximated |
+| Pitch | 100% | 99% | AC_HANNING, Viterbi path finding, AC summing for stereo |
+| Harmonicity (AC) | 100% | 100% | AC_GAUSS method, AC summing for stereo |
+| Harmonicity (CC) | 95% | 100% | FCC_ACCURATE (time-domain cross-correlation) |
+
+### Multi-Channel (Stereo) Handling
+
+Praat processes multi-channel audio by **summing autocorrelation contributions from each channel**, not by mixing to mono first. This is different from simple channel averaging.
+
+For stereo files:
+- **Correct (Praat):** `AC(ch1) + AC(ch2)` - sum autocorrelations
+- **Wrong:** `AC((ch1+ch2)/2)` - average samples then compute AC
+
+This implementation uses:
+- `pitch_from_channels()` - Pitch analysis with proper channel handling
+- `harmonicity_from_channels_ac()` / `harmonicity_from_channels_cc()` - HNR with channel handling
+- `spectrogram_from_channels()` - Power averaging (different algorithm)
+
+**Key functions in Praat source (`fon/Sound_to_Pitch.cpp`):**
+```cpp
+for (integer channel = 1; channel <= my ny; channel ++) {
+    ac [i] += frame [channel] [i] * frame [channel] [i] + ...  // Sum power spectrum
+}
+```

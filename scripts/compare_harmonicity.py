@@ -63,7 +63,8 @@ def get_praat_harmonicity(audio_path: str, time_step: float, min_pitch: float,
 
 
 def get_rust_harmonicity(audio_path: str, time_step: float, min_pitch: float,
-                         silence_threshold: float, periods_per_window: float) -> dict:
+                         silence_threshold: float, periods_per_window: float,
+                         method: str = "cc") -> dict:
     """Extract harmonicity using praat-core-rs."""
     project_root = Path(__file__).parent.parent
     rust_binary = project_root / "target" / "release" / "examples" / "harmonicity_json"
@@ -78,7 +79,7 @@ def get_rust_harmonicity(audio_path: str, time_step: float, min_pitch: float,
 
     result = subprocess.run(
         [str(rust_binary), audio_path, str(time_step), str(min_pitch),
-         str(silence_threshold), str(periods_per_window)],
+         str(silence_threshold), str(periods_per_window), method],
         capture_output=True, text=True
     )
 
@@ -123,10 +124,11 @@ def main():
     print(f"done ({ph['n_frames']} frames)")
 
     # Get Rust harmonicity
-    print("Extracting harmonicity with praat-core-rs...", end=" ", flush=True)
+    print(f"Extracting harmonicity with praat-core-rs ({args.method})...", end=" ", flush=True)
     try:
         rust_data = get_rust_harmonicity(str(audio_path), args.time_step, args.min_pitch,
-                                         args.silence_threshold, args.periods_per_window)
+                                         args.silence_threshold, args.periods_per_window,
+                                         method=args.method)
         # Convert Rust output format to match Praat format
         rh = {
             "n_frames": rust_data["n_frames"],

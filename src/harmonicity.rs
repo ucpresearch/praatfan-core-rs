@@ -60,6 +60,9 @@ impl Harmonicity {
     ///
     /// This matches Praat's "To Harmonicity (cc)..." command.
     ///
+    /// **Note:** This uses the FCC_ACCURATE method (forward cross-correlation)
+    /// which computes correlation in the time domain without windowing.
+    ///
     /// # Arguments
     /// * `sound` - Input audio signal
     /// * `time_step` - Time between analysis frames (0.0 for automatic)
@@ -73,12 +76,10 @@ impl Harmonicity {
         silence_threshold: f64,
         periods_per_window: f64,
     ) -> Self {
-        // Method 3 = FCC_ACCURATE
-        // Since we don't have FCC implemented yet, use AC_GAUSS as approximation
-        // TODO: Implement FCC method for exact CC match
+        // Method 3 = FCC_ACCURATE (Forward Cross-Correlation)
         Self::from_pitch_method(
             sound,
-            PitchMethod::AcGauss,
+            PitchMethod::FccAccurate,
             time_step,
             min_pitch,
             silence_threshold,
@@ -114,6 +115,79 @@ impl Harmonicity {
             0.0,                // voicedUnvoicedCost
             periods_per_window, // Pass through the user's setting
             method,             // AC_GAUSS for AC, FCC_ACCURATE for CC
+        );
+
+        // Convert pitch frames to HNR values
+        let mut values = Vec::with_capacity(pitch.num_frames());
+        for frame in pitch.frames() {
+            let hnr = Self::strength_to_hnr(frame);
+            values.push(hnr);
+        }
+
+        Self {
+            values,
+            start_time: pitch.start_time(),
+            time_step: pitch.time_step(),
+            min_pitch,
+        }
+    }
+
+    /// Compute harmonicity from multiple Sound channels
+    ///
+    /// This matches Praat's behavior for multi-channel audio: each channel's
+    /// autocorrelation is computed separately, then summed (not averaged).
+    ///
+    /// # Arguments
+    /// * `sounds` - Slice of Sound objects (one per channel)
+    /// * `method` - AC or CC method
+    /// * `time_step` - Time between analysis frames (0.0 for automatic)
+    /// * `min_pitch` - Minimum expected pitch (Hz)
+    /// * `silence_threshold` - Threshold for silence detection
+    /// * `periods_per_window` - Number of periods per analysis window
+    pub fn from_channels(
+        sounds: &[Sound],
+        method: PitchMethod,
+        time_step: f64,
+        min_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+    ) -> Self {
+        if sounds.is_empty() {
+            return Self {
+                values: Vec::new(),
+                start_time: 0.0,
+                time_step: if time_step > 0.0 { time_step } else { 0.01 },
+                min_pitch,
+            };
+        }
+
+        // For single channel, use the standard method
+        if sounds.len() == 1 {
+            return Self::from_pitch_method(
+                &sounds[0],
+                method,
+                time_step,
+                min_pitch,
+                silence_threshold,
+                periods_per_window,
+            );
+        }
+
+        // Multi-channel: use pitch from channels
+        let pitch_ceiling = 0.5 / sounds[0].dx();
+        let pitch = Pitch::from_channels_with_method(
+            sounds,
+            time_step,
+            min_pitch,
+            pitch_ceiling,
+            15,                 // maxnCandidates
+            silence_threshold,  // silenceThreshold
+            0.0,                // voicingThreshold
+            0.0,                // octaveCost
+            0.0,                // octaveJumpCost
+            0.0,                // voicedUnvoicedCost
+            periods_per_window,
+            method,
         );
 
         // Convert pitch frames to HNR values
@@ -329,6 +403,60 @@ impl Sound {
     ) -> Harmonicity {
         Harmonicity::from_sound_ac(self, time_step, min_pitch, silence_threshold, periods_per_window)
     }
+}
+
+/// Compute harmonicity from multiple channel sounds using AC method
+///
+/// This function matches Praat's behavior for multi-channel audio files.
+///
+/// # Arguments
+/// * `sounds` - Slice of Sound objects (one per channel)
+/// * `time_step` - Time between frames (0.0 for automatic)
+/// * `min_pitch` - Minimum expected pitch (Hz)
+/// * `silence_threshold` - Threshold for silence detection (typically 0.1)
+/// * `periods_per_window` - Periods per window (typically 3.0 for AC)
+pub fn harmonicity_from_channels_ac(
+    sounds: &[Sound],
+    time_step: f64,
+    min_pitch: f64,
+    silence_threshold: f64,
+    periods_per_window: f64,
+) -> Harmonicity {
+    Harmonicity::from_channels(
+        sounds,
+        PitchMethod::AcGauss,
+        time_step,
+        min_pitch,
+        silence_threshold,
+        periods_per_window,
+    )
+}
+
+/// Compute harmonicity from multiple channel sounds using CC method
+///
+/// This function matches Praat's behavior for multi-channel audio files.
+///
+/// # Arguments
+/// * `sounds` - Slice of Sound objects (one per channel)
+/// * `time_step` - Time between frames (0.0 for automatic)
+/// * `min_pitch` - Minimum expected pitch (Hz)
+/// * `silence_threshold` - Threshold for silence detection (typically 0.1)
+/// * `periods_per_window` - Periods per window (typically 1.0 for CC)
+pub fn harmonicity_from_channels_cc(
+    sounds: &[Sound],
+    time_step: f64,
+    min_pitch: f64,
+    silence_threshold: f64,
+    periods_per_window: f64,
+) -> Harmonicity {
+    Harmonicity::from_channels(
+        sounds,
+        PitchMethod::FccAccurate,
+        time_step,
+        min_pitch,
+        silence_threshold,
+        periods_per_window,
+    )
 }
 
 #[cfg(test)]

@@ -1,8 +1,9 @@
 //! Output harmonicity analysis as JSON for comparison with Praat.
 //!
-//! Usage: harmonicity_json <audio_file> <time_step> <min_pitch> <silence_threshold> <periods_per_window>
+//! Usage: harmonicity_json <audio_file> <time_step> <min_pitch> <silence_threshold> <periods_per_window> [method]
+//! method: "ac" for autocorrelation, "cc" for cross-correlation (default: cc)
 
-use praat_core::Sound;
+use praat_core::{Sound, harmonicity_from_channels_ac, harmonicity_from_channels_cc};
 use serde::Serialize;
 use std::env;
 
@@ -24,8 +25,9 @@ struct HarmonicityFrame {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 6 {
-        eprintln!("Usage: {} <audio_file> <time_step> <min_pitch> <silence_threshold> <periods_per_window>", args[0]);
+    if args.len() < 6 || args.len() > 7 {
+        eprintln!("Usage: {} <audio_file> <time_step> <min_pitch> <silence_threshold> <periods_per_window> [method]", args[0]);
+        eprintln!("       method: ac or cc (default: cc)");
         std::process::exit(1);
     }
 
@@ -34,9 +36,15 @@ fn main() {
     let min_pitch: f64 = args[3].parse().expect("Invalid min_pitch");
     let silence_threshold: f64 = args[4].parse().expect("Invalid silence_threshold");
     let periods_per_window: f64 = args[5].parse().expect("Invalid periods_per_window");
+    let method = if args.len() > 6 { &args[6] } else { "cc" };
 
-    let sound = Sound::from_file(audio_path).expect("Failed to load audio file");
-    let hnr = sound.to_harmonicity_cc(time_step, min_pitch, silence_threshold, periods_per_window);
+    // Load channels separately to support stereo (Praat sums autocorrelations)
+    let channels = Sound::from_file_channels(audio_path).expect("Failed to load audio file");
+    let hnr = if method == "ac" {
+        harmonicity_from_channels_ac(&channels, time_step, min_pitch, silence_threshold, periods_per_window)
+    } else {
+        harmonicity_from_channels_cc(&channels, time_step, min_pitch, silence_threshold, periods_per_window)
+    };
 
     let mut values = Vec::with_capacity(hnr.num_frames());
     for i in 0..hnr.num_frames() {

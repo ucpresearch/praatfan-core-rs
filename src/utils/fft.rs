@@ -147,6 +147,49 @@ impl Fft {
         let scale = 1.0 / autocorr[0];
         autocorr.iter().map(|&x| x * scale).collect()
     }
+
+    /// Compute autocorrelation from multiple channels, summing power spectra
+    ///
+    /// This matches Praat's behavior for multi-channel pitch analysis:
+    /// - Compute FFT for each channel
+    /// - Sum the power spectra across channels
+    /// - Inverse FFT to get combined autocorrelation
+    ///
+    /// # Arguments
+    /// * `inputs` - Slice of input signals (one per channel)
+    ///
+    /// # Returns
+    /// Autocorrelation values for lags 0 to n-1
+    pub fn autocorrelation_multichannel(&mut self, inputs: &[&[f64]]) -> Vec<f64> {
+        if inputs.is_empty() {
+            return Vec::new();
+        }
+
+        // Find the maximum length
+        let n = inputs.iter().map(|s| s.len()).max().unwrap_or(0);
+        if n == 0 {
+            return Vec::new();
+        }
+
+        // Zero-pad to at least 2n for linear (non-circular) autocorrelation
+        let fft_size = (2 * n).next_power_of_two();
+
+        // Sum power spectra from all channels
+        let mut total_power = vec![Complex::new(0.0, 0.0); fft_size];
+
+        for input in inputs {
+            let spectrum = self.real_fft(input, fft_size);
+            for (i, c) in spectrum.iter().enumerate() {
+                total_power[i] += Complex::new(c.norm_sqr(), 0.0);
+            }
+        }
+
+        // Inverse FFT to get autocorrelation
+        let autocorr = self.inverse_fft(&total_power);
+
+        // Return the first n values (real parts)
+        autocorr[..n].iter().map(|c| c.re).collect()
+    }
 }
 
 impl Default for Fft {
