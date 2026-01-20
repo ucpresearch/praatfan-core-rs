@@ -48,6 +48,9 @@ from .praat_core import (
     Harmonicity,
 )
 
+# Compatibility layer for parselmouth API
+from . import compat
+
 __all__ = [
     "Sound",
     "Pitch",
@@ -56,6 +59,7 @@ __all__ = [
     "Spectrum",
     "Spectrogram",
     "Harmonicity",
+    "compat",
 ]
 
 __version__ = "0.1.0"
