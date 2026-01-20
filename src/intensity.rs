@@ -3,11 +3,12 @@
 //! This module computes intensity contours from audio signals, representing
 //! the perceived loudness over time in decibels (dB).
 //!
-//! The algorithm computes RMS energy in overlapping windows and converts
-//! to dB relative to a reference pressure (air reference: 2×10⁻⁵ Pa).
+//! The algorithm matches Praat's `Sound -> To Intensity` exactly:
+//! - Uses Kaiser-Bessel window with modified Bessel I0
+//! - Physical window duration is 6.4 / min_pitch
+//! - Frame timing uses Sampled_shortTermAnalysis formula
 
 use crate::interpolation::Interpolation;
-use crate::window::WindowShape;
 use crate::Sound;
 
 /// Reference pressure for dB SPL calculation (2×10⁻⁵ Pa)
@@ -27,6 +28,26 @@ pub struct Intensity {
     min_pitch: f64,
 }
 
+/// Modified Bessel function I0 (first kind, order zero)
+/// Matches Praat's NUMbessel_i0_f from melder/NUMspecfunc.cpp
+fn bessel_i0(x: f64) -> f64 {
+    let x = x.abs();
+    if x < 3.75 {
+        // Formula 9.8.1 from Abramowitz & Stegun. Accuracy 1.6e-7.
+        let t = x / 3.75;
+        let t2 = t * t;
+        1.0 + t2 * (3.5156229 + t2 * (3.0899424 + t2 * (1.2067492
+            + t2 * (0.2659732 + t2 * (0.0360768 + t2 * 0.0045813)))))
+    } else {
+        // Formula 9.8.2 from Abramowitz & Stegun. Accuracy 1.9e-7.
+        let t = 3.75 / x;
+        (x.exp() / x.sqrt()) * (0.39894228 + t * (0.01328592
+            + t * (0.00225319 + t * (-0.00157565 + t * (0.00916281
+            + t * (-0.02057706 + t * (0.02635537 + t * (-0.01647633
+            + t * 0.00392377))))))))
+    }
+}
+
 impl Intensity {
     /// Create an Intensity from the given values and timing parameters
     pub fn new(values: Vec<f64>, start_time: f64, time_step: f64, min_pitch: f64) -> Self {
@@ -38,23 +59,21 @@ impl Intensity {
         }
     }
 
-    /// Compute intensity from a Sound
+    /// Compute intensity from a Sound (matches Praat exactly)
     ///
     /// # Arguments
     /// * `sound` - Input audio signal
     /// * `min_pitch` - Minimum expected fundamental frequency (Hz).
-    ///                 This determines the window length: period = 3.2 / min_pitch
+    ///                 This determines the window length.
     /// * `time_step` - Time between analysis frames (seconds).
-    ///                 If 0.0, uses min_pitch / 4 (Praat default).
-    /// * `subtract_mean` - If true, subtract the mean from each window before computing RMS
+    ///                 If 0.0, uses automatic default: 0.8 / min_pitch
+    /// * `subtract_mean` - If true, subtract the mean from each window (removes DC offset)
     ///
-    /// # Algorithm
-    /// For each frame:
-    /// 1. Extract a window centered at the frame time
-    /// 2. Apply a Hanning window
-    /// 3. Optionally subtract the mean (removes DC offset)
-    /// 4. Compute RMS energy
-    /// 5. Convert to dB: 10 * log10(rms² / reference²)
+    /// # Algorithm (from Praat's Sound_to_Intensity.cpp)
+    /// - logical_window_duration = 3.2 / min_pitch
+    /// - physical_window_duration = 2 * logical = 6.4 / min_pitch
+    /// - Window: Kaiser-Bessel using bessel_i0((2π² + 0.5) * sqrt(1 - x²))
+    /// - Energy: weighted mean of amplitude², weights = window (not window²)
     pub fn from_sound(
         sound: &Sound,
         min_pitch: f64,
@@ -62,114 +81,137 @@ impl Intensity {
         subtract_mean: bool,
     ) -> Self {
         // Validate parameters
-        let min_pitch = min_pitch.max(1.0); // Avoid division by zero
+        let min_pitch = min_pitch.max(1.0);
 
-        // Window duration: Praat uses 3.2 periods of the minimum pitch
-        // This ensures good frequency resolution for low frequencies
-        let window_duration = 3.2 / min_pitch;
+        // Praat uses these exact formulas:
+        // logicalWindowDuration = 3.2 / pitchFloor
+        // physicalWindowDuration = 2.0 * logicalWindowDuration = 6.4 / pitchFloor
+        let logical_window_duration = 3.2 / min_pitch;
+        let physical_window_duration = 2.0 * logical_window_duration;
 
-        // Time step: default is 0.8 periods of minimum pitch (gives ~4x overlap)
+        // Time step: default is logicalWindowDuration / 4 = 0.8 / min_pitch
         let time_step = if time_step <= 0.0 {
-            0.8 / min_pitch
+            logical_window_duration / 4.0
         } else {
             time_step
         };
 
-        let sample_rate = sound.sample_rate();
-        let window_samples = (window_duration * sample_rate).round() as usize;
-        let half_window_samples = window_samples / 2;
+        let dx = 1.0 / sound.sample_rate();
+        let half_window_duration = 0.5 * physical_window_duration;
+        let half_window_samples = (half_window_duration / dx).floor() as i64;
+        let window_num_samples = (2 * half_window_samples + 1) as usize;
+        let window_centre = half_window_samples + 1; // 1-based center
 
-        // Generate Hanning window
-        let window = WindowShape::Hanning.generate(window_samples, None);
-        let window_sum_sq: f64 = window.iter().map(|&w| w * w).sum();
+        // Generate Kaiser-Bessel window (Praat's formula)
+        // window[i] = bessel_i0((2π² + 0.5) * sqrt(1 - x²))
+        // where x = (i - center) * dx / half_window_duration
+        let mut window = vec![0.0; window_num_samples];
+        let bessel_arg = 2.0 * std::f64::consts::PI * std::f64::consts::PI + 0.5;
 
-        // Determine frame positions
-        // First frame is centered at half_window_duration from the start
-        let half_window_duration = window_duration / 2.0;
-        let first_frame_time = sound.start_time() + half_window_duration;
-        let last_frame_time = sound.end_time() - half_window_duration;
+        for i in 0..window_num_samples {
+            let i_1based = (i + 1) as f64;
+            let x = (i_1based - window_centre as f64) * dx / half_window_duration;
+            let root = (1.0 - x * x).max(0.0).sqrt();
+            window[i] = bessel_i0(bessel_arg * root);
+        }
 
-        if first_frame_time >= last_frame_time {
-            // Sound too short for even one frame
+        // Frame timing using Sampled_shortTermAnalysis formula
+        // myDuration = nx * dx
+        // numberOfFrames = floor((myDuration - windowDuration) / timeStep) + 1
+        // ourMidTime = x1 - 0.5*dx + 0.5*myDuration
+        // thyDuration = numberOfFrames * timeStep
+        // firstTime = ourMidTime - 0.5*thyDuration + 0.5*timeStep
+        let nx = sound.num_samples();
+        let my_duration = nx as f64 * dx;
+
+        if physical_window_duration > my_duration {
             return Self::new(Vec::new(), sound.start_time(), time_step, min_pitch);
         }
 
-        let num_frames = ((last_frame_time - first_frame_time) / time_step).floor() as usize + 1;
+        let num_frames = ((my_duration - physical_window_duration) / time_step).floor() as usize + 1;
 
-        let mut values = Vec::with_capacity(num_frames);
+        let x1 = sound.start_time() + 0.5 * dx; // Time of first sample (Praat convention)
+        let our_mid_time = x1 - 0.5 * dx + 0.5 * my_duration;
+        let thy_duration = num_frames as f64 * time_step;
+        let first_time = our_mid_time - 0.5 * thy_duration + 0.5 * time_step;
+
         let samples = sound.samples();
+        let mut values = Vec::with_capacity(num_frames);
 
-        for frame_idx in 0..num_frames {
-            let frame_time = first_frame_time + frame_idx as f64 * time_step;
-            let center_sample = sound.time_to_index_clamped(frame_time);
+        for iframe in 0..num_frames {
+            // midTime = Sampled_indexToX(thee, iframe) = firstTime + iframe * timeStep
+            let mid_time = first_time + iframe as f64 * time_step;
 
-            // Extract window of samples
-            let start_sample = center_sample.saturating_sub(half_window_samples);
-            let end_sample = (center_sample + half_window_samples + 1).min(samples.len());
+            // soundCentreSampleNumber = round((midTime - x1) / dx) + 1 (1-based)
+            let sound_centre_sample = ((mid_time - x1) / dx).round() as i64 + 1;
 
-            if end_sample <= start_sample {
-                values.push(f64::NEG_INFINITY);
+            let left_sample = sound_centre_sample - half_window_samples;
+            let right_sample = sound_centre_sample + half_window_samples;
+
+            // Clamp to valid range (1-based to 0-based conversion)
+            let left_sample_clamped = left_sample.max(1) as usize;
+            let right_sample_clamped = (right_sample as usize).min(nx);
+
+            if right_sample_clamped < left_sample_clamped {
+                values.push(-300.0);
                 continue;
             }
 
-            // Compute windowed energy
-            let mut sum_sq = 0.0;
-            let mut sum = 0.0;
-            let mut weight_sum = 0.0;
+            // Calculate window offset
+            let window_from_sound_offset = window_centre - sound_centre_sample;
 
-            for (i, &sample) in samples[start_sample..end_sample].iter().enumerate() {
-                let window_idx = i + (half_window_samples.saturating_sub(center_sample - start_sample));
-                let w = if window_idx < window.len() {
-                    window[window_idx]
-                } else {
-                    0.0
-                };
+            // Compute weighted sum
+            let mut sumxw: f64 = 0.0;
+            let mut sumw: f64 = 0.0;
 
-                let w_sq = w * w;
-                sum += sample * w_sq;
-                weight_sum += w_sq;
-            }
+            // For stereo, Praat sums energies across channels
+            // Our Sound is mono, but we handle it the same way
 
-            // Compute mean if needed
-            let mean = if subtract_mean && weight_sum > 0.0 {
-                sum / weight_sum
+            // First pass: compute UNWEIGHTED mean if needed (Praat's centre_VEC_inout uses NUMmean)
+            let mean = if subtract_mean {
+                let mut sum = 0.0;
+                let mut count = 0;
+                for isamp in left_sample_clamped..=right_sample_clamped {
+                    let window_idx = (window_from_sound_offset + isamp as i64) as usize;
+                    if window_idx > 0 && window_idx <= window_num_samples {
+                        let s = samples[isamp - 1]; // Convert to 0-based
+                        sum += s;
+                        count += 1;
+                    }
+                }
+                if count > 0 { sum / count as f64 } else { 0.0 }
             } else {
                 0.0
             };
 
-            // Compute weighted RMS
-            for (i, &sample) in samples[start_sample..end_sample].iter().enumerate() {
-                let window_idx = i + (half_window_samples.saturating_sub(center_sample - start_sample));
-                let w = if window_idx < window.len() {
-                    window[window_idx]
-                } else {
-                    0.0
-                };
-
-                let centered = sample - mean;
-                sum_sq += centered * centered * w * w;
+            // Second pass: compute weighted energy
+            for isamp in left_sample_clamped..=right_sample_clamped {
+                let window_idx = (window_from_sound_offset + isamp as i64) as usize;
+                if window_idx > 0 && window_idx <= window_num_samples {
+                    let w = window[window_idx - 1]; // Convert to 0-based
+                    let s = samples[isamp - 1] - mean; // Convert to 0-based
+                    sumxw += s * s * w;
+                    sumw += w;
+                }
             }
 
-            // Normalize by window energy
-            let mean_sq = if window_sum_sq > 0.0 {
-                sum_sq / window_sum_sq
-            } else {
-                0.0
-            };
+            // intensity_in_Pa2 = sumxw / sumw
+            let intensity_in_pa2 = if sumw > 0.0 { sumxw / sumw } else { 0.0 };
 
-            // Convert to dB SPL
-            // Assuming samples are in the range [-1, 1] representing normalized amplitude
-            // Praat assumes a pressure of 1 Pa for amplitude 1
-            let intensity_db = if mean_sq > 0.0 {
-                10.0 * (mean_sq / (REFERENCE_PRESSURE * REFERENCE_PRESSURE)).log10()
+            // Convert to dB re hearing threshold
+            let hearing_threshold_pa2 = REFERENCE_PRESSURE * REFERENCE_PRESSURE;
+            let intensity_re_threshold = intensity_in_pa2 / hearing_threshold_pa2;
+
+            let intensity_db = if intensity_re_threshold < 1.0e-30 {
+                -300.0
             } else {
-                f64::NEG_INFINITY
+                10.0 * intensity_re_threshold.log10()
             };
 
             values.push(intensity_db);
         }
 
-        Self::new(values, first_frame_time, time_step, min_pitch)
+        Self::new(values, first_time, time_step, min_pitch)
     }
 
     /// Get intensity value at a specific time
@@ -240,7 +282,7 @@ impl Intensity {
     pub fn min(&self) -> Option<f64> {
         self.values
             .iter()
-            .filter(|&&v| v.is_finite())
+            .filter(|&&v| v.is_finite() && v > -300.0)
             .cloned()
             .reduce(f64::min)
     }
@@ -249,14 +291,17 @@ impl Intensity {
     pub fn max(&self) -> Option<f64> {
         self.values
             .iter()
-            .filter(|&&v| v.is_finite())
+            .filter(|&&v| v.is_finite() && v > -300.0)
             .cloned()
             .reduce(f64::max)
     }
 
     /// Get the mean intensity value
     pub fn mean(&self) -> Option<f64> {
-        let finite_values: Vec<f64> = self.values.iter().filter(|&&v| v.is_finite()).cloned().collect();
+        let finite_values: Vec<f64> = self.values.iter()
+            .filter(|&&v| v.is_finite() && v > -300.0)
+            .cloned()
+            .collect();
         if finite_values.is_empty() {
             return None;
         }
@@ -290,6 +335,16 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn test_bessel_i0() {
+        // Test against known values
+        assert_relative_eq!(bessel_i0(0.0), 1.0, epsilon = 1e-6);
+        assert_relative_eq!(bessel_i0(1.0), 1.2660658, epsilon = 1e-6);
+        assert_relative_eq!(bessel_i0(2.0), 2.2795853, epsilon = 1e-5);
+        assert_relative_eq!(bessel_i0(3.75), 9.1192, epsilon = 1e-3);
+        assert_relative_eq!(bessel_i0(5.0), 27.2399, epsilon = 1e-3);
+    }
+
+    #[test]
     fn test_intensity_pure_tone() {
         // Create a pure tone at 440 Hz
         let sound = Sound::create_tone(440.0, 0.5, 44100.0, 0.1, 0.0);
@@ -300,7 +355,10 @@ mod tests {
         assert!(intensity.num_frames() > 0);
 
         // All frames should have similar intensity (steady tone)
-        let values: Vec<f64> = intensity.values().iter().filter(|&&v| v.is_finite()).cloned().collect();
+        let values: Vec<f64> = intensity.values().iter()
+            .filter(|&&v| v.is_finite() && v > -300.0)
+            .cloned()
+            .collect();
         if values.len() > 1 {
             let mean = values.iter().sum::<f64>() / values.len() as f64;
             for &v in &values[1..values.len() - 1] {
@@ -315,9 +373,9 @@ mod tests {
         let sound = Sound::create_silence(0.5, 44100.0);
         let intensity = sound.to_intensity(100.0, 0.0);
 
-        // All values should be -infinity for silence
+        // All values should be -300 (Praat's minimum) for silence
         for &v in intensity.values() {
-            assert!(v == f64::NEG_INFINITY || v < -100.0);
+            assert!(v <= -300.0 || !v.is_finite());
         }
     }
 

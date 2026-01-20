@@ -31,14 +31,15 @@ impl Spectrum {
         }
     }
 
-    /// Compute spectrum from a Sound
+    /// Compute spectrum from a Sound (matches Praat's Sound_to_Spectrum)
     ///
     /// # Arguments
     /// * `sound` - Input audio signal
     /// * `fast` - If true, use FFT size that is power of 2 (faster but zero-padded)
     ///
     /// # Returns
-    /// Spectrum containing frequency bins from 0 Hz to Nyquist frequency
+    /// Spectrum containing frequency bins from 0 Hz to Nyquist frequency.
+    /// The spectrum values are scaled by dx (sample period) to give spectral density in Pa/Hz.
     pub fn from_sound(sound: &Sound, fast: bool) -> Self {
         let samples = sound.samples();
         let n = samples.len();
@@ -58,9 +59,11 @@ impl Spectrum {
         let spectrum = fft.real_fft(samples, fft_size);
 
         // Extract positive frequencies (0 to Nyquist)
+        // Scale by dx (sample period) to match Praat's normalization
         let n_bins = fft_size / 2 + 1;
-        let real: Vec<f64> = spectrum[..n_bins].iter().map(|c| c.re).collect();
-        let imag: Vec<f64> = spectrum[..n_bins].iter().map(|c| c.im).collect();
+        let dx = 1.0 / sound.sample_rate(); // sample period
+        let real: Vec<f64> = spectrum[..n_bins].iter().map(|c| c.re * dx).collect();
+        let imag: Vec<f64> = spectrum[..n_bins].iter().map(|c| c.im * dx).collect();
 
         let df = sound.sample_rate() / fft_size as f64;
         let max_frequency = sound.sample_rate() / 2.0;
@@ -153,30 +156,53 @@ impl Spectrum {
             .collect()
     }
 
-    /// Get band energy between two frequencies
+    /// Get band energy between two frequencies (matches Praat's Spectrum_getBandEnergy)
     ///
     /// # Arguments
-    /// * `freq_min` - Minimum frequency (Hz)
-    /// * `freq_max` - Maximum frequency (Hz)
+    /// * `freq_min` - Minimum frequency (Hz), 0 for start
+    /// * `freq_max` - Maximum frequency (Hz), 0 for Nyquist
     ///
     /// # Returns
-    /// Total energy in the frequency band (sum of power values × df)
+    /// Total energy in the frequency band in Pa² s.
+    /// Uses factor of 2 for one-sided spectrum (positive + negative frequencies).
     pub fn get_band_energy(&self, freq_min: f64, freq_max: f64) -> f64 {
-        let bin_min = self.get_bin_from_frequency(freq_min.max(0.0));
-        let bin_max = self.get_bin_from_frequency(freq_max.min(self.max_frequency));
-
-        if bin_min >= self.real.len() || bin_max < bin_min {
+        if self.real.is_empty() {
             return 0.0;
         }
 
+        // Handle 0 = auto for max frequency
+        let freq_min = freq_min.max(0.0);
+        let freq_max = if freq_max <= 0.0 { self.max_frequency } else { freq_max.min(self.max_frequency) };
+
+        // Praat uses Sampled_getIntegral which properly handles bin widths at boundaries.
+        // For simplicity, we'll use a simpler approach that's still accurate:
+        // Each bin's contribution is: 2 * (re² + im²) * bin_width
+        // where bin_width is df for interior bins, but may be less for boundary bins
+
         let mut energy = 0.0;
-        for bin in bin_min..=bin_max.min(self.real.len() - 1) {
-            let r = self.real[bin];
-            let i = self.imag[bin];
-            energy += r * r + i * i;
+
+        for bin in 0..self.real.len() {
+            let freq = self.get_frequency_from_bin(bin);
+
+            // Calculate bin boundaries
+            let bin_start = freq - 0.5 * self.df;
+            let bin_end = freq + 0.5 * self.df;
+
+            // Clip to frequency range and domain
+            let effective_start = bin_start.max(freq_min).max(0.0);
+            let effective_end = bin_end.min(freq_max).min(self.max_frequency);
+
+            if effective_end > effective_start {
+                let bin_width = effective_end - effective_start;
+                let r = self.real[bin];
+                let i = self.imag[bin];
+                // Energy density = 2 * (re² + im²) for one-sided spectrum
+                let energy_density = 2.0 * (r * r + i * i);
+                energy += energy_density * bin_width;
+            }
         }
 
-        energy * self.df
+        energy
     }
 
     /// Get the band energy in dB
