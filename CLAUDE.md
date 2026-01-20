@@ -413,11 +413,82 @@ pip install target/wheels/praatfan_core-*.whl
 
 8. **M8: Documentation & Examples** (current)
 
-9. **M9: CI/CD & Distribution**
+9. **M9: CI/CD & Distribution** (implemented)
    - GitHub Actions workflow for multi-platform Python wheel builds
-   - Use maturin-action to build wheels for: Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64
-   - Automatic PyPI upload on release
-   - npm publish workflow for WASM package
+   - Linux ARM64 built manually on RPi5 (GitHub's ARM64 runners require paid "larger runners")
+   - Wheels attached to GitHub releases (not PyPI)
+   - WASM zip attached to GitHub releases (not npm)
+
+---
+
+## M9: CI/CD Implementation Details
+
+### GitHub Actions Workflow (`.github/workflows/release.yml`)
+
+**Trigger:** On release publish, or manual workflow_dispatch
+
+**Platforms built automatically:**
+| Platform | Runner | Target |
+|----------|--------|--------|
+| Linux x64 | ubuntu-latest | manylinux_2_35_x86_64 |
+| macOS x64 | macos-latest | x86_64-apple-darwin (cross-compiled) |
+| macOS ARM64 | macos-latest | aarch64-apple-darwin |
+| Windows x64 | windows-latest | win_amd64 |
+| WASM | ubuntu-latest | wasm32-unknown-unknown |
+
+**Linux ARM64:** Not built in CI. GitHub's ARM64 runners require enabling "larger runners" (paid feature). Built manually on RPi5 instead.
+
+### Linux ARM64 Manual Build (u5ls.local)
+
+Build environment on the RPi5:
+```
+~/local/praatfan/
+├── buildenv/           # Python venv with maturin
+└── praatfan-core-rs/   # Cloned/rsynced repo
+```
+
+**Build commands:**
+```bash
+ssh urielc@u5ls.local
+source ~/.cargo/env
+cd ~/local/praatfan/praatfan-core-rs
+git pull  # or rsync from development machine
+cd python
+~/local/praatfan/buildenv/bin/maturin build --release --out dist
+# Upload: gh release upload vX.Y.Z dist/*.whl
+```
+
+### Release Assets (v0.1.0)
+
+| Asset | Platform | Python |
+|-------|----------|--------|
+| `praatfan_core-...-manylinux_2_35_x86_64.whl` | Linux x64 | cp312 |
+| `praatfan_core-...-manylinux_2_35_aarch64.whl` | Linux ARM64 | cp312 |
+| `praatfan_core-...-macosx_10_12_x86_64.whl` | macOS Intel | cp312 |
+| `praatfan_core-...-macosx_11_0_arm64.whl` | macOS Silicon | cp312 |
+| `praatfan_core-...-win_amd64.whl` | Windows x64 | cp312 |
+| `praatfan-core-wasm.zip` | Web/WASM | N/A |
+
+### Installation Testing
+
+Verified working:
+```python
+from praatfan_core import Sound
+import numpy as np
+
+samples = np.sin(2 * np.pi * 440 * np.linspace(0, 1, 22050))
+sound = Sound(samples, 22050.0)
+
+# Properties (not methods!)
+print(sound.duration)     # 1.0
+print(sound.sample_rate)  # 22050.0
+
+# Analysis
+pitch = sound.to_pitch(0.01, 75.0, 600.0)
+intensity = sound.to_intensity(100.0, 0.01)
+```
+
+**Note:** `duration` and `sample_rate` are properties, not methods. Don't call them with `()`.
 
 ---
 

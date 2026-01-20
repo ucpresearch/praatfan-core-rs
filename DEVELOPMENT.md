@@ -1,5 +1,85 @@
 # Development Notes
 
+## CI/CD and Releases
+
+### GitHub Actions Workflow
+
+The project uses GitHub Actions (`.github/workflows/release.yml`) to build Python wheels and WASM packages automatically when a release is published.
+
+**Platforms built automatically:**
+- Linux x86_64 (manylinux)
+- macOS x86_64 (Intel, cross-compiled from ARM)
+- macOS ARM64 (Apple Silicon)
+- Windows x86_64
+- WASM (web target)
+
+**Linux ARM64 (aarch64):**
+Built manually on a Raspberry Pi 5 because GitHub's ARM64 runners require paid "larger runners". See the manual build process below.
+
+### Installing from GitHub Release
+
+```bash
+# Find your platform's wheel at:
+# https://github.com/ucpresearch/praatfan-core-rs/releases
+
+# Install directly from URL (example for Linux x64, Python 3.12):
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-manylinux_2_35_x86_64.whl
+```
+
+### Testing Installation
+
+```python
+from praatfan_core import Sound
+import numpy as np
+
+# Create test signal (440 Hz sine wave)
+samples = np.sin(2 * np.pi * 440 * np.linspace(0, 1, 22050))
+sound = Sound(samples, 22050.0)
+
+print(f'Duration: {sound.duration}s')
+print(f'Sample rate: {sound.sample_rate} Hz')
+
+# Test analysis
+pitch = sound.to_pitch(0.01, 75.0, 600.0)
+print(f'Pitch frames: {len(pitch.values())}')
+```
+
+### Manual Linux ARM64 Build (RPi5)
+
+For Raspberry Pi 5 or other Linux ARM64 systems:
+
+```bash
+# On the ARM64 machine:
+# 1. Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source ~/.cargo/env
+
+# 2. Create build environment
+mkdir -p ~/local/praatfan
+python3 -m venv ~/local/praatfan/buildenv
+~/local/praatfan/buildenv/bin/pip install maturin
+
+# 3. Clone/copy the repository
+git clone https://github.com/ucpresearch/praatfan-core-rs.git ~/local/praatfan/praatfan-core-rs
+
+# 4. Build the wheel
+cd ~/local/praatfan/praatfan-core-rs/python
+~/local/praatfan/buildenv/bin/maturin build --release --out dist
+
+# 5. Upload to release (requires gh CLI authenticated)
+gh release upload vX.Y.Z dist/*.whl
+```
+
+### Creating a New Release
+
+1. Update version in `Cargo.toml`, `python/Cargo.toml`, `python/pyproject.toml`, `wasm/Cargo.toml`
+2. Commit and push to main
+3. Create release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "Release notes"`
+4. GitHub Actions automatically builds and uploads wheels (except Linux ARM64)
+5. Manually build and upload Linux ARM64 wheel from RPi5
+
+---
+
 ## Formant Extraction Algorithm
 
 This document describes the exact algorithm needed to match Praat's `Sound → To Formant (burg)` output.
