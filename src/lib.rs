@@ -34,7 +34,7 @@ pub use spectrum::Spectrum;
 pub use pitch::Pitch;
 pub use formant::Formant;
 pub use harmonicity::Harmonicity;
-pub use spectrogram::Spectrogram;
+pub use spectrogram::{Spectrogram, spectrogram_from_channels};
 
 use thiserror::Error;
 

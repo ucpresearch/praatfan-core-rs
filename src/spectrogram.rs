@@ -253,6 +253,98 @@ impl Spectrogram {
         }
     }
 
+    /// Compute spectrogram from multiple Sound channels, averaging power spectra
+    ///
+    /// This matches Praat's behavior for multi-channel audio: each channel is processed
+    /// separately, then the power spectra are averaged. This is different from averaging
+    /// the samples first (which our standard `from_sound` does when given mono-converted audio).
+    ///
+    /// For stereo: `(|FFT(ch1)|² + |FFT(ch2)|²) / 2` (correct for Praat compatibility)
+    /// vs: `|FFT((ch1+ch2)/2)|²` (what you get with sample averaging)
+    ///
+    /// # Arguments
+    /// * `sounds` - Slice of Sound objects (one per channel, must all have same sample rate/duration)
+    /// * Other arguments same as `from_sound`
+    ///
+    /// # Panics
+    /// Panics if sounds is empty or if sounds have different sample rates.
+    pub fn from_sounds_averaged(
+        sounds: &[Sound],
+        effective_analysis_width: f64,
+        max_frequency: f64,
+        minimum_time_step: f64,
+        minimum_freq_step: f64,
+        window_shape: WindowShape,
+    ) -> Self {
+        if sounds.is_empty() {
+            panic!("from_sounds_averaged requires at least one Sound");
+        }
+
+        if sounds.len() == 1 {
+            // Single channel - just use the normal method
+            return Self::from_sound(
+                &sounds[0],
+                effective_analysis_width,
+                max_frequency,
+                minimum_time_step,
+                minimum_freq_step,
+                window_shape,
+            );
+        }
+
+        // Verify all sounds have same sample rate
+        let sample_rate = sounds[0].sample_rate();
+        for sound in sounds.iter().skip(1) {
+            assert!(
+                (sound.sample_rate() - sample_rate).abs() < 0.01,
+                "All sounds must have the same sample rate"
+            );
+        }
+
+        // Compute spectrogram for first channel
+        let mut result = Self::from_sound(
+            &sounds[0],
+            effective_analysis_width,
+            max_frequency,
+            minimum_time_step,
+            minimum_freq_step,
+            window_shape,
+        );
+
+        // Add power from remaining channels
+        for sound in sounds.iter().skip(1) {
+            let channel_spec = Self::from_sound(
+                sound,
+                effective_analysis_width,
+                max_frequency,
+                minimum_time_step,
+                minimum_freq_step,
+                window_shape,
+            );
+
+            // Add power values
+            for (freq_bin, row) in result.data.iter_mut().enumerate() {
+                if freq_bin < channel_spec.data.len() {
+                    for (frame, power) in row.iter_mut().enumerate() {
+                        if frame < channel_spec.data[freq_bin].len() {
+                            *power += channel_spec.data[freq_bin][frame];
+                        }
+                    }
+                }
+            }
+        }
+
+        // Divide by number of channels to get average
+        let num_channels = sounds.len() as f64;
+        for row in result.data.iter_mut() {
+            for power in row.iter_mut() {
+                *power /= num_channels;
+            }
+        }
+
+        result
+    }
+
     /// Get the power at a specific time and frequency
     pub fn get_power_at(&self, time: f64, frequency: f64) -> Option<f64> {
         if self.data.is_empty() || self.num_frames == 0 {
@@ -398,6 +490,44 @@ impl Sound {
             window_shape,
         )
     }
+}
+
+/// Compute spectrogram from multiple channel sounds with Praat-compatible power averaging
+///
+/// This function matches Praat's behavior for multi-channel audio files.
+/// Praat computes the spectrogram for each channel separately, then averages
+/// the power spectra.
+///
+/// # Arguments
+/// * `sounds` - Slice of Sound objects (one per channel)
+/// * Other arguments same as `Sound::to_spectrogram`
+///
+/// # Example
+/// ```no_run
+/// use praat_core::{Sound, spectrogram_from_channels, WindowShape};
+///
+/// // Load stereo file keeping channels separate
+/// let channels = Sound::from_file_channels("stereo.wav").unwrap();
+///
+/// // Compute spectrogram with Praat-compatible averaging
+/// let spec = spectrogram_from_channels(&channels, 0.002, 5000.0, 0.005, 20.0, WindowShape::Gaussian);
+/// ```
+pub fn spectrogram_from_channels(
+    sounds: &[Sound],
+    time_step: f64,
+    max_frequency: f64,
+    window_length: f64,
+    frequency_step: f64,
+    window_shape: WindowShape,
+) -> Spectrogram {
+    Spectrogram::from_sounds_averaged(
+        sounds,
+        window_length,
+        max_frequency,
+        time_step,
+        frequency_step,
+        window_shape,
+    )
 }
 
 #[cfg(test)]

@@ -90,6 +90,35 @@ impl Sound {
         Self::from_file_symphonia(path)
     }
 
+    /// Load a Sound from an audio file, keeping channels separate
+    ///
+    /// Returns a Vec<Sound> with one Sound per channel. This is useful for
+    /// analysis algorithms that need to process channels separately and then
+    /// average results (like Praat's spectrogram for stereo files).
+    ///
+    /// # Arguments
+    /// * `path` - Path to the audio file
+    ///
+    /// # Returns
+    /// A Vec of Sound objects, one per channel. For mono files, returns a Vec with one element.
+    pub fn from_file_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
+        let path = path.as_ref();
+
+        // Try symphonia first
+        match Self::from_file_symphonia_channels(path) {
+            Ok(sounds) => return Ok(sounds),
+            Err(_) => {
+                if let Some(ext) = path.extension() {
+                    if ext.to_string_lossy().to_lowercase() == "wav" {
+                        return Self::from_file_wav_channels(path);
+                    }
+                }
+            }
+        }
+
+        Self::from_file_symphonia_channels(path)
+    }
+
     /// Load a Sound from any supported format using symphonia
     ///
     /// Supports WAV, MP3, FLAC, OGG Vorbis, and other formats.
@@ -239,6 +268,143 @@ impl Sound {
             sample_rate,
             start_time: 0.0,
         })
+    }
+
+    /// Load channels separately using symphonia
+    fn from_file_symphonia_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
+        let path = path.as_ref();
+        let file = File::open(path).map_err(PraatError::Io)?;
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+        let mut hint = Hint::new();
+        if let Some(ext) = path.extension() {
+            hint.with_extension(&ext.to_string_lossy());
+        }
+
+        let format_opts = FormatOptions::default();
+        let metadata_opts = MetadataOptions::default();
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &format_opts, &metadata_opts)
+            .map_err(|e| PraatError::Analysis(format!("Failed to probe audio format: {}", e)))?;
+
+        let mut format = probed.format;
+
+        let track = format
+            .default_track()
+            .ok_or_else(|| PraatError::Analysis("No audio track found".to_string()))?;
+
+        let track_id = track.id;
+        let sample_rate = track
+            .codec_params
+            .sample_rate
+            .ok_or_else(|| PraatError::Analysis("Unknown sample rate".to_string()))? as f64;
+        let channels = track
+            .codec_params
+            .channels
+            .map(|c| c.count())
+            .unwrap_or(1);
+
+        let decoder_opts = DecoderOptions::default();
+        let mut decoder = symphonia::default::get_codecs()
+            .make(&track.codec_params, &decoder_opts)
+            .map_err(|e| PraatError::Analysis(format!("Failed to create decoder: {}", e)))?;
+
+        // Collect samples for each channel separately
+        let mut channel_samples: Vec<Vec<f64>> = (0..channels).map(|_| Vec::new()).collect();
+
+        loop {
+            let packet = match format.next_packet() {
+                Ok(packet) => packet,
+                Err(symphonia::core::errors::Error::IoError(ref e))
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
+                    break;
+                }
+                Err(e) => {
+                    return Err(PraatError::Analysis(format!("Error reading packet: {}", e)));
+                }
+            };
+
+            if packet.track_id() != track_id {
+                continue;
+            }
+
+            let decoded = match decoder.decode(&packet) {
+                Ok(decoded) => decoded,
+                Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
+                Err(e) => {
+                    return Err(PraatError::Analysis(format!("Decode error: {}", e)));
+                }
+            };
+
+            let spec = *decoded.spec();
+            let num_frames = decoded.frames();
+
+            let mut sample_buf = SampleBuffer::<f32>::new(num_frames as u64, spec);
+            sample_buf.copy_interleaved_ref(decoded);
+            let samples_f32 = sample_buf.samples();
+
+            // Deinterleave into separate channels
+            for (i, sample) in samples_f32.iter().enumerate() {
+                let channel_idx = i % channels;
+                channel_samples[channel_idx].push(*sample as f64);
+            }
+        }
+
+        // Create a Sound for each channel
+        let sounds: Vec<Sound> = channel_samples
+            .into_iter()
+            .map(|samples| Sound {
+                samples,
+                sample_rate,
+                start_time: 0.0,
+            })
+            .collect();
+
+        Ok(sounds)
+    }
+
+    /// Load channels separately from WAV using hound
+    fn from_file_wav_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
+        let reader = hound::WavReader::open(path)?;
+        let spec = reader.spec();
+        let sample_rate = spec.sample_rate as f64;
+        let channels = spec.channels as usize;
+
+        let all_samples: Vec<f64> = match spec.sample_format {
+            hound::SampleFormat::Int => {
+                let max_value = (1_i64 << (spec.bits_per_sample - 1)) as f64;
+                reader
+                    .into_samples::<i32>()
+                    .map(|s| s.unwrap() as f64 / max_value)
+                    .collect()
+            }
+            hound::SampleFormat::Float => {
+                reader
+                    .into_samples::<f32>()
+                    .map(|s| s.unwrap() as f64)
+                    .collect()
+            }
+        };
+
+        // Deinterleave into separate channels
+        let mut channel_samples: Vec<Vec<f64>> = (0..channels).map(|_| Vec::new()).collect();
+        for (i, &sample) in all_samples.iter().enumerate() {
+            let channel_idx = i % channels;
+            channel_samples[channel_idx].push(sample);
+        }
+
+        // Create a Sound for each channel
+        let sounds: Vec<Sound> = channel_samples
+            .into_iter()
+            .map(|samples| Sound {
+                samples,
+                sample_rate,
+                start_time: 0.0,
+            })
+            .collect();
+
+        Ok(sounds)
     }
 
     /// Get the sample rate in Hz

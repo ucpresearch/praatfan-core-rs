@@ -1,8 +1,10 @@
 //! Output spectrogram analysis as JSON for comparison with Praat.
 //!
 //! Usage: spectrogram_json <audio_file> <window_length> <max_freq> <time_step> <freq_step>
+//!
+//! Handles multi-channel audio with Praat-compatible power averaging.
 
-use praat_core::{Sound, WindowShape};
+use praat_core::{Sound, WindowShape, spectrogram_from_channels};
 use serde::Serialize;
 use std::env;
 
@@ -11,6 +13,7 @@ struct SpectrogramOutput {
     sample_rate: f64,
     duration: f64,
     n_samples: usize,
+    n_channels: usize,
     spectrogram: SpectrogramData,
 }
 
@@ -45,8 +48,15 @@ fn main() {
     let time_step: f64 = args[4].parse().expect("Invalid time_step");
     let freq_step: f64 = args[5].parse().expect("Invalid freq_step");
 
-    let sound = Sound::from_file(audio_path).expect("Failed to load audio file");
-    let spectrogram = sound.to_spectrogram(time_step, max_freq, window_length, freq_step, WindowShape::Gaussian);
+    // Load channels separately for Praat-compatible multi-channel handling
+    let channels = Sound::from_file_channels(audio_path).expect("Failed to load audio file");
+    let n_channels = channels.len();
+
+    // Use the first channel for metadata (all channels should have same properties)
+    let sound = &channels[0];
+
+    // Compute spectrogram with Praat-compatible power averaging for multi-channel
+    let spectrogram = spectrogram_from_channels(&channels, time_step, max_freq, window_length, freq_step, WindowShape::Gaussian);
 
     // Get timing info
     let n_times = spectrogram.num_frames();
@@ -79,6 +89,7 @@ fn main() {
         sample_rate: sound.sample_rate(),
         duration: sound.duration(),
         n_samples: sound.num_samples(),
+        n_channels,
         spectrogram: SpectrogramData {
             n_times,
             n_freqs,
