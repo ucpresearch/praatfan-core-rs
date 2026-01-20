@@ -26,9 +26,9 @@ jobs:
         with:
           files: python/dist/*.whl
 
-  # Linux ARM64
+  # Linux ARM64 (native runner)
   python-linux-arm64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,8 +37,7 @@ jobs:
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: python
-          target: aarch64-unknown-linux-gnu
-          args: --release --out dist --find-interpreter
+          args: --release --out dist
           manylinux: auto
       - uses: actions/upload-artifact@v4
         with:
