@@ -22,15 +22,33 @@ A Rust reimplementation of Praat's core acoustic analysis algorithms, designed t
 
 ## Installation
 
-> **Note:** PyPI and npm packages will be available once CI/CD is set up. For now, install from source.
+### Python (from GitHub Release)
 
-### Native Rust Library
+Download the appropriate wheel from the [releases page](https://github.com/yourusername/praatfan-core-rs/releases) and install:
+
+```bash
+pip install praatfan_core-0.1.0-cp39-cp39-manylinux_2_17_x86_64.whl
+```
+
+Or install directly from URL:
+
+```bash
+pip install https://github.com/yourusername/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp39-cp39-manylinux_2_17_x86_64.whl
+```
+
+### WASM (from GitHub Release)
+
+Download `praatfan-core-wasm.zip` from the [releases page](https://github.com/yourusername/praatfan-core-rs/releases), extract, and copy the `pkg/` directory to your web project.
+
+### Build from Source
+
+#### Native Rust Library
 
 ```bash
 cargo build --release
 ```
 
-### Python Bindings
+#### Python Bindings
 
 ```bash
 # Activate your target venv
@@ -52,7 +70,7 @@ maturin build --release
 pip install target/wheels/praatfan_core-*.whl
 ```
 
-### WASM
+#### WASM
 
 ```bash
 cd wasm && wasm-pack build --target web

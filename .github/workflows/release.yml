@@ -1,0 +1,93 @@
+name: Build Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  # Linux x86_64
+  python-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: x86_64
+          args: --release --out dist
+          manylinux: auto
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: python/dist/*.whl
+
+  # Linux ARM64
+  python-linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: aarch64-unknown-linux-gnu
+          args: --release --out dist
+          manylinux: auto
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: python/dist/*.whl
+
+  # macOS x86_64 (Intel)
+  python-macos-x64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: x86_64-apple-darwin
+          args: --release --out dist
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: python/dist/*.whl
+
+  # macOS ARM64 (Apple Silicon)
+  python-macos-arm64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: aarch64-apple-darwin
+          args: --release --out dist
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: python/dist/*.whl
+
+  # Windows x86_64
+  python-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: x86_64
+          args: --release --out dist
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: python/dist/*.whl
+
+  # WASM package
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: jetli/wasm-pack-action@v0.4.0
+      - name: Build WASM (web target)
+        run: cd wasm && wasm-pack build --target web
+      - name: Package WASM
+        run: cd wasm && zip -r ../praatfan-core-wasm.zip pkg/
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: praatfan-core-wasm.zip
