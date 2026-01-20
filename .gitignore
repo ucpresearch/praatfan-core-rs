@@ -2,6 +2,14 @@
 target
 target/
 Cargo.lock
+python/target
+python/target/
+python/Cargo.lock
+wasm/target
+wasm/target/
+wasm/Cargo.lock
+wasm/pkg
+wasm/pkg/
 
 # IDE
 .idea/
@@ -9,8 +17,15 @@ Cargo.lock
 *.swp
 *.swo
 
-# Session state
-CLAUDE.md
-
 # Temporary files
 *.tmp
+
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/

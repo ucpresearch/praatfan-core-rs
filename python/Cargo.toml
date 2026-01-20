@@ -1,0 +1,15 @@
+[package]
+name = "praat-core-python"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Python bindings for praat-core-rs acoustic analysis library"
+
+[lib]
+name = "praat_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
+praat-core-rs = { path = ".." }

@@ -8,16 +8,21 @@ repository = "https://github.com/your-username/praat-core-rs"
 keywords = ["audio", "speech", "acoustics", "praat", "signal-processing"]
 categories = ["multimedia::audio", "science"]
 
+[features]
+default = ["file-io"]
+# File I/O support - disable for WASM builds
+file-io = ["dep:hound", "dep:symphonia"]
+
 [dependencies]
 ndarray = "0.15"
 rustfft = "6.1"
 num-complex = "0.4"
 thiserror = "1.0"
-hound = "3.5"
 nalgebra = "0.33"
 
-# Multi-format audio decoding
-symphonia = { version = "0.5", features = ["mp3", "ogg", "flac", "wav", "pcm", "vorbis"] }
+# File I/O dependencies (optional for WASM compatibility)
+hound = { version = "3.5", optional = true }
+symphonia = { version = "0.5", features = ["mp3", "ogg", "flac", "wav", "pcm", "vorbis"], optional = true }
 
 [dev-dependencies]
 approx = "0.5"

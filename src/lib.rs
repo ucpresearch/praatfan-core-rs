@@ -44,6 +44,7 @@ pub enum PraatError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[cfg(feature = "file-io")]
     #[error("WAV decoding error: {0}")]
     WavDecode(#[from] hound::Error),
 

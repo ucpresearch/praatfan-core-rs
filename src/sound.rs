@@ -4,14 +4,22 @@
 //! It supports loading from various audio formats (WAV, MP3, FLAC, OGG),
 //! extracting segments, and applying filters.
 
+#[cfg(feature = "file-io")]
 use std::fs::File;
+#[cfg(feature = "file-io")]
 use std::path::Path;
 
+#[cfg(feature = "file-io")]
 use symphonia::core::audio::SampleBuffer;
+#[cfg(feature = "file-io")]
 use symphonia::core::codecs::DecoderOptions;
+#[cfg(feature = "file-io")]
 use symphonia::core::formats::FormatOptions;
+#[cfg(feature = "file-io")]
 use symphonia::core::io::MediaSourceStream;
+#[cfg(feature = "file-io")]
 use symphonia::core::meta::MetadataOptions;
+#[cfg(feature = "file-io")]
 use symphonia::core::probe::Hint;
 
 use crate::window::WindowShape;
@@ -70,6 +78,7 @@ impl Sound {
     ///
     /// # Errors
     /// Returns an error if the file cannot be read or format is not supported.
+    #[cfg(feature = "file-io")]
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
 
@@ -101,6 +110,7 @@ impl Sound {
     ///
     /// # Returns
     /// A Vec of Sound objects, one per channel. For mono files, returns a Vec with one element.
+    #[cfg(feature = "file-io")]
     pub fn from_file_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
         let path = path.as_ref();
 
@@ -122,6 +132,7 @@ impl Sound {
     /// Load a Sound from any supported format using symphonia
     ///
     /// Supports WAV, MP3, FLAC, OGG Vorbis, and other formats.
+    #[cfg(feature = "file-io")]
     fn from_file_symphonia<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let file = File::open(path).map_err(PraatError::Io)?;
@@ -221,6 +232,7 @@ impl Sound {
     }
 
     /// Load a Sound from a WAV file using hound
+    #[cfg(feature = "file-io")]
     fn from_file_wav<P: AsRef<Path>>(path: P) -> Result<Self> {
         let reader = hound::WavReader::open(path)?;
         let spec = reader.spec();
@@ -271,6 +283,7 @@ impl Sound {
     }
 
     /// Load channels separately using symphonia
+    #[cfg(feature = "file-io")]
     fn from_file_symphonia_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
         let path = path.as_ref();
         let file = File::open(path).map_err(PraatError::Io)?;
@@ -365,6 +378,7 @@ impl Sound {
     }
 
     /// Load channels separately from WAV using hound
+    #[cfg(feature = "file-io")]
     fn from_file_wav_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
         let reader = hound::WavReader::open(path)?;
         let spec = reader.spec();

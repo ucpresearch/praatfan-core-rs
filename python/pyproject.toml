@@ -1,0 +1,44 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "praat-core"
+version = "0.1.0"
+description = "Praat-compatible acoustic analysis in Python (Rust implementation)"
+readme = "README.md"
+license = { text = "GPL-3.0" }
+requires-python = ">=3.8"
+keywords = ["audio", "speech", "acoustics", "praat", "signal-processing", "formant", "pitch"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "parselmouth>=0.4",
+]
+
+[project.urls]
+Repository = "https://github.com/your-username/praat-core-rs"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "praat_core"
