@@ -17,7 +17,12 @@ jobs:
           target: x86_64
           args: --release --out dist
           manylinux: auto
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-x64
+          path: python/dist/*.whl
       - uses: softprops/action-gh-release@v1
+        if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
 
@@ -32,21 +37,34 @@ jobs:
           target: aarch64-unknown-linux-gnu
           args: --release --out dist
           manylinux: auto
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-arm64
+          path: python/dist/*.whl
       - uses: softprops/action-gh-release@v1
+        if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
 
   # macOS x86_64 (Intel)
   python-macos-x64:
-    runs-on: macos-latest
+    runs-on: macos-13  # Use macos-13 for x86_64
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: python
           target: x86_64-apple-darwin
           args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-x64
+          path: python/dist/*.whl
       - uses: softprops/action-gh-release@v1
+        if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
 
@@ -55,12 +73,20 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: python
           target: aarch64-apple-darwin
           args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-arm64
+          path: python/dist/*.whl
       - uses: softprops/action-gh-release@v1
+        if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
 
@@ -69,12 +95,20 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: python
           target: x86_64
           args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-x64
+          path: python/dist/*.whl
       - uses: softprops/action-gh-release@v1
+        if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
 
@@ -89,6 +123,11 @@ jobs:
         run: cd wasm && wasm-pack build --target web
       - name: Package WASM
         run: cd wasm && zip -r ../praatfan-core-wasm.zip pkg/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-pkg
+          path: praatfan-core-wasm.zip
       - uses: softprops/action-gh-release@v1
+        if: github.event_name == 'release'
         with:
           files: praatfan-core-wasm.zip
