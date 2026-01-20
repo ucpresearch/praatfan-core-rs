@@ -211,3 +211,67 @@ return (pr, pi), (dpr, dpi)
 ### 2. Alternative: Use nalgebra for eigenvalues
 
 The `nalgebra` crate has pure-Rust eigenvalue decomposition that's WASM-compatible. May provide better numerical precision than our custom QR implementation.
+
+---
+
+## Comparison Tools
+
+### Formant Comparison Script
+
+**`scripts/compare_formants.py`** - Python script comparing Praat (parselmouth) vs praat-core-rs formant analysis.
+
+```bash
+source ~/local/scr/commonpip/bin/activate
+python scripts/compare_formants.py path/to/audio.wav [options]
+
+# Options:
+#   --time-step 0.01       Time step between frames (default: 0.01)
+#   --max-formants 5       Max number of formants (default: 5)
+#   --max-formant-hz 5500  Max formant frequency (default: 5500)
+#   --window-length 0.025  Window length (default: 0.025)
+#   --pre-emphasis 50.0    Pre-emphasis from Hz (default: 50)
+#   --verbose              Show worst error details per formant
+#   --json                 Output full data as JSON
+```
+
+**`examples/formant_json.rs`** - Rust example outputting formant data as JSON for comparison.
+
+```bash
+# Build:
+cargo build --release --example formant_json
+
+# Usage (called by compare_formants.py):
+./target/release/examples/formant_json <audio> <time_step> <max_formants> <max_formant_hz> <window_length> <pre_emphasis>
+```
+
+### Audio Format Support
+
+| Format | Support | Notes |
+|--------|---------|-------|
+| **WAV** | Full | All sample rates (8k-48k+), bit depths (8/16/24/32-float), mono/stereo |
+| **FLAC** | Full | Lossless, recommended for testing |
+| **MP3** | Partial | Works but decoder timing differences cause large formant errors |
+| **OGG** | Rust only | Praat/parselmouth doesn't support OGG natively |
+
+**MP3 Warning:** MP3 decoders handle encoder delay differently. Symphonia (used by praat-core-rs) and Praat's internal decoder may produce different sample counts and timing. For accurate comparison, use lossless formats (WAV, FLAC).
+
+### Stereo File Handling
+
+Praat preserves stereo channels through resampling and pre-emphasis. Channel averaging only occurs when extracting sample values via `Sound_LEVEL_MONO` (which maps to `Vector_CHANNEL_AVERAGE`).
+
+**Source:** `fon/Vector.cpp:Vector::v_getValueAtSample()` - averages channels when `ilevel <= Vector_CHANNEL_AVERAGE` (0).
+
+**Test file:** `tests/fixtures/one_two_three_four_five-stereo.flac` - real stereo file.
+
+### Running Accuracy Tests
+
+```bash
+# Quick check with check_errors example
+cargo run --example check_errors
+
+# Detailed comparison on specific file
+python scripts/compare_formants.py tests/fixtures/one_two_three_four_five.wav --verbose
+
+# Compare stereo file
+python scripts/compare_formants.py tests/fixtures/one_two_three_four_five-stereo.flac
+```
