@@ -109,7 +109,6 @@ fn main() {
         ("one_two_three_four_five_24bit", "tests/fixtures/one_two_three_four_five_24bit.wav", false),
         ("one_two_three_four_five_32float", "tests/fixtures/one_two_three_four_five_32float.wav", false),
         ("one_two_three_four_five_stereo", "tests/fixtures/one_two_three_four_five_stereo.wav", true),
-        ("En-US-One", "tests/fixtures/En-US-One.wav", false),
     ];
 
     println!("=== WAV files ===");

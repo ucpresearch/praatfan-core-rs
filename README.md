@@ -25,17 +25,26 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 
 ### Python (from GitHub Release)
 
-Download the appropriate wheel from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases) and install:
+Install directly from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases) using the URL for your platform:
 
 ```bash
-pip install praatfan_core-0.1.0-cp39-cp39-manylinux_2_17_x86_64.whl
+# Linux x86_64
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+
+# Linux ARM64 (e.g., Raspberry Pi 5)
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-manylinux_2_35_aarch64.whl
+
+# macOS Apple Silicon (M1/M2/M3)
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-macosx_11_0_arm64.whl
+
+# macOS Intel
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-macosx_10_12_x86_64.whl
+
+# Windows x86_64
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-win_amd64.whl
 ```
 
-Or install directly from URL:
-
-```bash
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp39-cp39-manylinux_2_17_x86_64.whl
-```
+**Note:** These wheels require Python 3.12. For other Python versions, build from source (see below).
 
 ### WASM (from GitHub Release)
 
@@ -120,6 +129,26 @@ hnr_values = hnr.values()
 spectrum = sound.to_spectrum(fast=True)
 cog = spectrum.get_center_of_gravity(power=2.0)
 ```
+
+### Command-Line Script
+
+A ready-to-use script is included at `python/examples/analyze.py`:
+
+```bash
+# Extract all features to TSV (tab-separated)
+python python/examples/analyze.py audio.wav
+
+# Save to file
+python python/examples/analyze.py audio.wav -o features.tsv
+
+# Output as JSON
+python python/examples/analyze.py audio.wav --json -o features.json
+
+# Custom parameters
+python python/examples/analyze.py audio.wav --pitch-floor 100 --max-formant 5000
+```
+
+**Output columns:** time, f0, intensity, hnr, F1, F2, F3, B1, B2, B3, CoG
 
 ### JavaScript (WASM)
 

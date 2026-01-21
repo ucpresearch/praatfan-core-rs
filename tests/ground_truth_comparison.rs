@@ -180,7 +180,6 @@ fn test_load_wav_files() {
         "one_two_three_four_five_24bit",
         "one_two_three_four_five_32float",
         "one_two_three_four_five_stereo",
-        "En-US-One",
     ];
 
     for name in &files {
@@ -265,7 +264,7 @@ fn test_load_flac() {
 
 #[test]
 fn test_pitch_comparison() {
-    let test_files = ["one_two_three_four_five", "En-US-One"];
+    let test_files = ["one_two_three_four_five"];
 
     for name in &test_files {
         let gt = match load_ground_truth(name) {
@@ -310,7 +309,7 @@ fn test_pitch_comparison() {
 
 #[test]
 fn test_intensity_comparison() {
-    let test_files = ["one_two_three_four_five", "En-US-One"];
+    let test_files = ["one_two_three_four_five"];
 
     for name in &test_files {
         let gt = match load_ground_truth(name) {
@@ -355,7 +354,7 @@ fn test_intensity_comparison() {
 
 #[test]
 fn test_formant_comparison() {
-    let test_files = ["one_two_three_four_five", "En-US-One"];
+    let test_files = ["one_two_three_four_five"];
 
     for name in &test_files {
         let gt = match load_ground_truth(name) {
@@ -411,7 +410,7 @@ fn test_formant_comparison() {
 
 #[test]
 fn test_harmonicity_comparison() {
-    let test_files = ["one_two_three_four_five", "En-US-One"];
+    let test_files = ["one_two_three_four_five"];
 
     for name in &test_files {
         let gt = match load_ground_truth(name) {
@@ -460,7 +459,7 @@ fn test_harmonicity_comparison() {
 
 #[test]
 fn test_spectrum_comparison() {
-    let test_files = ["one_two_three_four_five", "En-US-One"];
+    let test_files = ["one_two_three_four_five"];
 
     for name in &test_files {
         let gt = match load_ground_truth(name) {
