@@ -29,3 +29,7 @@ __pycache__/
 .eggs/
 dist/
 build/
+
+# development
+CLAUDE.md
+CLEANROOM.md
