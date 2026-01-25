@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acoustic Analyzer - praatfan-core-wasm</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 20px;
+        }
+        .drop-zone {
+            border: 3px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #007bff;
+            background: #f0f7ff;
+        }
+        .drop-zone input {
+            display: none;
+        }
+        .status {
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .status.loading {
+            display: block;
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.error {
+            display: block;
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.success {
+            display: block;
+            background: #d4edda;
+            color: #155724;
+        }
+        .results {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            display: none;
+        }
+        .results.visible {
+            display: block;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+        .stat-card h3 {
+            margin: 0 0 5px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .stat-card .unit {
+            font-size: 14px;
+            color: #666;
+        }
+        .controls {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button.primary {
+            background: #007bff;
+            color: white;
+        }
+        button.primary:hover {
+            background: #0056b3;
+        }
+        button.secondary {
+            background: #6c757d;
+            color: white;
+        }
+        button.secondary:hover {
+            background: #545b62;
+        }
+        .table-container {
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            padding: 8px 12px;
+            text-align: right;
+            border-bottom: 1px solid #dee2e6;
+        }
+        th {
+            background: #f8f9fa;
+            position: sticky;
+            top: 0;
+            font-weight: 600;
+        }
+        td:first-child, th:first-child {
+            text-align: left;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .nan {
+            color: #999;
+        }
+        .params {
+            background: #e9ecef;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+        .params label {
+            margin-right: 15px;
+        }
+        .params input {
+            width: 80px;
+            padding: 4px 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Acoustic Analyzer</h1>
+    <p class="subtitle">Browser-based acoustic analysis using <a href="https://github.com/praatfan-core-rs">praatfan-core-wasm</a></p>
+
+    <div class="drop-zone" id="dropZone">
+        <p>Drop an audio file here or click to select</p>
+        <p style="font-size: 12px; color: #888;">Supports WAV, FLAC, MP3, OGG</p>
+        <input type="file" id="fileInput" accept="audio/*">
+    </div>
+
+    <div class="params">
+        <label>Time step: <input type="number" id="timeStep" value="0.01" step="0.001" min="0.001"> s</label>
+        <label>Pitch floor: <input type="number" id="pitchFloor" value="75" step="5" min="30"> Hz</label>
+        <label>Pitch ceiling: <input type="number" id="pitchCeiling" value="600" step="50" min="100"> Hz</label>
+        <label>Max formant: <input type="number" id="maxFormant" value="5500" step="100" min="3000"> Hz</label>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="results" id="results">
+        <h2>Analysis Results</h2>
+
+        <div class="summary" id="summary"></div>
+
+        <div class="controls">
+            <button class="primary" id="downloadCsv">Download CSV</button>
+            <button class="secondary" id="downloadJson">Download JSON</button>
+            <span style="margin-left: auto; color: #666;" id="frameCount"></span>
+        </div>
+
+        <div class="table-container">
+            <table id="dataTable">
+                <thead>
+                    <tr>
+                        <th>Time (s)</th>
+                        <th>F0 (Hz)</th>
+                        <th>Intensity (dB)</th>
+                        <th>HNR (dB)</th>
+                        <th>F1 (Hz)</th>
+                        <th>F2 (Hz)</th>
+                        <th>F3 (Hz)</th>
+                        <th>B1 (Hz)</th>
+                        <th>B2 (Hz)</th>
+                        <th>B3 (Hz)</th>
+                        <th>CoG (Hz)</th>
+                    </tr>
+                </thead>
+                <tbody id="dataBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum } from './pkg/praatfan_core_wasm.js';
+
+        let wasmReady = false;
+        let analysisData = null;
+
+        // Initialize WASM
+        async function initWasm() {
+            try {
+                await init();
+                wasmReady = true;
+                console.log('WASM initialized');
+            } catch (e) {
+                showStatus('Failed to load WASM module: ' + e.message, 'error');
+            }
+        }
+
+        // UI helpers
+        function showStatus(message, type = 'loading') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
+
+        function hideStatus() {
+            document.getElementById('status').className = 'status';
+        }
+
+        function formatValue(v, decimals = 1) {
+            if (v === null || v === undefined || Number.isNaN(v)) {
+                return '<span class="nan">-</span>';
+            }
+            return v.toFixed(decimals);
+        }
+
+        // Decode audio file to samples
+        async function decodeAudio(arrayBuffer) {
+            const audioContext = new AudioContext();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // Get mono samples as Float64Array
+            const samples = new Float64Array(audioBuffer.length);
+            const channelData = audioBuffer.getChannelData(0);
+            for (let i = 0; i < audioBuffer.length; i++) {
+                samples[i] = channelData[i];
+            }
+
+            return { samples, sampleRate: audioBuffer.sampleRate };
+        }
+
+        // Main analysis function
+        async function analyzeAudio(file) {
+            if (!wasmReady) {
+                showStatus('WASM not ready', 'error');
+                return;
+            }
+
+            showStatus('Reading audio file...');
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const { samples, sampleRate } = await decodeAudio(arrayBuffer);
+
+                showStatus('Creating Sound object...');
+                const sound = new Sound(samples, sampleRate);
+                const duration = sound.duration;
+
+                // Get parameters
+                const timeStep = parseFloat(document.getElementById('timeStep').value) || 0.01;
+                const pitchFloor = parseFloat(document.getElementById('pitchFloor').value) || 75;
+                const pitchCeiling = parseFloat(document.getElementById('pitchCeiling').value) || 600;
+                const maxFormant = parseFloat(document.getElementById('maxFormant').value) || 5500;
+
+                showStatus('Computing pitch...');
+                const pitch = sound.to_pitch(timeStep, pitchFloor, pitchCeiling);
+                const f0Values = pitch.values();
+                const times = pitch.times();
+
+                showStatus('Computing intensity...');
+                const intensity = sound.to_intensity(pitchFloor, timeStep);
+
+                showStatus('Computing formants...');
+                const formant = sound.to_formant_burg(timeStep, 5, maxFormant, 0.025, 50.0);
+
+                showStatus('Computing harmonicity...');
+                const harmonicity = sound.to_harmonicity_cc(timeStep, pitchFloor, 0.1, 1.0);
+
+                showStatus('Computing spectrum (CoG)...');
+                const spectrum = sound.to_spectrum(true);
+                const globalCog = spectrum.get_center_of_gravity(2.0);
+                spectrum.free();
+
+                showStatus('Extracting values...');
+
+                // Build results array
+                const results = [];
+                const windowDuration = 0.025;
+
+                for (let i = 0; i < times.length; i++) {
+                    const t = times[i];
+
+                    // Get values at this time
+                    const f0 = f0Values[i];
+                    const int_val = intensity.get_value_at_time(t, 'cubic');
+                    const hnr = harmonicity.get_value_at_time(t, 'linear');
+                    const f1 = formant.get_value_at_time(1, t, 'hertz', 'linear');
+                    const f2 = formant.get_value_at_time(2, t, 'hertz', 'linear');
+                    const f3 = formant.get_value_at_time(3, t, 'hertz', 'linear');
+                    const b1 = formant.get_bandwidth_at_time(1, t, 'hertz', 'linear');
+                    const b2 = formant.get_bandwidth_at_time(2, t, 'hertz', 'linear');
+                    const b3 = formant.get_bandwidth_at_time(3, t, 'hertz', 'linear');
+
+                    // Compute CoG for this frame (extract short segment)
+                    let cog = null;
+                    try {
+                        const tStart = Math.max(0, t - windowDuration / 2);
+                        const tEnd = Math.min(duration, t + windowDuration / 2);
+                        // For CoG we'd need to extract a segment - skip for now in basic version
+                        // as it requires creating many Sound objects which is slow
+                    } catch (e) {
+                        // Segment too short
+                    }
+
+                    results.push({
+                        time: t,
+                        f0: Number.isNaN(f0) ? null : f0,
+                        intensity: int_val,
+                        hnr: hnr,
+                        f1: f1,
+                        f2: f2,
+                        f3: f3,
+                        b1: b1,
+                        b2: b2,
+                        b3: b3,
+                        cog: cog
+                    });
+                }
+
+                // Store for export
+                analysisData = {
+                    filename: file.name,
+                    duration: duration,
+                    sampleRate: sampleRate,
+                    params: { timeStep, pitchFloor, pitchCeiling, maxFormant },
+                    globalCog: globalCog,
+                    frames: results
+                };
+
+                // Update UI
+                displayResults(analysisData);
+                hideStatus();
+
+                // Clean up WASM objects
+                sound.free();
+                pitch.free();
+                intensity.free();
+                formant.free();
+                harmonicity.free();
+
+            } catch (e) {
+                showStatus('Analysis failed: ' + e.message, 'error');
+                console.error(e);
+            }
+        }
+
+        function displayResults(data) {
+            document.getElementById('results').classList.add('visible');
+
+            // Compute summary stats
+            const frames = data.frames;
+            const voiced = frames.filter(f => f.f0 !== null);
+            const voicedPercent = (voiced.length / frames.length * 100).toFixed(1);
+
+            const meanF0 = voiced.length > 0
+                ? voiced.reduce((a, f) => a + f.f0, 0) / voiced.length
+                : null;
+            const meanIntensity = frames.reduce((a, f) => a + (f.intensity || 0), 0) / frames.length;
+            const meanHnr = frames.filter(f => f.hnr !== null).reduce((a, f) => a + f.hnr, 0) /
+                           frames.filter(f => f.hnr !== null).length || null;
+            const meanF1 = frames.filter(f => f.f1 !== null).reduce((a, f) => a + f.f1, 0) /
+                          frames.filter(f => f.f1 !== null).length || null;
+            const meanF2 = frames.filter(f => f.f2 !== null).reduce((a, f) => a + f.f2, 0) /
+                          frames.filter(f => f.f2 !== null).length || null;
+
+            document.getElementById('summary').innerHTML = `
+                <div class="stat-card">
+                    <h3>Duration</h3>
+                    <span class="value">${data.duration.toFixed(2)}</span>
+                    <span class="unit">seconds</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Mean F0</h3>
+                    <span class="value">${meanF0 ? meanF0.toFixed(0) : '-'}</span>
+                    <span class="unit">Hz (${voicedPercent}% voiced)</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Mean Intensity</h3>
+                    <span class="value">${meanIntensity.toFixed(1)}</span>
+                    <span class="unit">dB</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Mean HNR</h3>
+                    <span class="value">${meanHnr ? meanHnr.toFixed(1) : '-'}</span>
+                    <span class="unit">dB</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Mean F1</h3>
+                    <span class="value">${meanF1 ? meanF1.toFixed(0) : '-'}</span>
+                    <span class="unit">Hz</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Mean F2</h3>
+                    <span class="value">${meanF2 ? meanF2.toFixed(0) : '-'}</span>
+                    <span class="unit">Hz</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Center of Gravity</h3>
+                    <span class="value">${data.globalCog ? data.globalCog.toFixed(0) : '-'}</span>
+                    <span class="unit">Hz</span>
+                </div>
+            `;
+
+            document.getElementById('frameCount').textContent = `${frames.length} frames`;
+
+            // Populate table
+            const tbody = document.getElementById('dataBody');
+            tbody.innerHTML = frames.map(f => `
+                <tr>
+                    <td>${f.time.toFixed(3)}</td>
+                    <td>${formatValue(f.f0, 1)}</td>
+                    <td>${formatValue(f.intensity, 1)}</td>
+                    <td>${formatValue(f.hnr, 1)}</td>
+                    <td>${formatValue(f.f1, 0)}</td>
+                    <td>${formatValue(f.f2, 0)}</td>
+                    <td>${formatValue(f.f3, 0)}</td>
+                    <td>${formatValue(f.b1, 0)}</td>
+                    <td>${formatValue(f.b2, 0)}</td>
+                    <td>${formatValue(f.b3, 0)}</td>
+                    <td>${formatValue(f.cog, 0)}</td>
+                </tr>
+            `).join('');
+        }
+
+        function downloadCsv() {
+            if (!analysisData) return;
+
+            const headers = ['time', 'f0', 'intensity', 'hnr', 'F1', 'F2', 'F3', 'B1', 'B2', 'B3', 'CoG'];
+            const rows = analysisData.frames.map(f => [
+                f.time.toFixed(4),
+                f.f0 !== null ? f.f0.toFixed(2) : '',
+                f.intensity !== null ? f.intensity.toFixed(2) : '',
+                f.hnr !== null ? f.hnr.toFixed(2) : '',
+                f.f1 !== null ? f.f1.toFixed(2) : '',
+                f.f2 !== null ? f.f2.toFixed(2) : '',
+                f.f3 !== null ? f.f3.toFixed(2) : '',
+                f.b1 !== null ? f.b1.toFixed(2) : '',
+                f.b2 !== null ? f.b2.toFixed(2) : '',
+                f.b3 !== null ? f.b3.toFixed(2) : '',
+                f.cog !== null ? f.cog.toFixed(2) : ''
+            ].join(','));
+
+            const csv = [headers.join(','), ...rows].join('\n');
+            downloadFile(csv, 'acoustic_analysis.csv', 'text/csv');
+        }
+
+        function downloadJson() {
+            if (!analysisData) return;
+            const json = JSON.stringify(analysisData, null, 2);
+            downloadFile(json, 'acoustic_analysis.json', 'application/json');
+        }
+
+        function downloadFile(content, filename, type) {
+            const blob = new Blob([content], { type });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Event handlers
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) analyzeAudio(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) analyzeAudio(file);
+        });
+
+        document.getElementById('downloadCsv').addEventListener('click', downloadCsv);
+        document.getElementById('downloadJson').addEventListener('click', downloadJson);
+
+        // Initialize
+        initWasm();
+    </script>
+</body>
+</html>

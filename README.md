@@ -212,6 +212,36 @@ node scripts/verify_wasm.mjs [audio_file]
 
 This compares Pitch, Formant, Intensity, Spectrum, and Harmonicity outputs between WASM and native Rust, expecting 100% match.
 
+## Accuracy
+
+Accuracy comparison against Praat/parselmouth using `tests/fixtures/one_two_three_four_five.wav`:
+
+| Metric | Accuracy | Points | Mean Error | Max Error |
+|--------|----------|--------|------------|-----------|
+| F1 | 99.4% | 159 | 0.047 Hz | 7.3 Hz |
+| F2 | 100.0% | 159 | 0.004 Hz | 0.33 Hz |
+| F3 | 100.0% | 159 | 0.005 Hz | 0.34 Hz |
+| Intensity | 100.0% | 196 | ~0 dB | ~0 dB |
+| Pitch (F0) | 100.0% | 104 | 0.047 Hz | 0.66 Hz |
+| Voicing | 100.0% | 160 | 0 | 0 |
+| Spectrum CoG | 100.0% | 1 | ~0% | ~0% |
+| Spectrum StdDev | 100.0% | 1 | ~0% | ~0% |
+| Spectrum Skew | 100.0% | 1 | 0% | 0% |
+| Spectrum Kurt | 100.0% | 1 | ~0% | ~0% |
+| Total Energy | 100.0% | 1 | ~0% | ~0% |
+| HNR (AC) | 100.0% | 102 | 0.036 dB | 0.77 dB |
+| HNR (CC) | 98.1% | 106 | 0.16 dB | 8.0 dB |
+| **OVERALL** | **99.7%** | **1150** | | |
+
+Accuracy is measured as percentage of points within tolerance (1 Hz for frequency metrics, 0.1 dB for intensity, 1 dB for HNR, 1% relative error for spectrum moments).
+
+To regenerate this table:
+```bash
+# Activate a venv with parselmouth installed (pip install praat-parselmouth matplotlib)
+cargo build --release --examples
+python scripts/accuracy_histogram.py
+```
+
 ## License
 
 GPL-3.0 - This project reimplements algorithms from [Praat](https://github.com/praat/praat), which is GPL-licensed.
