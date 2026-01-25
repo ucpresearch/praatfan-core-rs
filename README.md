@@ -50,6 +50,16 @@ pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0
 
 Download `praatfan-core-wasm.zip` from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases), extract, and copy the `pkg/` directory to your web project.
 
+### WASM (from CDN)
+
+The WASM module is also available via GitHub Pages:
+
+```javascript
+import init, { Sound } from 'https://ucpresearch.github.io/praatfan-core-rs/pkg/praatfan_core_wasm.js';
+```
+
+**Live Demo:** https://ucpresearch.github.io/praatfan-core-rs/
+
 ### Build from Source
 
 #### Native Rust Library
@@ -85,6 +95,16 @@ pip install target/wheels/praatfan_core-*.whl
 ```bash
 cd wasm && wasm-pack build --target web
 ```
+
+### Package Names
+
+| Build Target | Package Name | Import As |
+|--------------|--------------|-----------|
+| Python (PyO3) | `praatfan-core` | `import praatfan_core` |
+| WASM | `praatfan-core-wasm` | `import ... from 'praatfan_core_wasm.js'` |
+| Rust crate | `praatfan-core` | `use praatfan_core::*` |
+
+**Note:** There is also a separate pure-Python clean-room implementation called `praatfan` (without `-core`) in the [praatfan-core-clean](https://github.com/ucpresearch/praatfan-core-clean) repository.
 
 ## Usage
 
