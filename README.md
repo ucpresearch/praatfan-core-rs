@@ -29,33 +29,33 @@ Install directly from the [releases page](https://github.com/ucpresearch/praatfa
 
 ```bash
 # Linux x86_64
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_gpl-0.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 
 # Linux ARM64 (e.g., Raspberry Pi 5)
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-manylinux_2_35_aarch64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_gpl-0.1.0-cp312-cp312-manylinux_2_35_aarch64.whl
 
 # macOS Apple Silicon (M1/M2/M3)
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-macosx_11_0_arm64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_gpl-0.1.0-cp312-cp312-macosx_11_0_arm64.whl
 
 # macOS Intel
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-macosx_10_12_x86_64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_gpl-0.1.0-cp312-cp312-macosx_10_12_x86_64.whl
 
 # Windows x86_64
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-win_amd64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_gpl-0.1.0-cp312-cp312-win_amd64.whl
 ```
 
 **Note:** These wheels require Python 3.12. For other Python versions, build from source (see below).
 
 ### WASM (from GitHub Release)
 
-Download `praatfan-core-wasm.zip` from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases), extract, and copy the `pkg/` directory to your web project.
+Download `praatfan-gpl.zip` from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases), extract, and copy the `pkg/` directory to your web project.
 
 ### WASM (from CDN)
 
 The WASM module is also available via GitHub Pages:
 
 ```javascript
-import init, { Sound } from 'https://ucpresearch.github.io/praatfan-core-rs/pkg/praatfan_core_wasm.js';
+import init, { Sound } from 'https://ucpresearch.github.io/praatfan-core-rs/pkg/praatfan_gpl.js';
 ```
 
 **Live Demo:** https://ucpresearch.github.io/praatfan-core-rs/
@@ -87,7 +87,7 @@ Or build and install a wheel:
 ```bash
 cd python
 maturin build --release
-pip install target/wheels/praatfan_core-*.whl
+pip install target/wheels/praatfan_gpl-*.whl
 ```
 
 #### WASM
@@ -100,9 +100,9 @@ cd wasm && wasm-pack build --target web
 
 | Build Target | Package Name | Import As |
 |--------------|--------------|-----------|
-| Python (PyO3) | `praatfan-core` | `import praatfan_core` |
-| WASM | `praatfan-core-wasm` | `import ... from 'praatfan_core_wasm.js'` |
-| Rust crate | `praatfan-core` | `use praatfan_core::*` |
+| Python (PyO3) | `praatfan-gpl` | `import praatfan_gpl` |
+| WASM | `praatfan-gpl` | `import ... from 'praatfan_gpl.js'` |
+| Rust crate | `praatfan-core-rs` | `use praatfan_core::*` |
 
 **Note:** There is also a separate pure-Python clean-room implementation called `praatfan` (without `-core`) in the [praatfan-core-clean](https://github.com/ucpresearch/praatfan-core-clean) repository.
 
@@ -111,7 +111,7 @@ cd wasm && wasm-pack build --target web
 ### Python
 
 ```python
-from praatfan_core import Sound
+from praatfan_gpl import Sound
 
 # Load audio file
 sound = Sound.from_file("audio.wav")
@@ -173,7 +173,7 @@ python python/examples/analyze.py audio.wav --pitch-floor 100 --max-formant 5000
 ### JavaScript (WASM)
 
 ```javascript
-import init, { Sound } from './pkg/praatfan_core_wasm.js';
+import init, { Sound } from './pkg/praatfan_gpl.js';
 
 await init();
 

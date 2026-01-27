@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Acoustic analysis script using praatfan_core.
+Acoustic analysis script using praatfan_gpl.
 
 Extracts pitch, intensity, formants, harmonicity, and spectral properties
 from an audio file and outputs as TSV or JSON.
@@ -15,7 +15,7 @@ Usage:
 import argparse
 import json
 import sys
-from praatfan_core import Sound
+from praatfan_gpl import Sound
 
 
 def analyze(audio_path, time_step=0.01, pitch_floor=75.0, pitch_ceiling=600.0,

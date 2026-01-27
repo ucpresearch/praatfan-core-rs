@@ -1,16 +1,16 @@
 {
-  "name": "praatfan-core-wasm",
+  "name": "praatfan-gpl",
   "type": "module",
-  "description": "WebAssembly bindings for praatfan-core-rs acoustic analysis library",
+  "description": "praatfan-gpl: WebAssembly bindings for praatfan-core-rs acoustic analysis library",
   "version": "0.1.0",
   "license": "GPL-3.0",
   "files": [
-    "praatfan_core_wasm_bg.wasm",
-    "praatfan_core_wasm.js",
-    "praatfan_core_wasm.d.ts"
+    "praatfan_gpl_bg.wasm",
+    "praatfan_gpl.js",
+    "praatfan_gpl.d.ts"
   ],
-  "main": "praatfan_core_wasm.js",
-  "types": "praatfan_core_wasm.d.ts",
+  "main": "praatfan_gpl.js",
+  "types": "praatfan_gpl.d.ts",
   "sideEffects": [
     "./snippets/*"
   ]

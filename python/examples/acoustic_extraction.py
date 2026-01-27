@@ -33,8 +33,8 @@ from typing import Optional
 
 import numpy as np
 
-# Import praatfan_core - the Rust-based Praat reimplementation
-from praatfan_core import Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum
+# Import praatfan_gpl - the Rust-based Praat reimplementation
+from praatfan_gpl import Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum
 
 
 @dataclass

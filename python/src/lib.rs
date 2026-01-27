@@ -816,7 +816,7 @@ fn parse_frequency_unit(s: &str) -> PyResult<FrequencyUnit> {
     }
 }
 
-/// praatfan_core - Praat-compatible acoustic analysis in Python
+/// praatfan_gpl - Praat-compatible acoustic analysis in Python
 ///
 /// This module provides exact reimplementations of Praat's acoustic analysis
 /// algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
@@ -830,7 +830,7 @@ fn parse_frequency_unit(s: &str) -> PyResult<FrequencyUnit> {
 /// - Spectrogram: Time-frequency representation
 /// - Harmonicity: HNR (harmonics-to-noise ratio) contour
 #[pymodule]
-fn praatfan_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn praatfan_gpl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySound>()?;
     m.add_class::<PyPitch>()?;
     m.add_class::<PyFormant>()?;

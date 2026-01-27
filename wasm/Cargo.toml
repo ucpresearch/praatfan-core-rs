@@ -1,9 +1,9 @@
 [package]
-name = "praatfan-core-wasm"
+name = "praatfan-gpl"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0"
-description = "WebAssembly bindings for praatfan-core-rs acoustic analysis library"
+description = "praatfan-gpl: WebAssembly bindings for praatfan-core-rs acoustic analysis library"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

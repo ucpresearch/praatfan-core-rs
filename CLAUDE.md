@@ -219,7 +219,7 @@ praatfan-core-rs/
 ├── benches/                # Performance benchmarks
 ├── python/                 # PyO3 Python bindings
 │   ├── src/lib.rs          # Rust bindings code
-│   ├── python/praatfan_core/  # Python package
+│   ├── python/praatfan_gpl/  # Python package
 │   ├── examples/           # Python usage examples (M8)
 │   │   └── ozen_port/      # Port of ozen using praatfan-core
 │   └── README.md           # Python API documentation
@@ -374,7 +374,7 @@ maturin develop --release
 
 # Or build a wheel and install
 maturin build --release
-pip install target/wheels/praatfan_core-*.whl
+pip install target/wheels/praatfan_gpl-*.whl
 ```
 
 ## Milestones
@@ -462,18 +462,18 @@ cd python
 
 | Asset | Platform | Python |
 |-------|----------|--------|
-| `praatfan_core-...-manylinux_2_35_x86_64.whl` | Linux x64 | cp312 |
-| `praatfan_core-...-manylinux_2_35_aarch64.whl` | Linux ARM64 | cp312 |
-| `praatfan_core-...-macosx_10_12_x86_64.whl` | macOS Intel | cp312 |
-| `praatfan_core-...-macosx_11_0_arm64.whl` | macOS Silicon | cp312 |
-| `praatfan_core-...-win_amd64.whl` | Windows x64 | cp312 |
-| `praatfan-core-wasm.zip` | Web/WASM | N/A |
+| `praatfan_gpl-...-manylinux_2_35_x86_64.whl` | Linux x64 | cp312 |
+| `praatfan_gpl-...-manylinux_2_35_aarch64.whl` | Linux ARM64 | cp312 |
+| `praatfan_gpl-...-macosx_10_12_x86_64.whl` | macOS Intel | cp312 |
+| `praatfan_gpl-...-macosx_11_0_arm64.whl` | macOS Silicon | cp312 |
+| `praatfan_gpl-...-win_amd64.whl` | Windows x64 | cp312 |
+| `praatfan-gpl.zip` | Web/WASM | N/A |
 
 ### Installation Testing
 
 Verified working:
 ```python
-from praatfan_core import Sound
+from praatfan_gpl import Sound
 import numpy as np
 
 samples = np.sin(2 * np.pi * 440 * np.linspace(0, 1, 22050))

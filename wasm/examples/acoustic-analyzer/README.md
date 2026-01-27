@@ -1,11 +1,11 @@
 # Acoustic Analyzer - Browser Example
 
-A browser-based acoustic analysis tool demonstrating praatfan-core-wasm.
+A browser-based acoustic analysis tool demonstrating praatfan-gpl.
 
 ## Features
 
 - **Drag & drop** audio file upload (WAV, FLAC, MP3, OGG)
-- **Real-time analysis** using praatfan-core-wasm
+- **Real-time analysis** using praatfan-gpl
 - **Extracted features:**
   - Pitch (F0) in Hz
   - Intensity in dB
@@ -49,7 +49,7 @@ npx serve .
 
 The example:
 1. Uses the Web Audio API to decode uploaded audio files
-2. Creates a praatfan-core-wasm `Sound` object from the decoded samples
+2. Creates a praatfan-gpl `Sound` object from the decoded samples
 3. Computes pitch, intensity, formants, and harmonicity
 4. Displays results in an interactive table with summary statistics
 

@@ -105,12 +105,12 @@ jobs:
       - name: Build WASM (web target)
         run: cd wasm && wasm-pack build --target web
       - name: Package WASM
-        run: cd wasm && zip -r ../praatfan-core-wasm.zip pkg/
+        run: cd wasm && zip -r ../praatfan-gpl.zip pkg/
       - uses: actions/upload-artifact@v4
         with:
           name: wasm-pkg
-          path: praatfan-core-wasm.zip
+          path: praatfan-gpl.zip
       - uses: softprops/action-gh-release@v1
         if: github.event_name == 'release'
         with:
-          files: praatfan-core-wasm.zip
+          files: praatfan-gpl.zip

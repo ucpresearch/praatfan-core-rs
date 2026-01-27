@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Acoustic Analyzer - praatfan-core-wasm</title>
+    <title>Acoustic Analyzer - praatfan-gpl</title>
     <style>
         * {
             box-sizing: border-box;
@@ -174,7 +174,7 @@
 </head>
 <body>
     <h1>Acoustic Analyzer</h1>
-    <p class="subtitle">Browser-based acoustic analysis using <a href="https://github.com/praatfan-core-rs">praatfan-core-wasm</a></p>
+    <p class="subtitle">Browser-based acoustic analysis using <a href="https://github.com/praatfan-core-rs">praatfan-gpl</a></p>
 
     <div class="drop-zone" id="dropZone">
         <p>Drop an audio file here or click to select</p>
@@ -225,7 +225,7 @@
     </div>
 
     <script type="module">
-        import init, { Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum } from './pkg/praatfan_core_wasm.js';
+        import init, { Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum } from './pkg/praatfan_gpl.js';
 
         let wasmReady = false;
         let analysisData = null;

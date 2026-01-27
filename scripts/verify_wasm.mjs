@@ -23,7 +23,7 @@ const __dirname = dirname(__filename);
 const projectRoot = join(__dirname, '..');
 
 // Import WASM module
-const wasmPath = join(projectRoot, 'wasm/pkg/praatfan_core_wasm.js');
+const wasmPath = join(projectRoot, 'wasm/pkg/praatfan_gpl.js');
 if (!existsSync(wasmPath)) {
     console.error('WASM package not found. Build it first:');
     console.error('  cd wasm && ~/.cargo/bin/wasm-pack build --target nodejs');

@@ -6,7 +6,7 @@ license = "GPL-3.0"
 description = "Python bindings for praatfan-core-rs acoustic analysis library"
 
 [lib]
-name = "praatfan_core"
+name = "praatfan_gpl"
 crate-type = ["cdylib"]
 
 [dependencies]
