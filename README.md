@@ -93,7 +93,26 @@ pip install target/wheels/praatfan_gpl-*.whl
 #### WASM
 
 ```bash
+# Build WASM package
 cd wasm && wasm-pack build --target web
+
+# The built package is in wasm/pkg/ containing:
+#   praatfan_gpl.js      - JavaScript bindings
+#   praatfan_gpl_bg.wasm - WebAssembly binary
+#   praatfan_gpl.d.ts    - TypeScript definitions
+#   package.json         - npm package metadata
+```
+
+To create a release zip:
+
+```bash
+cd wasm/pkg && zip -r ../../praatfan-gpl.zip .
+```
+
+To update the GitHub Pages demo (docs/):
+
+```bash
+rm -rf docs/pkg && cp -r wasm/pkg docs/
 ```
 
 ### Package Names
