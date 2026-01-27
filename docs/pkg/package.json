@@ -2,7 +2,7 @@
   "name": "praatfan-gpl",
   "type": "module",
   "description": "praatfan-gpl: WebAssembly bindings for praatfan-core-rs acoustic analysis library",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "GPL-3.0",
   "files": [
     "praatfan_gpl_bg.wasm",
