@@ -23,25 +23,35 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 
 ## Installation
 
+### Python (from PyPI)
+
+```bash
+pip install praatfan-gpl
+```
+
+[![PyPI](https://img.shields.io/pypi/v/praatfan-gpl.svg)](https://pypi.org/project/praatfan-gpl/)
+
+**Platform support**: Linux (x86_64, ARM64), macOS (Intel, Apple Silicon), Windows (x86_64)
+
 ### Python (from GitHub Release)
 
-Install directly from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases) using the URL for your platform:
+Alternatively, install directly from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases):
 
 ```bash
 # Linux x86_64
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.1/praatfan_gpl-0.1.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 
 # Linux ARM64 (e.g., Raspberry Pi 5)
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.1/praatfan_gpl-0.1.1-cp312-cp312-manylinux_2_35_aarch64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-manylinux_2_35_aarch64.whl
 
 # macOS Apple Silicon (M1/M2/M3)
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.1/praatfan_gpl-0.1.1-cp312-cp312-macosx_11_0_arm64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-macosx_11_0_arm64.whl
 
 # macOS Intel
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.1/praatfan_gpl-0.1.1-cp312-cp312-macosx_10_12_x86_64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-macosx_10_12_x86_64.whl
 
 # Windows x86_64
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.1/praatfan_gpl-0.1.1-cp312-cp312-win_amd64.whl
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-win_amd64.whl
 ```
 
 **Note:** These wheels require Python 3.12. For other Python versions, build from source (see below).
