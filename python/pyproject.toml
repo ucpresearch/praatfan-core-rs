@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "praatfan-gpl"
-version = "0.1.1"
+version = "0.1.2"
 description = "Praat-compatible acoustic analysis in Python (Rust implementation)"
 readme = "README.md"
 license = { text = "GPL-3.0" }
@@ -36,7 +36,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/your-username/praatfan-core-rs"
+Repository = "https://github.com/ucpresearch/praatfan-core-rs"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
