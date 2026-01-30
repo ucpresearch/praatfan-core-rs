@@ -21,6 +21,32 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 | `Spectrum` | Single-frame FFT magnitude spectrum |
 | `Spectrogram` | Time-frequency representation |
 
+## Quick Start
+
+```bash
+pip install praatfan-gpl
+```
+
+```python
+from praatfan_gpl import Sound
+
+# Load audio and analyze
+sound = Sound.from_file("speech.wav")
+pitch = sound.to_pitch(0.01, 75.0, 600.0)
+formant = sound.to_formant_burg(0.01, 5, 5500.0, 0.025, 50.0)
+
+# Get F0 at time t=0.5s
+f0 = pitch.get_value_at_time(0.5, "Hertz", "Linear")
+print(f"F0 at 0.5s: {f0:.1f} Hz")
+
+# Get F1, F2 at time t=0.5s
+f1 = formant.get_value_at_time(1, 0.5, "Hertz", "Linear")
+f2 = formant.get_value_at_time(2, 0.5, "Hertz", "Linear")
+print(f"F1={f1:.0f} Hz, F2={f2:.0f} Hz")
+```
+
+See [python/README.md](python/README.md) for full API documentation.
+
 ## Installation
 
 ### Python (from PyPI)

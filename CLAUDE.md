@@ -4,11 +4,14 @@
 
 **praatfan-core-rs** - A Rust reimplementation of Praat's core acoustic analysis algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
 
+**Status:** ✅ Published on PyPI as `praatfan-gpl` (https://pypi.org/project/praatfan-gpl/)
+
 **Goals:**
 - Exact output parity with Praat (within floating-point tolerance)
 - Cross-platform compilation: native, WASM, Python bindings (PyO3)
 - No GUI dependencies - pure computational library
 - Comprehensive test suite validating against parselmouth ground truth
+- Easy installation via PyPI for all major platforms
 
 ## License
 
@@ -458,7 +461,7 @@ cd python
 # Upload: gh release upload vX.Y.Z dist/*.whl
 ```
 
-### Release Assets (v0.1.0)
+### Release Assets
 
 | Asset | Platform | Python |
 |-------|----------|--------|
@@ -468,6 +471,61 @@ cd python
 | `praatfan_gpl-...-macosx_11_0_arm64.whl` | macOS Silicon | cp312 |
 | `praatfan_gpl-...-win_amd64.whl` | Windows x64 | cp312 |
 | `praatfan-gpl.zip` | Web/WASM | N/A |
+
+### PyPI Publication (v0.1.2+)
+
+**Package name:** `praatfan-gpl`
+**PyPI URL:** https://pypi.org/project/praatfan-gpl/
+
+**Installation:**
+```bash
+pip install praatfan-gpl
+```
+
+**Publishing process (session 2026-01-30):**
+
+1. **Metadata fixes:**
+   - Fixed repository URL from placeholder to `https://github.com/ucpresearch/praatfan-core-rs`
+   - Bumped version from 0.1.1 to 0.1.2 in all `Cargo.toml` and `pyproject.toml` files
+
+2. **Build wheels:**
+   - GitHub Actions: 4 platforms (Linux x64, macOS x64/ARM64, Windows x64)
+   - Raspberry Pi 5: Linux ARM64 (built via SSH at `transit.u5ls`)
+
+3. **Upload to TestPyPI first:**
+   ```bash
+   twine upload --repository testpypi dist/*
+   ```
+   - Verified installation and all functionality
+
+4. **Upload to PyPI:**
+   ```bash
+   twine upload dist/*
+   ```
+   - All 5 wheels uploaded successfully
+   - Package immediately available: https://pypi.org/project/praatfan-gpl/0.1.2/
+
+**Configuration:** API tokens stored in `~/.pypirc`:
+```ini
+[distutils]
+index-servers =
+    pypi
+    testpypi
+
+[pypi]
+username = __token__
+password = pypi-YOUR_PYPI_TOKEN_HERE
+
+[testpypi]
+repository = https://test.pypi.org/legacy/
+username = __token__
+password = pypi-YOUR_TESTPYPI_TOKEN_HERE
+```
+
+**Platform support:** All major platforms supported with pre-built wheels
+- Linux: x86_64, ARM64 (Raspberry Pi)
+- macOS: Intel, Apple Silicon
+- Windows: x64
 
 ### Installation Testing
 
