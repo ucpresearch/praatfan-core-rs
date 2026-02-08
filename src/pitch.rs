@@ -180,10 +180,12 @@ impl Pitch {
         // Method-specific parameters
         // - AC_GAUSS doubles periods_per_window
         // - FCC uses interpolation_depth = 1.0
-        let (periods_per_window, interpolation_depth) = match method {
-            PitchMethod::AcHanning => (periods_per_window, 0.5),
-            PitchMethod::AcGauss => (periods_per_window * 2.0, 0.25),
-            PitchMethod::FccAccurate => (periods_per_window, 1.0),
+        // - brent_depth: sinc interpolation depth for Brent peak refinement
+        //   (matches Praat's NUM_PEAK_INTERPOLATE_* → NUM_VALUE_INTERPOLATE_*)
+        let (periods_per_window, interpolation_depth, brent_depth) = match method {
+            PitchMethod::AcHanning => (periods_per_window, 0.5, 70_usize),   // SINC70
+            PitchMethod::AcGauss => (periods_per_window * 2.0, 0.25, 700_usize), // SINC700
+            PitchMethod::FccAccurate => (periods_per_window, 1.0, 700_usize), // SINC700
         };
 
         // For FCC, use the FCC-specific implementation
@@ -200,6 +202,7 @@ impl Pitch {
                 octave_jump_cost,
                 voiced_unvoiced_cost,
                 periods_per_window,
+                brent_depth,
             );
         }
 
@@ -349,6 +352,7 @@ impl Pitch {
                 halfnsamp_period,
                 maximum_lag,
                 brent_ixmax,
+                brent_depth,
                 global_peak,
                 &window,
                 &window_r_norm,
@@ -461,6 +465,7 @@ impl Pitch {
                 octave_jump_cost,
                 voiced_unvoiced_cost,
                 periods_per_window,
+                700, // SINC700 for FCC_ACCURATE
             );
         }
 
@@ -470,9 +475,9 @@ impl Pitch {
         let pitch_ceiling = pitch_ceiling.min(0.5 / sound.dx());
 
         // Method-specific parameters
-        let (periods_per_window, interpolation_depth) = match method {
-            PitchMethod::AcHanning => (periods_per_window, 0.5),
-            PitchMethod::AcGauss => (periods_per_window * 2.0, 0.25),
+        let (periods_per_window, interpolation_depth, brent_depth) = match method {
+            PitchMethod::AcHanning => (periods_per_window, 0.5, 70_usize),
+            PitchMethod::AcGauss => (periods_per_window * 2.0, 0.25, 700_usize),
             PitchMethod::FccAccurate => unreachable!(),
         };
 
@@ -606,6 +611,7 @@ impl Pitch {
                 halfnsamp_period,
                 maximum_lag,
                 brent_ixmax,
+                brent_depth,
                 global_peak,
                 &window,
                 &window_r_norm,
@@ -652,6 +658,7 @@ impl Pitch {
         octave_jump_cost: f64,
         voiced_unvoiced_cost: f64,
         periods_per_window: f64,
+        brent_depth: usize,
     ) -> Self {
         let sound = &sounds[0];
         let pitch_floor = pitch_floor.max(10.0);
@@ -665,12 +672,20 @@ impl Pitch {
 
         let interpolation_depth = 1.0;
         let dt_window = periods_per_window / pitch_floor;
-        let nsamp_window = (dt_window / dx).floor() as usize;
-        if nsamp_window < 4 {
+        let nsamp_window_raw = (dt_window / dx).floor() as usize;
+        if nsamp_window_raw < 4 {
             return Self::empty(xmin, xmax, time_step, pitch_floor, pitch_ceiling);
         }
 
-        let maximum_lag = (1.0 / pitch_floor / dx).floor() as usize;
+        // Truncate to even (matching Praat: halfnsamp_window = raw/2 - 1; nsamp_window = half*2)
+        let halfnsamp_window = nsamp_window_raw / 2 - 1;
+        if halfnsamp_window < 2 {
+            return Self::empty(xmin, xmax, time_step, pitch_floor, pitch_ceiling);
+        }
+        let nsamp_window = halfnsamp_window * 2;
+
+        // Maximum lag (matching Praat line 335)
+        let maximum_lag = ((nsamp_window as f64 / periods_per_window).floor() as usize + 2).min(nsamp_window);
         let dt = if time_step <= 0.0 {
             periods_per_window / pitch_floor / 4.0
         } else {
@@ -710,7 +725,6 @@ impl Pitch {
         let max_candidates = max_candidates.max((pitch_ceiling / pitch_floor).floor() as usize);
         let nsamp_period = (1.0 / dx / pitch_floor).floor() as usize;
         let halfnsamp_period = nsamp_period / 2 + 1;
-        let halfnsamp_window = nsamp_window / 2;
 
         // Collect samples from all channels
         let channel_samples: Vec<&[f64]> = sounds.iter().map(|s| s.samples()).collect();
@@ -734,7 +748,9 @@ impl Pitch {
                 halfnsamp_period,
                 maximum_lag,
                 brent_ixmax,
+                brent_depth,
                 global_peak,
+                dt_window,
             );
             frames.push(frame);
         }
@@ -776,6 +792,7 @@ impl Pitch {
         octave_jump_cost: f64,
         voiced_unvoiced_cost: f64,
         periods_per_window: f64,
+        brent_depth: usize,
     ) -> Self {
         let pitch_floor = pitch_floor.max(10.0);
         let pitch_ceiling = pitch_ceiling.min(0.5 / sound.dx());
@@ -793,13 +810,20 @@ impl Pitch {
         let dt_window = periods_per_window / pitch_floor;
 
         // Number of samples in analysis window
-        let nsamp_window = (dt_window / dx).floor() as usize;
-        if nsamp_window < 4 {
+        let nsamp_window_raw = (dt_window / dx).floor() as usize;
+        if nsamp_window_raw < 4 {
             return Self::empty(xmin, xmax, time_step, pitch_floor, pitch_ceiling);
         }
 
-        // Maximum lag (longest period)
-        let maximum_lag = (1.0 / pitch_floor / dx).floor() as usize;
+        // Truncate to even (matching Praat: halfnsamp_window = raw/2 - 1; nsamp_window = half*2)
+        let halfnsamp_window = nsamp_window_raw / 2 - 1;
+        if halfnsamp_window < 2 {
+            return Self::empty(xmin, xmax, time_step, pitch_floor, pitch_ceiling);
+        }
+        let nsamp_window = halfnsamp_window * 2;
+
+        // Maximum lag (matching Praat line 335)
+        let maximum_lag = ((nsamp_window as f64 / periods_per_window).floor() as usize + 2).min(nsamp_window);
 
         // Time step
         let dt = if time_step <= 0.0 {
@@ -846,7 +870,6 @@ impl Pitch {
         // Number of samples in the longest period (for local peak calculation)
         let nsamp_period = (1.0 / dx / pitch_floor).floor() as usize;
         let halfnsamp_period = nsamp_period / 2 + 1;
-        let halfnsamp_window = nsamp_window / 2;
 
         // Process each frame using FCC
         let mut frames = Vec::with_capacity(number_of_frames);
@@ -868,7 +891,9 @@ impl Pitch {
                 halfnsamp_period,
                 maximum_lag,
                 brent_ixmax,
+                brent_depth,
                 global_peak,
+                dt_window,
             );
             frames.push(frame);
         }
@@ -1087,6 +1112,7 @@ fn compute_pitch_frame(
     halfnsamp_period: usize,
     maximum_lag: usize,
     brent_ixmax: usize,
+    brent_depth: usize,
     global_peak: f64,
     window: &[f64],
     window_r: &[f64],
@@ -1232,13 +1258,14 @@ fn compute_pitch_frame(
         }
     }
 
-    // Second pass: refine with sinc interpolation (simplified version)
+    // Second pass: for extra precision, maximize sinc interpolation (matches Praat)
     for i in 1..candidates.len() {
         if candidates[i].frequency > 0.0 {
             let lag = 1.0 / dx / candidates[i].frequency;
-            // Use parabolic + sinc refinement
+            // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
+            let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
             let (refined_lag, refined_strength) =
-                improve_maximum(&r, r_offset, lag, brent_ixmax);
+                improve_maximum(&r, r_offset, lag, brent_ixmax, depth);
             if refined_lag > 0.0 {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
@@ -1276,6 +1303,7 @@ fn compute_pitch_frame_multichannel(
     halfnsamp_period: usize,
     maximum_lag: usize,
     brent_ixmax: usize,
+    brent_depth: usize,
     global_peak: f64,
     window: &[f64],
     window_r: &[f64],
@@ -1420,11 +1448,13 @@ fn compute_pitch_frame_multichannel(
         }
     }
 
-    // Second pass: refine with sinc interpolation
+    // Second pass: for extra precision, maximize sinc interpolation (matches Praat)
     for i in 1..candidates.len() {
         if candidates[i].frequency > 0.0 {
             let lag = 1.0 / dx / candidates[i].frequency;
-            let (refined_lag, refined_strength) = improve_maximum(&r, r_offset, lag, brent_ixmax);
+            // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
+            let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
+            let (refined_lag, refined_strength) = improve_maximum(&r, r_offset, lag, brent_ixmax, depth);
             if refined_lag > 0.0 {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
@@ -1458,28 +1488,31 @@ fn compute_pitch_frame_fcc_multichannel(
     _halfnsamp_period: usize,
     maximum_lag: usize,
     brent_ixmax: usize,
+    brent_depth: usize,
     global_peak: f64,
+    dt_window: f64,
 ) -> PitchFrame {
     let left_sample = ((time - x1) / dx).floor() as isize;
     let right_sample = left_sample + 1;
 
     // Compute local mean for each channel
+    // Praat: startSample = rightSample - nsamp_period, endSample = leftSample + nsamp_period (1-based inclusive)
+    // Divisor is always 2*nsamp_period (matching Praat line 66)
     let nsamp_period = (1.0 / dx / pitch_floor).floor() as usize;
     let start_mean = (right_sample - nsamp_period as isize).max(0) as usize;
-    let end_mean = ((left_sample + nsamp_period as isize) as usize).min(nx);
+    let end_mean = ((left_sample + nsamp_period as isize + 1) as usize).min(nx);
     let local_means: Vec<f64> = channel_samples
         .iter()
         .map(|samples| {
             if end_mean > start_mean {
-                samples[start_mean..end_mean].iter().sum::<f64>() / (end_mean - start_mean) as f64
+                samples[start_mean..end_mean].iter().sum::<f64>() / (2 * nsamp_period) as f64
             } else {
                 0.0
             }
         })
         .collect();
 
-    // FCC start position
-    let dt_window = nsamp_window as f64 * dx;
+    // FCC start position (uses original dt_window, not truncated nsamp_window * dx)
     let start_time = time - 0.5 * (1.0 / pitch_floor + dt_window);
     let start_sample_fcc = ((start_time - x1) / dx).floor() as isize;
     let start_sample_fcc = start_sample_fcc.max(0) as usize;
@@ -1529,9 +1562,9 @@ fn compute_pitch_frame_fcc_multichannel(
 
     let mut sumy2 = sumx2;
 
-    // Allocate correlation array
-    let mut r = vec![0.0; 2 * local_maximum_lag + 1];
-    let r_offset = local_maximum_lag;
+    // Allocate correlation array sized to nsamp_window (matching Praat's zero-padded array)
+    let mut r = vec![0.0; 2 * nsamp_window + 1];
+    let r_offset = nsamp_window;
     r[r_offset] = 1.0;
 
     // Compute cross-correlation for each lag, summing across channels
@@ -1563,6 +1596,9 @@ fn compute_pitch_frame_fcc_multichannel(
             r[r_offset - lag] = corr;
         }
     }
+
+    // Track discrete lag positions for each candidate (imax)
+    let mut imax: Vec<usize> = vec![0; max_candidates + 1];
 
     // Find maxima (same as single-channel)
     for i in 2..local_maximum_lag.min(brent_ixmax) {
@@ -1605,16 +1641,25 @@ fn compute_pitch_frame_fcc_multichannel(
                 if place > 0 {
                     candidates[place].frequency = frequency_of_maximum;
                     candidates[place].strength = strength_of_maximum;
+                    if place < imax.len() {
+                        imax[place] = i;
+                    }
                 }
             }
         }
     }
 
-    // Second pass: refine
+    // Second pass: for extra precision, maximize sinc interpolation (matches Praat)
     for i in 1..candidates.len() {
         if candidates[i].frequency > 0.0 {
-            let lag = 1.0 / dx / candidates[i].frequency;
-            let (refined_lag, refined_strength) = improve_maximum(&r, r_offset, lag, brent_ixmax);
+            let ixmid = if i < imax.len() && imax[i] > 0 {
+                imax[i] as f64
+            } else {
+                1.0 / dx / candidates[i].frequency
+            };
+            // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
+            let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
+            let (refined_lag, refined_strength) = improve_maximum(&r, r_offset, ixmid, brent_ixmax, depth);
             if refined_lag > 0.0 {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 candidates[i].strength = if refined_strength > 1.0 {
@@ -1648,25 +1693,27 @@ fn compute_pitch_frame_fcc(
     _halfnsamp_period: usize,
     maximum_lag: usize,
     brent_ixmax: usize,
+    brent_depth: usize,
     global_peak: f64,
+    dt_window: f64,
 ) -> PitchFrame {
     // Sample indices (matching Praat's Sampled_xToLowIndex)
     let left_sample = ((time - x1) / dx).floor() as isize;
     let right_sample = left_sample + 1;
 
     // Compute local mean (looking one longest period to both sides)
+    // Praat: startSample = rightSample - nsamp_period, endSample = leftSample + nsamp_period (1-based inclusive)
+    // Divisor is always 2*nsamp_period (matching Praat line 66)
     let nsamp_period = (1.0 / dx / pitch_floor).floor() as usize;
     let start_mean = (right_sample - nsamp_period as isize).max(0) as usize;
-    let end_mean = ((left_sample + nsamp_period as isize) as usize).min(nx);
+    let end_mean = ((left_sample + nsamp_period as isize + 1) as usize).min(nx);
     let local_mean: f64 = if end_mean > start_mean {
-        samples[start_mean..end_mean].iter().sum::<f64>() / (end_mean - start_mean) as f64
+        samples[start_mean..end_mean].iter().sum::<f64>() / (2 * nsamp_period) as f64
     } else {
         0.0
     };
 
-    // For FCC, we need to determine the start position for cross-correlation
-    // startTime = t - 0.5 * (1.0 / pitchFloor + dt_window)
-    let dt_window = nsamp_window as f64 * dx;
+    // FCC start position (uses original dt_window, not truncated nsamp_window * dx)
     let start_time = time - 0.5 * (1.0 / pitch_floor + dt_window);
     let start_sample_fcc = ((start_time - x1) / dx).floor() as isize;
     let start_sample_fcc = start_sample_fcc.max(0) as usize;
@@ -1736,9 +1783,9 @@ fn compute_pitch_frame_fcc(
     // Initialize sumy2 (at zero lag, equals sumx2)
     let mut sumy2 = sumx2;
 
-    // Allocate correlation array (symmetric around zero)
-    let mut r = vec![0.0; 2 * local_maximum_lag + 1];
-    let r_offset = local_maximum_lag;
+    // Allocate correlation array sized to nsamp_window (matching Praat's zero-padded array)
+    let mut r = vec![0.0; 2 * nsamp_window + 1];
+    let r_offset = nsamp_window;
     r[r_offset] = 1.0; // r[0] = 1.0
 
     // Compute cross-correlation for each lag
@@ -1768,6 +1815,9 @@ fn compute_pitch_frame_fcc(
             r[r_offset - lag] = corr; // Symmetric
         }
     }
+
+    // Track discrete lag positions for each candidate (imax)
+    let mut imax: Vec<usize> = vec![0; max_candidates + 1];
 
     // Find maxima in the correlation (same as AC method)
     for i in 2..local_maximum_lag.min(brent_ixmax) {
@@ -1828,17 +1878,26 @@ fn compute_pitch_frame_fcc(
                 if place > 0 {
                     candidates[place].frequency = frequency_of_maximum;
                     candidates[place].strength = strength_of_maximum;
+                    if place < imax.len() {
+                        imax[place] = i;
+                    }
                 }
             }
         }
     }
 
-    // Refine candidates with parabolic interpolation
+    // Refine candidates with sinc interpolation + Brent optimization (matches Praat)
     for i in 1..candidates.len() {
         if candidates[i].frequency > 0.0 {
-            let lag = 1.0 / dx / candidates[i].frequency;
+            let ixmid = if i < imax.len() && imax[i] > 0 {
+                imax[i] as f64
+            } else {
+                1.0 / dx / candidates[i].frequency
+            };
+            // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
+            let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
             let (refined_lag, refined_strength) =
-                improve_maximum(&r, r_offset, lag, brent_ixmax);
+                improve_maximum(&r, r_offset, ixmid, brent_ixmax, depth);
             if refined_lag > 0.0 {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
@@ -2004,30 +2063,168 @@ fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64 {
     result
 }
 
-/// Improve maximum using parabolic interpolation
-fn improve_maximum(r: &[f64], offset: usize, x: f64, _brent_ixmax: usize) -> (f64, f64) {
-    let ix = x.round() as isize;
-    let idx = (offset as isize + ix) as usize;
+/// Brent's method for univariate minimization (matches Praat's NUMminimize_brent)
+///
+/// Finds x in [a, b] that minimizes f(x). Returns (x_min, f_min).
+/// Closely modeled after the netlib code by Oleg Keselyov.
+fn minimize_brent<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64) -> (f64, f64) {
+    const GOLDEN: f64 = 1.0 - 0.6180339887498948482; // 1 - golden ratio
+    let sqrt_epsilon = f64::EPSILON.sqrt();
+    const ITERMAX: usize = 60;
 
-    if idx < 1 || idx >= r.len() - 1 {
-        return (x, r.get(idx).copied().unwrap_or(0.0));
+    let mut a = a;
+    let mut b = b;
+
+    // First step - golden section
+    let mut v = a + GOLDEN * (b - a);
+    let mut fv = f(v);
+    let mut x = v;
+    let mut w = v;
+    let mut fx = fv;
+    let mut fw = fv;
+
+    for _ in 0..ITERMAX {
+        let middle_range = (a + b) / 2.0;
+        let tol_act = sqrt_epsilon * x.abs() + tol / 3.0;
+        let range = b - a;
+        if (x - middle_range).abs() + range / 2.0 <= 2.0 * tol_act {
+            return (x, fx);
+        }
+
+        // Obtain the golden section step
+        let mut new_step = GOLDEN * if x < middle_range { b - x } else { a - x };
+
+        // Decide if the parabolic interpolation can be tried
+        if (x - w).abs() >= tol_act {
+            let t = (x - w) * (fx - fv);
+            let mut q = (x - v) * (fx - fw);
+            let mut p = (x - v) * q - (x - w) * t;
+            q = 2.0 * (q - t);
+
+            if q > 0.0 {
+                p = -p;
+            } else {
+                q = -q;
+            }
+
+            if p.abs() < (new_step * q).abs()
+                && p > q * (a - x + 2.0 * tol_act)
+                && p < q * (b - x - 2.0 * tol_act)
+            {
+                new_step = p / q;
+            }
+        }
+
+        // Adjust the step to be not less than tolerance
+        if new_step.abs() < tol_act {
+            new_step = if new_step > 0.0 { tol_act } else { -tol_act };
+        }
+
+        // Obtain the next approximation to min
+        let t = x + new_step;
+        let ft = f(t);
+
+        if ft <= fx {
+            if t < x {
+                b = x;
+            } else {
+                a = x;
+            }
+            v = w;
+            w = x;
+            x = t;
+            fv = fw;
+            fw = fx;
+            fx = ft;
+        } else {
+            if t < x {
+                a = t;
+            } else {
+                b = t;
+            }
+            if ft <= fw || w == x {
+                v = w;
+                w = t;
+                fv = fw;
+                fw = ft;
+            } else if ft <= fv || v == x || v == w {
+                v = t;
+                fv = ft;
+            }
+        }
     }
 
-    let y_prev = r[idx - 1];
-    let y_mid = r[idx];
-    let y_next = r[idx + 1];
+    (x, fx)
+}
 
-    // Parabolic interpolation
-    let dy = 0.5 * (y_next - y_prev);
-    let d2y = 2.0 * y_mid - y_prev - y_next;
+/// Improve maximum using sinc interpolation + Brent optimization
+/// (matches Praat's NUMimproveMaximum / NUMimproveExtremum)
+///
+/// Arguments:
+/// - `r`: correlation array with offset
+/// - `offset`: center position in r (r[offset + lag] = correlation at lag)
+/// - `x`: fractional lag position (will be rounded to find ixmid)
+/// - `brent_ixmax`: maximum lag index available in r
+/// - `brent_depth`: interpolation depth (70 = SINC70, 700 = SINC700, 1 = parabolic)
+fn improve_maximum(r: &[f64], offset: usize, x: f64, _brent_ixmax: usize, brent_depth: usize) -> (f64, f64) {
+    let ixmid = x.round() as isize;
 
-    if d2y > 0.0 {
-        let x_refined = ix as f64 + dy / d2y;
-        let y_refined = y_mid + 0.5 * dy * dy / d2y;
-        (x_refined, y_refined)
-    } else {
-        (x, y_mid)
+    // Boundary checks (matching Praat's NUMimproveExtremum)
+    // In our representation, valid range is 0..r.len(), with offset as center
+    if ixmid <= -(offset as isize) {
+        let idx = 0;
+        return (-(offset as f64), r[idx]);
     }
+    if ixmid >= (r.len() - offset) as isize {
+        let idx = r.len() - 1;
+        return ((idx as isize - offset as isize) as f64, r[idx]);
+    }
+
+    let idx = (offset as isize + ixmid) as usize;
+
+    // For no interpolation (depth 0) or edge cases
+    if brent_depth == 0 {
+        return (ixmid as f64, r[idx]);
+    }
+
+    // For parabolic interpolation (depth 1)
+    if brent_depth <= 1 {
+        if idx < 1 || idx >= r.len() - 1 {
+            return (ixmid as f64, r[idx]);
+        }
+        let dy = 0.5 * (r[idx + 1] - r[idx - 1]);
+        let d2y = 2.0 * r[idx] - r[idx - 1] - r[idx + 1];
+        if d2y > 0.0 {
+            let x_refined = ixmid as f64 + dy / d2y;
+            let y_refined = r[idx] + 0.5 * dy * dy / d2y;
+            return (x_refined, y_refined);
+        }
+        return (ixmid as f64, r[idx]);
+    }
+
+    // Sinc interpolation + Brent optimization
+    // We search for the maximum over [ixmid-1, ixmid+1] by minimizing -sinc_interpolate
+    let search_lo = (ixmid - 1) as f64;
+    let search_hi = (ixmid + 1) as f64;
+
+    // Clamp search range to valid data range
+    let data_lo = -(offset as f64);
+    let data_hi = (r.len() - 1 - offset) as f64;
+    let search_lo = search_lo.max(data_lo);
+    let search_hi = search_hi.min(data_hi);
+    if search_lo >= search_hi {
+        return (ixmid as f64, r[idx]);
+    }
+
+    let depth = brent_depth as i32;
+    let (xmid, neg_ymid) = minimize_brent(
+        &|pos| -sinc_interpolate(r, offset, pos, depth),
+        search_lo,
+        search_hi,
+        1e-10,
+    );
+
+    (xmid, -neg_ymid)
 }
 
 /// Path finder using Viterbi algorithm (matches Pitch_pathFinder)
