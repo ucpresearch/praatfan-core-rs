@@ -214,6 +214,138 @@ impl Intensity {
         Self::new(values, first_time, time_step, min_pitch)
     }
 
+    /// Compute intensity from multiple channels (matches Praat for stereo/multichannel)
+    ///
+    /// Praat's Sound_to_Intensity sums energy across channels in the inner loop:
+    /// `intensity = Σ_chan Σ_samp (s²·w) / Σ_chan Σ_samp w`
+    /// This is equivalent to averaging per-channel energy, which differs from
+    /// computing energy on sample-averaged mono.
+    pub fn from_channels(
+        sounds: &[Sound],
+        min_pitch: f64,
+        time_step: f64,
+        subtract_mean: bool,
+    ) -> Self {
+        if sounds.is_empty() {
+            return Self::new(Vec::new(), 0.0, if time_step > 0.0 { time_step } else { 0.01 }, min_pitch);
+        }
+        if sounds.len() == 1 {
+            return Self::from_sound(&sounds[0], min_pitch, time_step, subtract_mean);
+        }
+
+        let nchan = sounds.len();
+        let min_pitch = min_pitch.max(1.0);
+        let logical_window_duration = 3.2 / min_pitch;
+        let physical_window_duration = 2.0 * logical_window_duration;
+        let time_step = if time_step <= 0.0 {
+            logical_window_duration / 4.0
+        } else {
+            time_step
+        };
+
+        // Use first channel for timing (all channels must have same sample rate/length)
+        let sound = &sounds[0];
+        let dx = 1.0 / sound.sample_rate();
+        let half_window_duration = 0.5 * physical_window_duration;
+        let half_window_samples = (half_window_duration / dx).floor() as i64;
+        let window_num_samples = (2 * half_window_samples + 1) as usize;
+        let window_centre = half_window_samples + 1;
+
+        let bessel_arg = 2.0 * std::f64::consts::PI * std::f64::consts::PI + 0.5;
+        let mut window = vec![0.0; window_num_samples];
+        for i in 0..window_num_samples {
+            let i_1based = (i + 1) as f64;
+            let x = (i_1based - window_centre as f64) * dx / half_window_duration;
+            let root = (1.0 - x * x).max(0.0).sqrt();
+            window[i] = bessel_i0(bessel_arg * root);
+        }
+
+        let nx = sound.num_samples();
+        let my_duration = nx as f64 * dx;
+
+        if physical_window_duration > my_duration {
+            return Self::new(Vec::new(), sound.start_time(), time_step, min_pitch);
+        }
+
+        let num_frames = ((my_duration - physical_window_duration) / time_step).floor() as usize + 1;
+        let x1 = sound.start_time() + 0.5 * dx;
+        let our_mid_time = x1 - 0.5 * dx + 0.5 * my_duration;
+        let thy_duration = num_frames as f64 * time_step;
+        let first_time = our_mid_time - 0.5 * thy_duration + 0.5 * time_step;
+
+        // Collect all channel samples
+        let all_samples: Vec<&[f64]> = sounds.iter().map(|s| s.samples()).collect();
+
+        let mut values = Vec::with_capacity(num_frames);
+
+        for iframe in 0..num_frames {
+            let mid_time = first_time + iframe as f64 * time_step;
+            let sound_centre_sample = ((mid_time - x1) / dx).round() as i64 + 1;
+            let left_sample = sound_centre_sample - half_window_samples;
+            let right_sample = sound_centre_sample + half_window_samples;
+            let left_sample_clamped = left_sample.max(1) as usize;
+            let right_sample_clamped = (right_sample as usize).min(nx);
+
+            if right_sample_clamped < left_sample_clamped {
+                values.push(-300.0);
+                continue;
+            }
+
+            let window_from_sound_offset = window_centre - sound_centre_sample;
+
+            // Compute per-channel means if needed (Praat's centre_VEC_inout is per-channel)
+            let mut chan_means = vec![0.0; nchan];
+            if subtract_mean {
+                for ch in 0..nchan {
+                    let mut sum = 0.0;
+                    let mut count = 0;
+                    for isamp in left_sample_clamped..=right_sample_clamped {
+                        let window_idx = (window_from_sound_offset + isamp as i64) as usize;
+                        if window_idx > 0 && window_idx <= window_num_samples {
+                            sum += all_samples[ch][isamp - 1];
+                            count += 1;
+                        }
+                    }
+                    if count > 0 {
+                        chan_means[ch] = sum / count as f64;
+                    }
+                }
+            }
+
+            // Sum energy across all channels (Praat: inner loop over ichan)
+            let mut sumxw: f64 = 0.0;
+            let mut sumw: f64 = 0.0;
+
+            for ch in 0..nchan {
+                let samples = all_samples[ch];
+                let mean = chan_means[ch];
+                for isamp in left_sample_clamped..=right_sample_clamped {
+                    let window_idx = (window_from_sound_offset + isamp as i64) as usize;
+                    if window_idx > 0 && window_idx <= window_num_samples {
+                        let w = window[window_idx - 1];
+                        let s = samples[isamp - 1] - mean;
+                        sumxw += s * s * w;
+                        sumw += w;
+                    }
+                }
+            }
+
+            let intensity_in_pa2 = if sumw > 0.0 { sumxw / sumw } else { 0.0 };
+            let hearing_threshold_pa2 = REFERENCE_PRESSURE * REFERENCE_PRESSURE;
+            let intensity_re_threshold = intensity_in_pa2 / hearing_threshold_pa2;
+
+            let intensity_db = if intensity_re_threshold < 1.0e-30 {
+                -300.0
+            } else {
+                10.0 * intensity_re_threshold.log10()
+            };
+
+            values.push(intensity_db);
+        }
+
+        Self::new(values, first_time, time_step, min_pitch)
+    }
+
     /// Get intensity value at a specific time
     ///
     /// # Arguments
@@ -327,6 +459,15 @@ impl Sound {
     pub fn to_intensity(&self, min_pitch: f64, time_step: f64) -> Intensity {
         Intensity::from_sound(self, min_pitch, time_step, true)
     }
+}
+
+/// Compute intensity from multiple Sound channels (Praat-compatible stereo handling)
+///
+/// Praat sums energy across channels in the inner loop, then normalizes by
+/// total weight (including channel count). This gives the average energy
+/// across channels, which differs from computing energy on sample-averaged mono.
+pub fn intensity_from_channels(sounds: &[Sound], min_pitch: f64, time_step: f64) -> Intensity {
+    Intensity::from_channels(sounds, min_pitch, time_step, true)
 }
 
 #[cfg(test)]

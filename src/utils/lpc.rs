@@ -386,11 +386,10 @@ fn polish_roots(coefficients: &[f64], roots: &mut [Complex<f64>]) {
 /// Find polynomial roots using the companion matrix eigenvalue method
 ///
 /// This matches Praat's Polynomial_to_Roots which uses LAPACK's dhseqr
-/// (QR algorithm on Hessenberg matrix). We use nalgebra's eigenvalue
-/// solver which is more robust and WASM-compatible.
+/// (QR algorithm on Hessenberg matrix). We use our own QR implementation
+/// with bounded iteration count, which is WASM-compatible and avoids
+/// potential hangs on pathological matrices.
 fn find_polynomial_roots_eigen(coefficients: &[f64]) -> Vec<Complex<f64>> {
-    use nalgebra::DMatrix;
-
     let n = coefficients.len() - 1; // Degree of polynomial
 
     if n == 0 {
@@ -434,43 +433,23 @@ fn find_polynomial_roots_eigen(coefficients: &[f64]) -> Vec<Complex<f64>> {
 
     // Build companion matrix for polynomial c0 + c1*z + ... + c(n-1)*z^(n-1) + z^n
     // Praat uses the form from Polynomial_to_Roots in Roots.cpp:
-    // uh_CM [1] [n] = -c[1]/c[n+1]
-    // uh_CM [irow] [irow-1] = 1.0; uh_CM [irow] [n] = -c[irow]/c[n+1]
-    //
-    // In column-major (as Praat uses with colStride=n):
     // [  0   0  ...  0  -c0   ]
     // [  1   0  ...  0  -c1   ]
     // [  0   1  ...  0  -c2   ]
     // ...
     // [  0   0  ...  1  -c(n-1)]
-    let mut companion = DMatrix::<f64>::zeros(n, n);
-
-    // Praat's companion matrix form (coefficients in last column)
+    //
+    // Uses our own QR implementation with bounded iteration count.
+    // nalgebra's complex_eigenvalues() can hang on pathological matrices
+    // (observed on certain near-silent frames in long audio files).
+    let mut comp = vec![vec![0.0; n]; n];
     for i in 1..n {
-        companion[(i, i - 1)] = 1.0;
+        comp[i][i - 1] = 1.0;
     }
     for i in 0..n {
-        companion[(i, n - 1)] = -normalized[i];
+        comp[i][n - 1] = -normalized[i];
     }
-
-    // Find eigenvalues using nalgebra's implementation
-    match companion.complex_eigenvalues().try_into() {
-        Ok(eigenvalues) => {
-            let eigvals: nalgebra::OVector<nalgebra::Complex<f64>, nalgebra::Dyn> = eigenvalues;
-            eigvals.iter().map(|c| Complex::new(c.re, c.im)).collect()
-        }
-        Err(_) => {
-            // Fallback to our QR implementation if nalgebra fails
-            let mut comp_vec = vec![vec![0.0; n]; n];
-            for i in 0..n - 1 {
-                comp_vec[i][i + 1] = 1.0;
-            }
-            for i in 0..n {
-                comp_vec[n - 1][i] = -normalized[i];
-            }
-            qr_eigenvalues(&comp_vec)
-        }
-    }
+    qr_eigenvalues(&comp)
 }
 
 /// QR iteration to find eigenvalues of a matrix

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>praatfan-gpl WASM Test</title>
+<style>
+body { font-family: monospace; padding: 20px; }
+.pass { color: green; }
+.fail { color: red; }
+pre { background: #f0f0f0; padding: 10px; }
+</style>
+</head>
+<body>
+<h2>praatfan-gpl WASM Smoke Test</h2>
+<pre id="log">Loading WASM module...</pre>
+<script type="module">
+import init, { Sound } from './pkg/praatfan_gpl.js';
+
+const log = document.getElementById('log');
+let passed = 0, failed = 0;
+
+function check(name, condition, detail) {
+    if (condition) {
+        log.innerHTML += `<span class="pass">PASS</span> ${name}`;
+        if (detail) log.innerHTML += ` (${detail})`;
+        log.innerHTML += '\n';
+        passed++;
+    } else {
+        log.innerHTML += `<span class="fail">FAIL</span> ${name}`;
+        if (detail) log.innerHTML += ` (${detail})`;
+        log.innerHTML += '\n';
+        failed++;
+    }
+}
+
+await init();
+log.innerHTML = '';
+
+// Generate 440 Hz sine wave, 1 second, 22050 Hz sample rate
+const sr = 22050;
+const dur = 1.0;
+const freq = 440;
+const n = sr * dur;
+const samples = new Float64Array(n);
+for (let i = 0; i < n; i++) {
+    samples[i] = 0.5 * Math.sin(2 * Math.PI * freq * i / sr);
+}
+
+// 1. Sound
+const sound = new Sound(samples, sr);
+check('Sound creation', sound != null);
+check('Sound.duration', Math.abs(sound.duration - 1.0) < 0.001, `${sound.duration}`);
+check('Sound.sample_rate', sound.sample_rate === sr, `${sound.sample_rate}`);
+check('Sound.num_samples', sound.num_samples === n, `${sound.num_samples}`);
+
+// 2. Pitch
+const pitch = sound.to_pitch(0.01, 75, 600);
+check('Pitch creation', pitch != null);
+check('Pitch.num_frames > 0', pitch.num_frames > 0, `${pitch.num_frames} frames`);
+const f0 = pitch.get_value_at_time(0.5, 'hertz', 'linear');
+check('Pitch F0 ~ 440 Hz', f0 != null && Math.abs(f0 - 440) < 1, `${f0?.toFixed(2)} Hz`);
+
+// 3. Intensity
+const intensity = sound.to_intensity(100, 0.01);
+check('Intensity creation', intensity != null);
+check('Intensity.num_frames > 0', intensity.num_frames > 0, `${intensity.num_frames} frames`);
+const intVal = intensity.get_value_at_time(0.5, 'cubic');
+check('Intensity value defined', intVal != null, `${intVal?.toFixed(2)} dB`);
+
+// 4. Formant
+const formant = sound.to_formant_burg(0.01, 5, 5500, 0.025, 50);
+check('Formant creation', formant != null);
+check('Formant.num_frames > 0', formant.num_frames > 0, `${formant.num_frames} frames`);
+const f1 = formant.get_value_at_time(1, 0.5, 'hertz', 'linear');
+check('Formant F1 defined', f1 != null, `${f1?.toFixed(1)} Hz`);
+
+// 5. Harmonicity CC
+const hnr_cc = sound.to_harmonicity_cc(0.01, 75, 0.1, 1.0);
+check('Harmonicity CC creation', hnr_cc != null);
+check('Harmonicity CC.num_frames > 0', hnr_cc.num_frames > 0, `${hnr_cc.num_frames} frames`);
+const hnr_val = hnr_cc.get_value_at_time(0.5, 'cubic');
+check('HNR CC value defined', hnr_val != null, `${hnr_val?.toFixed(2)} dB`);
+
+// 6. Harmonicity AC
+const hnr_ac = sound.to_harmonicity_ac(0.01, 75, 0.1, 4.5);
+check('Harmonicity AC creation', hnr_ac != null);
+check('Harmonicity AC.num_frames > 0', hnr_ac.num_frames > 0, `${hnr_ac.num_frames} frames`);
+
+// 7. Spectrum
+const spectrum = sound.to_spectrum(true);
+check('Spectrum creation', spectrum != null);
+check('Spectrum.num_bins > 0', spectrum.num_bins > 0, `${spectrum.num_bins} bins`);
+const cog = spectrum.get_center_of_gravity(2.0);
+check('Spectrum CoG defined', !isNaN(cog), `${cog.toFixed(1)} Hz`);
+
+// 8. Spectrogram
+const spectrogram = sound.to_spectrogram(0.005, 5000, 0.002, 20, 'gaussian');
+check('Spectrogram creation', spectrogram != null);
+check('Spectrogram.num_frames > 0', spectrogram.num_frames > 0, `${spectrogram.num_frames} frames`);
+check('Spectrogram.num_freq_bins > 0', spectrogram.num_freq_bins > 0, `${spectrogram.num_freq_bins} bins`);
+
+// 9. Silence edge case
+const silence = Sound.create_silence(0.5, 22050);
+check('Silence creation', silence != null);
+const silPitch = silence.to_pitch(0.01, 75, 600);
+check('Pitch on silence runs', silPitch != null, `${silPitch.num_frames} frames`);
+
+// Summary
+log.innerHTML += '\n';
+log.innerHTML += `========================================\n`;
+log.innerHTML += `${passed} passed, ${failed} failed\n`;
+if (failed === 0) {
+    log.innerHTML += `<span class="pass">ALL TESTS PASSED</span>\n`;
+} else {
+    log.innerHTML += `<span class="fail">${failed} TESTS FAILED</span>\n`;
+}
+</script>
+</body>
+</html>

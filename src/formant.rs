@@ -191,33 +191,34 @@ impl Formant {
                 0
             };
 
+            // Check maximum intensity on raw (un-windowed) pre-emphasized samples.
+            // Praat skips Burg analysis if all samples are zero (Sound_to_Formant.cpp line 342).
+            let mut maximum_intensity = 0.0_f64;
+            for i in 0..actual_frame_length {
+                let sample_idx = start_sample + i;
+                let value = samples[sample_idx];
+                let intensity = value * value;
+                if intensity > maximum_intensity {
+                    maximum_intensity = intensity;
+                }
+            }
+
             // Extract windowed frame - apply Gaussian window to samples
             let mut windowed = Vec::with_capacity(actual_frame_length);
-            let mut energy = 0.0;
+            let energy = maximum_intensity;
 
             for i in 0..actual_frame_length {
                 let sample_idx = start_sample + i;
                 let w = if i < window.len() { window[i] } else { 0.0 };
                 let s = samples[sample_idx] * w;
                 windowed.push(s);
-                energy += s * s;
             }
 
-            // Add tiny dither to prevent exactly zero samples.
-            // This matches Praat's behavior where sinc resampling introduces
-            // tiny numerical artifacts (~1e-7) that allow LPC to compute
-            // meaningful coefficients even in near-silent regions.
-            // Include frame position in dither so silent frames don't all get identical values.
-            let dither_amplitude = 1e-10;
-            let frame_offset = frame_idx as f64 * 17.3; // Prime-ish offset per frame
-            for (i, s) in windowed.iter_mut().enumerate() {
-                let global_pos = i as f64 + frame_offset;
-                let dither = dither_amplitude * ((global_pos * 0.7).sin() + (global_pos * 1.3).cos());
-                *s += dither;
-            }
-
-            // Compute LPC coefficients using Burg's method
-            let formant_points = if let Some(lpc_result) = lpc_burg(&windowed, lpc_order) {
+            // Skip Burg analysis if all samples are zero (Burg cannot stand all zeroes).
+            // Matches Praat's Sound_to_Formant.cpp line 342-343.
+            let formant_points = if maximum_intensity == 0.0 {
+                Vec::new()
+            } else if let Some(lpc_result) = lpc_burg(&windowed, lpc_order) {
                 // Find formants from LPC polynomial roots
                 let candidates = lpc_to_formants(&lpc_result.coefficients, sample_rate);
 

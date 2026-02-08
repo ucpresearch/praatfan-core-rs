@@ -14,6 +14,9 @@ use crate::{PitchUnit, Sound};
 use num_complex::Complex;
 use std::f64::consts::PI;
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 /// Maximum number of pitch candidates per frame
 const MAX_CANDIDATES: usize = 15;
 
@@ -333,45 +336,58 @@ impl Pitch {
         // Adjust max_candidates if needed
         let max_candidates = max_candidates.max((pitch_ceiling / pitch_floor).floor() as usize);
 
-        // Pre-allocate workspace buffers (reused across all frames)
-        let mut frame_data = vec![0.0; nsamp_fft];
-        let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-        let mut ac_output = vec![0.0; nsamp_fft];
-        let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-
         // Process each frame
-        let mut frames = Vec::with_capacity(number_of_frames);
-        for iframe in 0..number_of_frames {
-            let time = t1 + iframe as f64 * dt;
-            let frame = compute_pitch_frame(
-                samples,
-                dx,
-                x1,
-                time,
-                pitch_floor,
-                pitch_ceiling,
-                max_candidates,
-                voicing_threshold,
-                octave_cost,
-                nsamp_window,
-                halfnsamp_window,
-                nsamp_period,
-                halfnsamp_period,
-                maximum_lag,
-                brent_ixmax,
-                brent_depth,
-                global_peak,
-                &window,
-                &window_r_norm,
-                &mut fft,
-                nsamp_fft,
-                &mut frame_data,
-                &mut fft_buffer,
-                &mut ac_output,
-                &mut r_buf,
-            );
-            frames.push(frame);
-        }
+        #[cfg(feature = "parallel")]
+        drop(fft); // each thread creates its own FFT planner
+
+        #[cfg(feature = "parallel")]
+        let mut frames: Vec<PitchFrame> = (0..number_of_frames)
+            .into_par_iter()
+            .map(|iframe| {
+                let mut fft = Fft::new();
+                let mut frame_data = vec![0.0; nsamp_fft];
+                let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+                let mut ac_output = vec![0.0; nsamp_fft];
+                let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+                let time = t1 + iframe as f64 * dt;
+                compute_pitch_frame(
+                    samples, dx, x1, time,
+                    pitch_floor, pitch_ceiling, max_candidates,
+                    voicing_threshold, octave_cost,
+                    nsamp_window, halfnsamp_window,
+                    nsamp_period, halfnsamp_period,
+                    maximum_lag, brent_ixmax, brent_depth,
+                    global_peak, &window, &window_r_norm,
+                    &mut fft, nsamp_fft,
+                    &mut frame_data, &mut fft_buffer, &mut ac_output, &mut r_buf,
+                )
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let mut frames: Vec<PitchFrame> = {
+            let mut frame_data = vec![0.0; nsamp_fft];
+            let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+            let mut ac_output = vec![0.0; nsamp_fft];
+            let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+            let mut frames = Vec::with_capacity(number_of_frames);
+            for iframe in 0..number_of_frames {
+                let time = t1 + iframe as f64 * dt;
+                let frame = compute_pitch_frame(
+                    samples, dx, x1, time,
+                    pitch_floor, pitch_ceiling, max_candidates,
+                    voicing_threshold, octave_cost,
+                    nsamp_window, halfnsamp_window,
+                    nsamp_period, halfnsamp_period,
+                    maximum_lag, brent_ixmax, brent_depth,
+                    global_peak, &window, &window_r_norm,
+                    &mut fft, nsamp_fft,
+                    &mut frame_data, &mut fft_buffer, &mut ac_output, &mut r_buf,
+                );
+                frames.push(frame);
+            }
+            frames
+        };
 
         // Run path finder (Viterbi)
         pitch_path_finder(
@@ -601,49 +617,64 @@ impl Pitch {
 
         // Collect samples from all channels
         let channel_samples: Vec<&[f64]> = sounds.iter().map(|s| s.samples()).collect();
-
-        // Pre-allocate workspace buffers (reused across all frames)
         let nchan = sounds.len();
-        let mut frame_data_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; nsamp_fft]).collect();
-        let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-        let mut power_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-        let mut ac_output = vec![0.0; nsamp_fft];
-        let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
 
         // Process each frame
-        let mut frames = Vec::with_capacity(number_of_frames);
-        for iframe in 0..number_of_frames {
-            let time = t1 + iframe as f64 * dt;
-            let frame = compute_pitch_frame_multichannel(
-                &channel_samples,
-                dx,
-                x1,
-                time,
-                pitch_floor,
-                pitch_ceiling,
-                max_candidates,
-                voicing_threshold,
-                octave_cost,
-                nsamp_window,
-                halfnsamp_window,
-                nsamp_period,
-                halfnsamp_period,
-                maximum_lag,
-                brent_ixmax,
-                brent_depth,
-                global_peak,
-                &window,
-                &window_r_norm,
-                &mut fft,
-                nsamp_fft,
-                &mut frame_data_pool,
-                &mut fft_buffer,
-                &mut power_buffer,
-                &mut ac_output,
-                &mut r_buf,
-            );
-            frames.push(frame);
-        }
+        #[cfg(feature = "parallel")]
+        drop(fft);
+
+        #[cfg(feature = "parallel")]
+        let mut frames: Vec<PitchFrame> = (0..number_of_frames)
+            .into_par_iter()
+            .map(|iframe| {
+                let mut fft = Fft::new();
+                let mut frame_data_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; nsamp_fft]).collect();
+                let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+                let mut power_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+                let mut ac_output = vec![0.0; nsamp_fft];
+                let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+                let time = t1 + iframe as f64 * dt;
+                compute_pitch_frame_multichannel(
+                    &channel_samples, dx, x1, time,
+                    pitch_floor, pitch_ceiling, max_candidates,
+                    voicing_threshold, octave_cost,
+                    nsamp_window, halfnsamp_window,
+                    nsamp_period, halfnsamp_period,
+                    maximum_lag, brent_ixmax, brent_depth,
+                    global_peak, &window, &window_r_norm,
+                    &mut fft, nsamp_fft,
+                    &mut frame_data_pool, &mut fft_buffer, &mut power_buffer,
+                    &mut ac_output, &mut r_buf,
+                )
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let mut frames: Vec<PitchFrame> = {
+            let mut frame_data_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; nsamp_fft]).collect();
+            let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+            let mut power_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+            let mut ac_output = vec![0.0; nsamp_fft];
+            let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+            let mut frames = Vec::with_capacity(number_of_frames);
+            for iframe in 0..number_of_frames {
+                let time = t1 + iframe as f64 * dt;
+                let frame = compute_pitch_frame_multichannel(
+                    &channel_samples, dx, x1, time,
+                    pitch_floor, pitch_ceiling, max_candidates,
+                    voicing_threshold, octave_cost,
+                    nsamp_window, halfnsamp_window,
+                    nsamp_period, halfnsamp_period,
+                    maximum_lag, brent_ixmax, brent_depth,
+                    global_peak, &window, &window_r_norm,
+                    &mut fft, nsamp_fft,
+                    &mut frame_data_pool, &mut fft_buffer, &mut power_buffer,
+                    &mut ac_output, &mut r_buf,
+                );
+                frames.push(frame);
+            }
+            frames
+        };
 
         // Run path finder (Viterbi)
         pitch_path_finder(
@@ -752,55 +783,68 @@ impl Pitch {
 
         // Collect samples from all channels
         let channel_samples: Vec<&[f64]> = sounds.iter().map(|s| s.samples()).collect();
-
-        // Pre-allocate workspace buffers for FCC multichannel
         let nchan = sounds.len();
         let max_span = maximum_lag + nsamp_window;
-        let mut mean_sub_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; max_span]).collect();
-        let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-
-        // FFT buffers for O(n log n) cross-correlation
-        // FFT size must be >= nsamp_window + max_span to avoid circular aliasing
         let fcc_fft_size = (nsamp_window + max_span).next_power_of_two();
-        let mut fft = Fft::new();
-        let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-        let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-        let mut power_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-        let mut cum_sq_buf = vec![0.0; max_span + 1];
 
-        let mut frames = Vec::with_capacity(number_of_frames);
-        for iframe in 0..number_of_frames {
-            let time = t1 + iframe as f64 * dt;
-            let frame = compute_pitch_frame_fcc_multichannel(
-                &channel_samples,
-                dx,
-                x1,
-                nx,
-                time,
-                pitch_floor,
-                pitch_ceiling,
-                max_candidates,
-                voicing_threshold,
-                octave_cost,
-                nsamp_window,
-                halfnsamp_window,
-                halfnsamp_period,
-                maximum_lag,
-                brent_ixmax,
-                brent_depth,
-                global_peak,
-                dt_window,
-                &mut mean_sub_pool,
-                &mut r_buf,
-                &mut fft,
-                &mut fft_buffer,
-                &mut fft_a_buf,
-                &mut power_buffer,
-                &mut cum_sq_buf,
-                fcc_fft_size,
-            );
-            frames.push(frame);
-        }
+        // Process each frame
+        #[cfg(feature = "parallel")]
+        let mut frames: Vec<PitchFrame> = (0..number_of_frames)
+            .into_par_iter()
+            .map(|iframe| {
+                let mut fft = Fft::new();
+                let mut mean_sub_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; max_span]).collect();
+                let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+                let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+                let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+                let mut power_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+                let mut cum_sq_buf = vec![0.0; max_span + 1];
+                let time = t1 + iframe as f64 * dt;
+                compute_pitch_frame_fcc_multichannel(
+                    &channel_samples, dx, x1, nx, time,
+                    pitch_floor, pitch_ceiling, max_candidates,
+                    voicing_threshold, octave_cost,
+                    nsamp_window, halfnsamp_window,
+                    halfnsamp_period, maximum_lag,
+                    brent_ixmax, brent_depth,
+                    global_peak, dt_window,
+                    &mut mean_sub_pool, &mut r_buf,
+                    &mut fft, &mut fft_buffer, &mut fft_a_buf,
+                    &mut power_buffer, &mut cum_sq_buf,
+                    fcc_fft_size,
+                )
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let mut frames: Vec<PitchFrame> = {
+            let mut fft = Fft::new();
+            let mut mean_sub_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; max_span]).collect();
+            let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+            let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+            let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+            let mut power_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+            let mut cum_sq_buf = vec![0.0; max_span + 1];
+            let mut frames = Vec::with_capacity(number_of_frames);
+            for iframe in 0..number_of_frames {
+                let time = t1 + iframe as f64 * dt;
+                let frame = compute_pitch_frame_fcc_multichannel(
+                    &channel_samples, dx, x1, nx, time,
+                    pitch_floor, pitch_ceiling, max_candidates,
+                    voicing_threshold, octave_cost,
+                    nsamp_window, halfnsamp_window,
+                    halfnsamp_period, maximum_lag,
+                    brent_ixmax, brent_depth,
+                    global_peak, dt_window,
+                    &mut mean_sub_pool, &mut r_buf,
+                    &mut fft, &mut fft_buffer, &mut fft_a_buf,
+                    &mut power_buffer, &mut cum_sq_buf,
+                    fcc_fft_size,
+                );
+                frames.push(frame);
+            }
+            frames
+        };
 
         pitch_path_finder(
             &mut frames,
@@ -918,52 +962,63 @@ impl Pitch {
         let nsamp_period = (1.0 / dx / pitch_floor).floor() as usize;
         let halfnsamp_period = nsamp_period / 2 + 1;
 
-        // Pre-allocate workspace buffers for FCC (reused across all frames)
         let max_span = maximum_lag + nsamp_window;
-        let mut mean_sub_buf = vec![0.0; max_span];
-        let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-
-        // FFT buffers for O(n log n) cross-correlation
-        // FFT size must be >= nsamp_window + max_span to avoid circular aliasing
         let fcc_fft_size = (nsamp_window + max_span).next_power_of_two();
-        let mut fft = Fft::new();
-        let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-        let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-        let mut cum_sq_buf = vec![0.0; max_span + 1];
 
         // Process each frame using FCC
-        let mut frames = Vec::with_capacity(number_of_frames);
-        for iframe in 0..number_of_frames {
-            let time = t1 + iframe as f64 * dt;
-            let frame = compute_pitch_frame_fcc(
-                samples,
-                dx,
-                x1,
-                nx,
-                time,
-                pitch_floor,
-                pitch_ceiling,
-                max_candidates,
-                voicing_threshold,
-                octave_cost,
-                nsamp_window,
-                halfnsamp_window,
-                halfnsamp_period,
-                maximum_lag,
-                brent_ixmax,
-                brent_depth,
-                global_peak,
-                dt_window,
-                &mut mean_sub_buf,
-                &mut r_buf,
-                &mut fft,
-                &mut fft_buffer,
-                &mut fft_a_buf,
-                &mut cum_sq_buf,
-                fcc_fft_size,
-            );
-            frames.push(frame);
-        }
+        #[cfg(feature = "parallel")]
+        let mut frames: Vec<PitchFrame> = (0..number_of_frames)
+            .into_par_iter()
+            .map(|iframe| {
+                let mut fft = Fft::new();
+                let mut mean_sub_buf = vec![0.0; max_span];
+                let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+                let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+                let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+                let mut cum_sq_buf = vec![0.0; max_span + 1];
+                let time = t1 + iframe as f64 * dt;
+                compute_pitch_frame_fcc(
+                    samples, dx, x1, nx, time,
+                    pitch_floor, pitch_ceiling, max_candidates,
+                    voicing_threshold, octave_cost,
+                    nsamp_window, halfnsamp_window,
+                    halfnsamp_period, maximum_lag,
+                    brent_ixmax, brent_depth,
+                    global_peak, dt_window,
+                    &mut mean_sub_buf, &mut r_buf,
+                    &mut fft, &mut fft_buffer, &mut fft_a_buf,
+                    &mut cum_sq_buf, fcc_fft_size,
+                )
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let mut frames: Vec<PitchFrame> = {
+            let mut fft = Fft::new();
+            let mut mean_sub_buf = vec![0.0; max_span];
+            let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+            let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+            let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+            let mut cum_sq_buf = vec![0.0; max_span + 1];
+            let mut frames = Vec::with_capacity(number_of_frames);
+            for iframe in 0..number_of_frames {
+                let time = t1 + iframe as f64 * dt;
+                let frame = compute_pitch_frame_fcc(
+                    samples, dx, x1, nx, time,
+                    pitch_floor, pitch_ceiling, max_candidates,
+                    voicing_threshold, octave_cost,
+                    nsamp_window, halfnsamp_window,
+                    halfnsamp_period, maximum_lag,
+                    brent_ixmax, brent_depth,
+                    global_peak, dt_window,
+                    &mut mean_sub_buf, &mut r_buf,
+                    &mut fft, &mut fft_buffer, &mut fft_a_buf,
+                    &mut cum_sq_buf, fcc_fft_size,
+                );
+                frames.push(frame);
+            }
+            frames
+        };
 
         // Run path finder (Viterbi)
         pitch_path_finder(
@@ -2100,7 +2155,7 @@ fn compute_pitch_frame_fcc(
 /// - `offset`: offset to add to indices when accessing `r`
 /// - `x`: the (fractional) position to interpolate at
 /// - `max_depth`: maximum number of samples to use on each side of x
-fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64 {
+pub fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64 {
     let midleft = x.floor() as isize;
     let midright = midleft + 1;
 
@@ -2224,6 +2279,10 @@ fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64 {
 ///
 /// Finds x in [a, b] that minimizes f(x). Returns (x_min, f_min).
 /// Closely modeled after the netlib code by Oleg Keselyov.
+use std::sync::atomic::{AtomicU64, Ordering};
+pub static BRENT_TOTAL_ITERS: AtomicU64 = AtomicU64::new(0);
+pub static BRENT_TOTAL_CALLS: AtomicU64 = AtomicU64::new(0);
+
 fn minimize_brent<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64) -> (f64, f64) {
     const GOLDEN: f64 = 1.0 - 0.6180339887498948482; // 1 - golden ratio
     let sqrt_epsilon = f64::EPSILON.sqrt();
@@ -2240,11 +2299,13 @@ fn minimize_brent<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64) -> (f64, f
     let mut fx = fv;
     let mut fw = fv;
 
-    for _ in 0..ITERMAX {
+    for iter_num in 0..ITERMAX {
         let middle_range = (a + b) / 2.0;
         let tol_act = sqrt_epsilon * x.abs() + tol / 3.0;
         let range = b - a;
         if (x - middle_range).abs() + range / 2.0 <= 2.0 * tol_act {
+            BRENT_TOTAL_ITERS.fetch_add(iter_num as u64, Ordering::Relaxed);
+            BRENT_TOTAL_CALLS.fetch_add(1, Ordering::Relaxed);
             return (x, fx);
         }
 
@@ -2311,6 +2372,8 @@ fn minimize_brent<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64) -> (f64, f
         }
     }
 
+    BRENT_TOTAL_ITERS.fetch_add(ITERMAX as u64, Ordering::Relaxed);
+    BRENT_TOTAL_CALLS.fetch_add(1, Ordering::Relaxed);
     (x, fx)
 }
 
@@ -2323,7 +2386,7 @@ fn minimize_brent<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64) -> (f64, f
 /// - `x`: fractional lag position (will be rounded to find ixmid)
 /// - `brent_ixmax`: maximum lag index available in r
 /// - `brent_depth`: interpolation depth (70 = SINC70, 700 = SINC700, 1 = parabolic)
-fn improve_maximum(r: &[f64], offset: usize, x: f64, _brent_ixmax: usize, brent_depth: usize) -> (f64, f64) {
+pub fn improve_maximum(r: &[f64], offset: usize, x: f64, _brent_ixmax: usize, brent_depth: usize) -> (f64, f64) {
     let ixmid = x.round() as isize;
 
     // Boundary checks (matching Praat's NUMimproveExtremum)

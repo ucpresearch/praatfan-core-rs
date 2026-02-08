@@ -2,7 +2,7 @@
 //!
 //! Usage: formant_json <audio_file> <time_step> <max_formants> <max_formant_hz> <window_length> <pre_emphasis>
 
-use praatfan_core::{FrequencyUnit, Interpolation, Sound};
+use praatfan_core::Sound;
 use serde::Serialize;
 use std::env;
 
@@ -75,20 +75,19 @@ fn main() {
     let mut b5 = Vec::with_capacity(n_frames);
 
     for i in 0..n_frames {
-        let t = formant.get_time_from_frame(i);
-        times.push(t);
+        times.push(formant.get_time_from_frame(i));
 
-        f1.push(formant.get_value_at_time(1, t, FrequencyUnit::Hertz, Interpolation::Linear));
-        f2.push(formant.get_value_at_time(2, t, FrequencyUnit::Hertz, Interpolation::Linear));
-        f3.push(formant.get_value_at_time(3, t, FrequencyUnit::Hertz, Interpolation::Linear));
-        f4.push(formant.get_value_at_time(4, t, FrequencyUnit::Hertz, Interpolation::Linear));
-        f5.push(formant.get_value_at_time(5, t, FrequencyUnit::Hertz, Interpolation::Linear));
+        f1.push(formant.get_value_at_frame(1, i));
+        f2.push(formant.get_value_at_frame(2, i));
+        f3.push(formant.get_value_at_frame(3, i));
+        f4.push(formant.get_value_at_frame(4, i));
+        f5.push(formant.get_value_at_frame(5, i));
 
-        b1.push(formant.get_bandwidth_at_time(1, t, FrequencyUnit::Hertz, Interpolation::Linear));
-        b2.push(formant.get_bandwidth_at_time(2, t, FrequencyUnit::Hertz, Interpolation::Linear));
-        b3.push(formant.get_bandwidth_at_time(3, t, FrequencyUnit::Hertz, Interpolation::Linear));
-        b4.push(formant.get_bandwidth_at_time(4, t, FrequencyUnit::Hertz, Interpolation::Linear));
-        b5.push(formant.get_bandwidth_at_time(5, t, FrequencyUnit::Hertz, Interpolation::Linear));
+        b1.push(formant.get_bandwidth_at_frame(1, i));
+        b2.push(formant.get_bandwidth_at_frame(2, i));
+        b3.push(formant.get_bandwidth_at_frame(3, i));
+        b4.push(formant.get_bandwidth_at_frame(4, i));
+        b5.push(formant.get_bandwidth_at_frame(5, i));
     }
 
     let output = FormantOutput {

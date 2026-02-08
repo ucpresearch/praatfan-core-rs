@@ -2,7 +2,7 @@
 //!
 //! Usage: intensity_json <audio_file> <min_pitch> <time_step>
 
-use praatfan_core::{Interpolation, Sound};
+use praatfan_core::{Sound, intensity_from_channels};
 use serde::Serialize;
 use std::env;
 
@@ -33,25 +33,25 @@ fn main() {
     let min_pitch: f64 = args[2].parse().expect("Invalid min_pitch");
     let time_step: f64 = args[3].parse().expect("Invalid time_step");
 
-    let sound = Sound::from_file(audio_path).expect("Failed to load audio file");
+    // Load channels separately to match Praat's multi-channel intensity handling
+    let channels = Sound::from_file_channels(audio_path).expect("Failed to load audio file");
 
-    let intensity = sound.to_intensity(min_pitch, time_step);
+    let intensity = intensity_from_channels(&channels, min_pitch, time_step);
 
     let n_frames = intensity.num_frames();
     let mut times = Vec::with_capacity(n_frames);
     let mut values = Vec::with_capacity(n_frames);
 
     for i in 0..n_frames {
-        let t = intensity.get_time_from_frame(i);
-        times.push(t);
-        let v = intensity.get_value_at_time(t, Interpolation::Cubic);
-        values.push(v);
+        times.push(intensity.get_time_from_frame(i));
+        let v = intensity.values()[i];
+        values.push(if v > -300.0 { Some(v) } else { None });
     }
 
     let output = IntensityOutput {
-        sample_rate: sound.sample_rate(),
-        duration: sound.duration(),
-        n_samples: sound.num_samples(),
+        sample_rate: channels[0].sample_rate(),
+        duration: channels[0].duration(),
+        n_samples: channels[0].num_samples(),
         intensity: IntensityData {
             times,
             values,

@@ -874,13 +874,13 @@ python scripts/compare_formants.py tests/fixtures/one_two_three_four_five-stereo
 
 | Module | Accuracy | Notes |
 |--------|----------|-------|
-| **Formant** | 100% | F1, F2, F3 exact match |
+| **Formant** | 100% | F1, F2, F3 exact match (159/159 frames) |
 | **Intensity** | 100% | Kaiser-Bessel window, unweighted mean |
 | **Spectrum** | 100% | Correct dx scaling, factor of 2 for one-sided |
 | **Spectrogram** | 100% | Mono and stereo files |
-| **Pitch** | 100% | AC_HANNING method, Viterbi path finding |
-| **Harmonicity (AC)** | 100% | AC_GAUSS method, derived from Pitch |
-| **Harmonicity (CC)** | 95-100% | FCC_ACCURATE (time-domain cross-correlation) |
+| **Pitch** | 100% | AC_HANNING, max 0.002 Hz error (104/104 frames) |
+| **Harmonicity (AC)** | ~98% | 100/102 within 1 dB; 2 frames ~5 dB off due to FFT precision (see below) |
+| **Harmonicity (CC)** | 100% | FCC_ACCURATE, max 0.00024 dB error (106/106 frames) |
 
 ### Intensity Algorithm (from `fon/Sound_to_Intensity.cpp`)
 
@@ -970,12 +970,117 @@ return 10.0 * log10(r / (1.0 - r));
 
 **Methods:**
 - `Sound_to_Harmonicity_ac` uses AC_GAUSS (method 1) - **100% accurate**
-- `Sound_to_Harmonicity_cc` uses FCC_ACCURATE (method 3) - **95-100% accurate**
+- `Sound_to_Harmonicity_cc` uses FCC_ACCURATE (method 3) - **~98% accurate** (see Brent+Sinc section)
 
 **FCC differences from AC:**
 - No window function applied (raw mean-subtracted samples)
 - Time-domain cross-correlation: `r[i] = Σ(x[j]·y[i+j]) / √(Σx²·Σy²)`
 - Longer effective window: frame timing uses `1/pitch_floor + dt_window`
+
+### Brent+Sinc Peak Refinement (Session 2026-02-08)
+
+Replaced parabolic `improve_maximum` with Praat's exact peak refinement algorithm:
+`NUMimproveExtremum` (Brent minimization + sinc interpolation).
+
+**Key source files:**
+- `melder/NUMinterpol.cpp` - `NUMimproveExtremum` (lines 335-391)
+- `dwsys/NUM2.cpp` - `NUMminimize_brent` (lines 1910-2020)
+- `fon/Sound_to_Pitch.cpp` - Second pass (lines 246-261)
+
+**What changed in `src/pitch.rs`:**
+
+1. **`minimize_brent()` function** - Port of Praat's `NUMminimize_brent`. Golden section search
+   with parabolic interpolation, 60 max iterations, tolerance 1e-10.
+
+2. **`improve_maximum()` rewritten** - Now matches `NUMimproveExtremum`:
+   - Boundary check → return raw value at edges
+   - `brent_depth ≤ 1` → parabolic interpolation (unchanged behavior)
+   - `brent_depth = 70 or 700` → Brent optimization of `-sinc_interpolate()` over `[ixmid-1, ixmid+1]`
+
+3. **`brent_depth` parameter per method** (matches `Sound_to_Pitch.cpp` lines 288-305):
+   - AcHanning → 70 (SINC70)
+   - AcGauss → 700 (SINC700)
+   - FccAccurate → 700 (SINC700)
+
+4. **Adaptive depth at call sites** (matches `Sound_to_Pitch.cpp` line 254):
+   ```rust
+   let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
+   ```
+   High-frequency candidates always use SINC700 regardless of method.
+
+5. **All 4 frame functions updated**: `compute_pitch_frame`, `compute_pitch_frame_multichannel`,
+   `compute_pitch_frame_fcc`, `compute_pitch_frame_fcc_multichannel`.
+
+### CC Harmonicity Exact Match (Session 2026-02-08)
+
+After Brent+sinc refinement plus FCC structural fixes, CC harmonicity now matches Praat to
+floating-point precision on all 106 voiced frames (max error 0.00024 dB).
+
+**FCC bugs fixed (in addition to Brent+sinc):**
+
+1. **`nsamp_window` not truncated to even** — Praat: `halfnsamp_window = raw/2 - 1; nsamp_window = half*2`. Our FCC path skipped this, giving a window 2-4 samples too wide.
+2. **`maximum_lag` formula wrong** — Praat: `min(floor(nsamp_window/periodsPerWindow)+2, nsamp_window)`. We used `floor(1.0/pitch_floor/dx)`.
+3. **`r` array too small** — Must be `2*nsamp_window+1`, not `2*local_maximum_lag+1`. Sinc interpolation near edges saw wrong boundary conditions.
+4. **No `imax` tracking** — First pass must store discrete lag index; second pass uses it for Brent.
+5. **`dt_window` recomputed from truncated `nsamp_window`** — Must pass original `periodsPerWindow/pitchFloor` to frame functions, not recompute as `nsamp_window*dx` (caused 1-sample shift at voiced/unvoiced boundaries).
+6. **Local mean off-by-one** — `end_mean` was `left_sample + nsamp_period` but should be `left_sample + nsamp_period + 1` (0-based exclusive). Divisor must be `2*nsamp_period` (Praat line 66), not actual count.
+
+### Formant Dither Removal (Session 2026-02-08)
+
+Removed 1e-10 amplitude dither that was added to prevent Burg LPC from failing on all-zero frames.
+Praat instead checks `max(sample^2)` and skips Burg entirely when zero (`Sound_to_Formant.cpp` line 342).
+
+The dither caused a 7.3 Hz F1 error at t=0.026s (first frame, near-silence). After removal, all 159
+voiced frames match exactly (F1: max 0.01 Hz, F2: max 0.10 Hz, F3: max 0.07 Hz).
+
+### AC Harmonicity FFT Precision Limitation (Session 2026-02-08)
+
+AC harmonicity has 2/102 frames with ~5 dB error (frames 14 and 30). Root cause: FFT implementation
+differences between rustfft and Praat's FFTPACK-derived real FFT.
+
+**The two FFT implementations:**
+
+| | Praat (`NUMrealft`) | praatfan-core-rs (`rustfft`) |
+|---|---|---|
+| **Origin** | FFTPACK (Fortran, 1985), translated to C | Pure Rust, Cooley-Tukey |
+| **Input** | Real-valued only | Complex-valued |
+| **Operations** | ~N/2 (exploits real symmetry) | ~2N (full complex) |
+| **Output format** | Packed real array `[r0, r1, i1, r2, i2, ...]` | Full `Complex<f64>` array |
+| **Butterfly** | Real-valued twiddle factors | Complex multiplications |
+
+**Why the difference matters:**
+- Both produce correct results, but with different floating-point rounding (~1e-4 in autocorrelation `r`)
+- At `r ≈ 0.99`, this is ~0.1 dB HNR difference (acceptable)
+- At `r > 0.9998`, the HNR formula `10*log10(r/(1-r))` amplifies the error to 5+ dB
+- Frames 14 and 30 happen to have `r > 0.9998` (extremely periodic speech segments)
+
+**Why we don't switch to Praat's FFT:**
+- Praat's FFTPACK is 3000+ lines of mechanically-translated Fortran with computed gotos
+- Would require maintaining a separate FFT implementation alongside rustfft
+- Cross-platform reproducibility would depend on matching compiler float optimizations
+- Practical impact is minimal: only affects HNR at extreme `r` values (>0.9998)
+- The 5 dB difference at `r=0.9998` corresponds to HNR of ~37 dB vs ~42 dB, both indicating very clean speech
+
+**Fixes attempted (for completeness):**
+- Local mean off-by-one fix (same bug as FCC #6) — improved but didn't fix FFT difference
+- `imax` tracking in AC second pass — no change for this test file
+- Circular autocorrelation (matching Praat's FFT size) — no improvement; difference is intrinsic to algorithm
+
+### Current Accuracy Summary (Session 2026-02-08)
+
+Test file: `tests/fixtures/one_two_three_four_five.wav`
+
+| Module | Frames | Max Error | Notes |
+|--------|--------|-----------|-------|
+| **CC Harmonicity** | 106/106 | 0.00024 dB | Exact match |
+| **Pitch** | 104/104 | 0.0019 Hz | Exact match |
+| **F1** | 159/159 | 0.01 Hz | Exact match |
+| **F2** | 159/159 | 0.10 Hz | Exact match |
+| **F3** | 159/159 | 0.07 Hz | Exact match |
+| **AC Harmonicity** | 100/102 | ~5 dB (2 frames) | FFT precision limit at r>0.9998 |
+| **Intensity** | All | <0.001 dB | Exact match |
+| **Spectrum** | All | <1e-10 | Exact match |
+| **Spectrogram** | All | <1e-10 | Exact match |
 
 ### Comparison Scripts
 
