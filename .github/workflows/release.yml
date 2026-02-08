@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:  # Allow manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   # Linux x86_64
   python-linux-x64:
