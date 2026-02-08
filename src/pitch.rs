@@ -11,6 +11,7 @@
 use crate::interpolation::Interpolation;
 use crate::utils::Fft;
 use crate::{PitchUnit, Sound};
+use num_complex::Complex;
 use std::f64::consts::PI;
 
 /// Maximum number of pitch candidates per frame
@@ -303,7 +304,7 @@ impl Pitch {
         for i in 0..nsamp_fft {
             window_fft[i] = window_r[i];
         }
-        let window_autocorr = fft.autocorrelation(&window_fft);
+        let window_autocorr = fft.autocorrelation_circular(&window_fft);
         // Normalize
         let mut window_r_norm = vec![0.0; nsamp_window + 1];
         if window_autocorr[0] > 0.0 {
@@ -332,6 +333,12 @@ impl Pitch {
         // Adjust max_candidates if needed
         let max_candidates = max_candidates.max((pitch_ceiling / pitch_floor).floor() as usize);
 
+        // Pre-allocate workspace buffers (reused across all frames)
+        let mut frame_data = vec![0.0; nsamp_fft];
+        let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+        let mut ac_output = vec![0.0; nsamp_fft];
+        let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+
         // Process each frame
         let mut frames = Vec::with_capacity(number_of_frames);
         for iframe in 0..number_of_frames {
@@ -358,6 +365,10 @@ impl Pitch {
                 &window_r_norm,
                 &mut fft,
                 nsamp_fft,
+                &mut frame_data,
+                &mut fft_buffer,
+                &mut ac_output,
+                &mut r_buf,
             );
             frames.push(frame);
         }
@@ -557,7 +568,7 @@ impl Pitch {
         for i in 0..nsamp_window {
             window_fft[i] = window[i];
         }
-        let window_autocorr = fft.autocorrelation(&window_fft);
+        let window_autocorr = fft.autocorrelation_circular(&window_fft);
         let mut window_r_norm = vec![0.0; nsamp_window + 1];
         if window_autocorr[0] > 0.0 {
             window_r_norm[0] = 1.0;
@@ -591,6 +602,14 @@ impl Pitch {
         // Collect samples from all channels
         let channel_samples: Vec<&[f64]> = sounds.iter().map(|s| s.samples()).collect();
 
+        // Pre-allocate workspace buffers (reused across all frames)
+        let nchan = sounds.len();
+        let mut frame_data_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; nsamp_fft]).collect();
+        let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+        let mut power_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
+        let mut ac_output = vec![0.0; nsamp_fft];
+        let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+
         // Process each frame
         let mut frames = Vec::with_capacity(number_of_frames);
         for iframe in 0..number_of_frames {
@@ -617,6 +636,11 @@ impl Pitch {
                 &window_r_norm,
                 &mut fft,
                 nsamp_fft,
+                &mut frame_data_pool,
+                &mut fft_buffer,
+                &mut power_buffer,
+                &mut ac_output,
+                &mut r_buf,
             );
             frames.push(frame);
         }
@@ -729,6 +753,21 @@ impl Pitch {
         // Collect samples from all channels
         let channel_samples: Vec<&[f64]> = sounds.iter().map(|s| s.samples()).collect();
 
+        // Pre-allocate workspace buffers for FCC multichannel
+        let nchan = sounds.len();
+        let max_span = maximum_lag + nsamp_window;
+        let mut mean_sub_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; max_span]).collect();
+        let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+
+        // FFT buffers for O(n log n) cross-correlation
+        // FFT size must be >= nsamp_window + max_span to avoid circular aliasing
+        let fcc_fft_size = (nsamp_window + max_span).next_power_of_two();
+        let mut fft = Fft::new();
+        let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+        let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+        let mut power_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+        let mut cum_sq_buf = vec![0.0; max_span + 1];
+
         let mut frames = Vec::with_capacity(number_of_frames);
         for iframe in 0..number_of_frames {
             let time = t1 + iframe as f64 * dt;
@@ -751,6 +790,14 @@ impl Pitch {
                 brent_depth,
                 global_peak,
                 dt_window,
+                &mut mean_sub_pool,
+                &mut r_buf,
+                &mut fft,
+                &mut fft_buffer,
+                &mut fft_a_buf,
+                &mut power_buffer,
+                &mut cum_sq_buf,
+                fcc_fft_size,
             );
             frames.push(frame);
         }
@@ -871,6 +918,19 @@ impl Pitch {
         let nsamp_period = (1.0 / dx / pitch_floor).floor() as usize;
         let halfnsamp_period = nsamp_period / 2 + 1;
 
+        // Pre-allocate workspace buffers for FCC (reused across all frames)
+        let max_span = maximum_lag + nsamp_window;
+        let mut mean_sub_buf = vec![0.0; max_span];
+        let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+
+        // FFT buffers for O(n log n) cross-correlation
+        // FFT size must be >= nsamp_window + max_span to avoid circular aliasing
+        let fcc_fft_size = (nsamp_window + max_span).next_power_of_two();
+        let mut fft = Fft::new();
+        let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+        let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
+        let mut cum_sq_buf = vec![0.0; max_span + 1];
+
         // Process each frame using FCC
         let mut frames = Vec::with_capacity(number_of_frames);
         for iframe in 0..number_of_frames {
@@ -894,6 +954,13 @@ impl Pitch {
                 brent_depth,
                 global_peak,
                 dt_window,
+                &mut mean_sub_buf,
+                &mut r_buf,
+                &mut fft,
+                &mut fft_buffer,
+                &mut fft_a_buf,
+                &mut cum_sq_buf,
+                fcc_fft_size,
             );
             frames.push(frame);
         }
@@ -1117,19 +1184,28 @@ fn compute_pitch_frame(
     window: &[f64],
     window_r: &[f64],
     fft: &mut Fft,
-    nsamp_fft: usize,
+    _nsamp_fft: usize,
+    // Pre-allocated buffers (caller must ensure correct sizes)
+    frame_data: &mut [f64],
+    fft_buffer: &mut [Complex<f64>],
+    ac: &mut [f64],
+    r: &mut [f64],
 ) -> PitchFrame {
     let nx = samples.len();
+    let r_offset = nsamp_window;
 
     // Sample indices (matching Praat's Sampled_xToLowIndex)
     let left_sample = ((time - x1) / dx).floor() as isize;
     let right_sample = left_sample + 1;
 
     // Compute local mean (looking one longest period to both sides)
+    // Praat: startSample = rightSample - nsamp_period (1-based inclusive)
+    //        endSample = leftSample + nsamp_period   (1-based inclusive)
+    //        divisor = 2 * nsamp_period (always, not actual count)
     let start_mean = (right_sample - nsamp_period as isize).max(0) as usize;
-    let end_mean = ((left_sample + nsamp_period as isize) as usize).min(nx);
+    let end_mean = ((left_sample + nsamp_period as isize + 1) as usize).min(nx);
     let local_mean: f64 = if end_mean > start_mean {
-        samples[start_mean..end_mean].iter().sum::<f64>() / (end_mean - start_mean) as f64
+        samples[start_mean..end_mean].iter().sum::<f64>() / (2 * nsamp_period) as f64
     } else {
         0.0
     };
@@ -1138,7 +1214,10 @@ fn compute_pitch_frame(
     let start_sample = (right_sample - halfnsamp_window as isize).max(0) as usize;
     let end_sample = ((left_sample + halfnsamp_window as isize) as usize).min(nx);
 
-    let mut frame_data = vec![0.0; nsamp_fft];
+    // Clear frame_data and fill with windowed samples
+    for x in frame_data.iter_mut() {
+        *x = 0.0;
+    }
     for (j, i) in (start_sample..end_sample).enumerate() {
         if j < nsamp_window && j < window.len() {
             frame_data[j] = (samples[i] - local_mean) * window[j];
@@ -1176,12 +1255,11 @@ fn compute_pitch_frame(
         };
     }
 
-    // Compute autocorrelation via FFT
-    let ac = fft.autocorrelation(&frame_data);
+    // Compute autocorrelation via FFT (in-place, no allocation)
+    fft.autocorrelation_circular_into(frame_data, fft_buffer, ac);
 
-    // Normalize autocorrelation
-    let mut r = vec![0.0; 2 * nsamp_window + 1];
-    let r_offset = nsamp_window; // r[r_offset + i] = r[i], r[r_offset - i] = r[-i]
+    // Normalize autocorrelation into pre-allocated r buffer
+    r.fill(0.0);
     r[r_offset] = 1.0;
 
     if ac[0] > 0.0 {
@@ -1259,13 +1337,13 @@ fn compute_pitch_frame(
     }
 
     // Second pass: for extra precision, maximize sinc interpolation (matches Praat)
+    // Use imax[i] (discrete lag from first pass) as starting point, not recomputed lag
     for i in 1..candidates.len() {
         if candidates[i].frequency > 0.0 {
-            let lag = 1.0 / dx / candidates[i].frequency;
             // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
             let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
             let (refined_lag, refined_strength) =
-                improve_maximum(&r, r_offset, lag, brent_ixmax, depth);
+                improve_maximum(&r, r_offset, imax[i] as f64, brent_ixmax, depth);
             if refined_lag > 0.0 {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
@@ -1308,9 +1386,16 @@ fn compute_pitch_frame_multichannel(
     window: &[f64],
     window_r: &[f64],
     fft: &mut Fft,
-    nsamp_fft: usize,
+    _nsamp_fft: usize,
+    // Pre-allocated buffers
+    frame_data_pool: &mut [Vec<f64>],
+    fft_buffer: &mut [Complex<f64>],
+    power_buffer: &mut [Complex<f64>],
+    ac: &mut [f64],
+    r: &mut [f64],
 ) -> PitchFrame {
     let nx = channel_samples[0].len();
+    let r_offset = nsamp_window;
 
     // Sample indices
     let left_sample = ((time - x1) / dx).floor() as isize;
@@ -1318,38 +1403,39 @@ fn compute_pitch_frame_multichannel(
 
     // Compute local mean for each channel
     let start_mean = (right_sample - nsamp_period as isize).max(0) as usize;
-    let end_mean = ((left_sample + nsamp_period as isize) as usize).min(nx);
+    let end_mean = ((left_sample + nsamp_period as isize + 1) as usize).min(nx);
     let local_means: Vec<f64> = channel_samples
         .iter()
         .map(|samples| {
             if end_mean > start_mean {
-                samples[start_mean..end_mean].iter().sum::<f64>() / (end_mean - start_mean) as f64
+                samples[start_mean..end_mean].iter().sum::<f64>() / (2 * nsamp_period) as f64
             } else {
                 0.0
             }
         })
         .collect();
 
-    // Copy window to frame and subtract local mean for each channel
+    // Copy window to frame and subtract local mean for each channel (into pre-allocated buffers)
     let start_sample = (right_sample - halfnsamp_window as isize).max(0) as usize;
     let end_sample = ((left_sample + halfnsamp_window as isize) as usize).min(nx);
 
-    let mut frame_data_per_channel: Vec<Vec<f64>> = Vec::with_capacity(channel_samples.len());
     for (ch, samples) in channel_samples.iter().enumerate() {
-        let mut frame_data = vec![0.0; nsamp_fft];
+        let frame_data = &mut frame_data_pool[ch];
+        for x in frame_data.iter_mut() {
+            *x = 0.0;
+        }
         for (j, i) in (start_sample..end_sample).enumerate() {
             if j < nsamp_window && j < window.len() {
                 frame_data[j] = (samples[i] - local_means[ch]) * window[j];
             }
         }
-        frame_data_per_channel.push(frame_data);
     }
 
     // Compute local peak across all channels
     let peak_start = halfnsamp_window.saturating_sub(halfnsamp_period);
     let peak_end = (halfnsamp_window + halfnsamp_period).min(nsamp_window);
     let mut local_peak = 0.0;
-    for frame_data in &frame_data_per_channel {
+    for frame_data in frame_data_pool.iter() {
         for j in peak_start..peak_end {
             let value = frame_data[j].abs();
             if value > local_peak {
@@ -1374,13 +1460,12 @@ fn compute_pitch_frame_multichannel(
         return PitchFrame { candidates, intensity };
     }
 
-    // Compute autocorrelation via FFT, summing power across channels
-    let frame_refs: Vec<&[f64]> = frame_data_per_channel.iter().map(|v| v.as_slice()).collect();
-    let ac = fft.autocorrelation_multichannel(&frame_refs);
+    // Compute autocorrelation via FFT, summing power across channels (in-place)
+    let frame_refs: Vec<&[f64]> = frame_data_pool.iter().map(|v| v.as_slice()).collect();
+    fft.autocorrelation_circular_multichannel_into(&frame_refs, fft_buffer, power_buffer, ac);
 
-    // Normalize autocorrelation
-    let mut r = vec![0.0; 2 * nsamp_window + 1];
-    let r_offset = nsamp_window;
+    // Normalize autocorrelation into pre-allocated r buffer
+    r.fill(0.0);
     r[r_offset] = 1.0;
 
     if ac[0] > 0.0 {
@@ -1449,12 +1534,12 @@ fn compute_pitch_frame_multichannel(
     }
 
     // Second pass: for extra precision, maximize sinc interpolation (matches Praat)
+    // Use imax[i] (discrete lag from first pass) as starting point, not recomputed lag
     for i in 1..candidates.len() {
         if candidates[i].frequency > 0.0 {
-            let lag = 1.0 / dx / candidates[i].frequency;
             // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
             let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
-            let (refined_lag, refined_strength) = improve_maximum(&r, r_offset, lag, brent_ixmax, depth);
+            let (refined_lag, refined_strength) = improve_maximum(&r, r_offset, imax[i] as f64, brent_ixmax, depth);
             if refined_lag > 0.0 {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
@@ -1471,6 +1556,9 @@ fn compute_pitch_frame_multichannel(
 }
 
 /// Compute pitch candidates for a single frame using FCC with multiple channels
+///
+/// Uses FFT-based autocorrelation O(n log n) with cumulative-sum normalization,
+/// summing power spectra across channels before inverse FFT.
 #[allow(clippy::too_many_arguments)]
 fn compute_pitch_frame_fcc_multichannel(
     channel_samples: &[&[f64]],
@@ -1491,13 +1579,21 @@ fn compute_pitch_frame_fcc_multichannel(
     brent_depth: usize,
     global_peak: f64,
     dt_window: f64,
+    // Pre-allocated buffers
+    mean_sub_pool: &mut [Vec<f64>],
+    r: &mut [f64],
+    fft: &mut Fft,
+    fft_buffer: &mut [Complex<f64>],
+    fft_a: &mut [Complex<f64>],
+    power_buffer: &mut [Complex<f64>],
+    cum_sq: &mut [f64],
+    fft_size: usize,
 ) -> PitchFrame {
+    let r_offset = nsamp_window;
     let left_sample = ((time - x1) / dx).floor() as isize;
     let right_sample = left_sample + 1;
 
     // Compute local mean for each channel
-    // Praat: startSample = rightSample - nsamp_period, endSample = leftSample + nsamp_period (1-based inclusive)
-    // Divisor is always 2*nsamp_period (matching Praat line 66)
     let nsamp_period = (1.0 / dx / pitch_floor).floor() as usize;
     let start_mean = (right_sample - nsamp_period as isize).max(0) as usize;
     let end_mean = ((left_sample + nsamp_period as isize + 1) as usize).min(nx);
@@ -1547,12 +1643,20 @@ fn compute_pitch_frame_fcc_multichannel(
         return PitchFrame { candidates, intensity };
     }
 
-    // Compute sumx2 and initial sumy2 across all channels
-    let mut sumx2: f64 = 0.0;
+    // Pre-subtract mean for each channel into pre-allocated buffers
+    let span = local_maximum_lag + nsamp_window;
     for (ch, samples) in channel_samples.iter().enumerate() {
+        let ms = &mut mean_sub_pool[ch];
+        for i in 0..span {
+            ms[i] = samples[offset + i] - local_means[ch];
+        }
+    }
+
+    // Compute sumx2 across all channels
+    let mut sumx2: f64 = 0.0;
+    for ms in mean_sub_pool.iter() {
         for i in 0..nsamp_window {
-            let x = samples[offset + i] - local_means[ch];
-            sumx2 += x * x;
+            sumx2 += ms[i] * ms[i];
         }
     }
 
@@ -1560,40 +1664,72 @@ fn compute_pitch_frame_fcc_multichannel(
         return PitchFrame { candidates, intensity };
     }
 
-    let mut sumy2 = sumx2;
+    // === FFT-based cross-correlation, summing across channels ===
+    // For each channel: cross_corr = IFFT(FFT(A_ch) * conj(FFT(B_ch)))
+    // where A_ch = first nsamp_window samples, B_ch = full span
+    // Sum cross-spectra across channels, then single IFFT.
 
-    // Allocate correlation array sized to nsamp_window (matching Praat's zero-padded array)
-    let mut r = vec![0.0; 2 * nsamp_window + 1];
-    let r_offset = nsamp_window;
+    // Clear power accumulator (reused for cross-spectrum sum)
+    for p in power_buffer.iter_mut().take(fft_size) {
+        *p = Complex::new(0.0, 0.0);
+    }
+
+    for ms in mean_sub_pool.iter() {
+        // FFT(A): first nsamp_window samples
+        for i in 0..fft_size {
+            fft_a[i] = if i < nsamp_window {
+                Complex::new(ms[i], 0.0)
+            } else {
+                Complex::new(0.0, 0.0)
+            };
+        }
+        fft.fft_forward_inplace(fft_a, fft_size);
+
+        // FFT(B): full span
+        for i in 0..fft_size {
+            fft_buffer[i] = if i < span {
+                Complex::new(ms[i], 0.0)
+            } else {
+                Complex::new(0.0, 0.0)
+            };
+        }
+        fft.fft_forward_inplace(fft_buffer, fft_size);
+
+        // Accumulate cross-spectrum: conj(FFT(A)) * FFT(B) → cross_corr[lag] = Σ_i a[i]*b[i+lag]
+        for i in 0..fft_size {
+            power_buffer[i] += fft_a[i].conj() * fft_buffer[i];
+        }
+    }
+
+    // Inverse FFT on accumulated cross-spectrum
+    fft.ifft_inplace(power_buffer, fft_size);
+    let fft_scale = 1.0 / fft_size as f64;
+
+    // Compute cumulative sum of squares across all channels for energy normalization
+    cum_sq[0] = 0.0;
+    for i in 0..span {
+        let mut sq_sum = 0.0;
+        for ms in mean_sub_pool.iter() {
+            sq_sum += ms[i] * ms[i];
+        }
+        cum_sq[i + 1] = cum_sq[i] + sq_sum;
+    }
+
+    // Initialize correlation array
+    r.fill(0.0);
     r[r_offset] = 1.0;
 
-    // Compute cross-correlation for each lag, summing across channels
+    // Normalize each lag
+    // numerator = Σ_ch Σ_{i=0}^{nsamp_window-1} x_ch[i]*x_ch[i+lag]
+    // sumy2 = Σ_ch Σ_{i=lag}^{lag+nsamp_window-1} x_ch[i]²
     for lag in 1..=local_maximum_lag {
-        // Update sumy2 incrementally for each channel
-        for (ch, samples) in channel_samples.iter().enumerate() {
-            let y0 = samples[offset + lag - 1] - local_means[ch];
-            let y_new_idx = offset + lag + nsamp_window - 1;
-            if y_new_idx < nx {
-                let y_new = samples[y_new_idx] - local_means[ch];
-                sumy2 += y_new * y_new - y0 * y0;
-            }
-        }
-
-        // Compute cross-correlation product across all channels
-        let mut product: f64 = 0.0;
-        for (ch, samples) in channel_samples.iter().enumerate() {
-            for j in 0..nsamp_window {
-                let x = samples[offset + j] - local_means[ch];
-                let y = samples[offset + lag + j] - local_means[ch];
-                product += x * y;
-            }
-        }
-
-        let norm = (sumx2 * sumy2).sqrt();
+        let corr = power_buffer[lag].re * fft_scale;
+        let e2 = cum_sq[(lag + nsamp_window).min(span)] - cum_sq[lag];
+        let norm = (sumx2 * e2).sqrt();
         if norm > 0.0 {
-            let corr = product / norm;
-            r[r_offset + lag] = corr;
-            r[r_offset - lag] = corr;
+            let normalized = corr / norm;
+            r[r_offset + lag] = normalized;
+            r[r_offset - lag] = normalized;
         }
     }
 
@@ -1676,6 +1812,9 @@ fn compute_pitch_frame_fcc_multichannel(
 
 /// Compute pitch candidates for a single frame using FCC (Forward Cross-Correlation)
 /// This matches Praat's FCC_ACCURATE method used by Harmonicity CC
+///
+/// Uses FFT-based autocorrelation O(n log n) with cumulative-sum normalization
+/// instead of O(n²) time-domain cross-correlation.
 #[allow(clippy::too_many_arguments)]
 fn compute_pitch_frame_fcc(
     samples: &[f64],
@@ -1696,14 +1835,22 @@ fn compute_pitch_frame_fcc(
     brent_depth: usize,
     global_peak: f64,
     dt_window: f64,
+    // Pre-allocated buffers
+    mean_sub: &mut [f64],
+    r: &mut [f64],
+    fft: &mut Fft,
+    fft_buffer: &mut [Complex<f64>],
+    fft_a: &mut [Complex<f64>],
+    cum_sq: &mut [f64],
+    fft_size: usize,
 ) -> PitchFrame {
+    let r_offset = nsamp_window;
+
     // Sample indices (matching Praat's Sampled_xToLowIndex)
     let left_sample = ((time - x1) / dx).floor() as isize;
     let right_sample = left_sample + 1;
 
     // Compute local mean (looking one longest period to both sides)
-    // Praat: startSample = rightSample - nsamp_period, endSample = leftSample + nsamp_period (1-based inclusive)
-    // Divisor is always 2*nsamp_period (matching Praat line 66)
     let nsamp_period = (1.0 / dx / pitch_floor).floor() as usize;
     let start_mean = (right_sample - nsamp_period as isize).max(0) as usize;
     let end_mean = ((left_sample + nsamp_period as isize + 1) as usize).min(nx);
@@ -1754,8 +1901,6 @@ fn compute_pitch_frame_fcc(
         };
     }
 
-    // Compute FCC (Forward Cross-Correlation) in time domain
-    // r[i] = sum(x[j] * y[i+j]) / sqrt(sumx² * sumy²)
     let offset = start_sample_fcc;
 
     // Check bounds
@@ -1766,11 +1911,16 @@ fn compute_pitch_frame_fcc(
         };
     }
 
-    // Compute sum of squares for the first window (x)
+    // Pre-subtract local mean into buffer
+    let span = local_maximum_lag + nsamp_window;
+    for i in 0..span {
+        mean_sub[i] = samples[offset + i] - local_mean;
+    }
+
+    // Compute sum of squares for the first window (x) — check for silence
     let mut sumx2: f64 = 0.0;
     for i in 0..nsamp_window {
-        let x = samples[offset + i] - local_mean;
-        sumx2 += x * x;
+        sumx2 += mean_sub[i] * mean_sub[i];
     }
 
     if sumx2 == 0.0 {
@@ -1780,39 +1930,63 @@ fn compute_pitch_frame_fcc(
         };
     }
 
-    // Initialize sumy2 (at zero lag, equals sumx2)
-    let mut sumy2 = sumx2;
+    // === FFT-based cross-correlation ===
+    // FCC computes: r(lag) = Σ_{i=0}^{nsamp_window-1} x[i]*x[i+lag] / sqrt(sumx2 * sumy2)
+    // Numerator via FFT: IFFT(conj(FFT(A)) * FFT(B))[lag] where
+    //   A = mean_sub[0:nsamp_window] zero-padded, B = mean_sub[0:span] zero-padded
+    // Denominator: sumx2 (constant) * sumy2(lag) via cumulative sum of squares
 
-    // Allocate correlation array sized to nsamp_window (matching Praat's zero-padded array)
-    let mut r = vec![0.0; 2 * nsamp_window + 1];
-    let r_offset = nsamp_window;
-    r[r_offset] = 1.0; // r[0] = 1.0
+    // FFT(A): the first nsamp_window samples, zero-padded (using pre-allocated buffer)
+    for i in 0..fft_size {
+        fft_a[i] = if i < nsamp_window {
+            Complex::new(mean_sub[i], 0.0)
+        } else {
+            Complex::new(0.0, 0.0)
+        };
+    }
+    fft.fft_forward_inplace(fft_a, fft_size);
 
-    // Compute cross-correlation for each lag
+    // FFT(B): the full span, zero-padded
+    for i in 0..fft_size {
+        fft_buffer[i] = if i < span {
+            Complex::new(mean_sub[i], 0.0)
+        } else {
+            Complex::new(0.0, 0.0)
+        };
+    }
+    fft.fft_forward_inplace(fft_buffer, fft_size);
+
+    // Cross-spectrum: conj(FFT(A)) * FFT(B) → cross_corr[lag] = Σ_i a[i]*b[i+lag]
+    for i in 0..fft_size {
+        fft_buffer[i] = fft_a[i].conj() * fft_buffer[i];
+    }
+
+    // Inverse FFT
+    fft.ifft_inplace(fft_buffer, fft_size);
+    let fft_scale = 1.0 / fft_size as f64;
+
+    // Compute cumulative sum of squares for denominator energy normalization
+    // cum_sq[k] = Σᵢ₌₀^{k-1} mean_sub[i]²
+    cum_sq[0] = 0.0;
+    for i in 0..span {
+        cum_sq[i + 1] = cum_sq[i] + mean_sub[i] * mean_sub[i];
+    }
+
+    // Initialize correlation array
+    r.fill(0.0);
+    r[r_offset] = 1.0;
+
+    // Normalize each lag
+    // numerator = cross_corr[lag] = Σ_{i=0}^{nsamp_window-1} x[i]*x[i+lag]
+    // sumy2 = Σ_{i=lag}^{lag+nsamp_window-1} x[i]² = cum_sq[lag+nsamp_window] - cum_sq[lag]
     for lag in 1..=local_maximum_lag {
-        // Update sumy2 incrementally
-        // sumy2 += y[lag + nsamp_window - 1]² - y[lag - 1]²
-        let y0 = samples[offset + lag - 1] - local_mean;
-        let y_new_idx = offset + lag + nsamp_window - 1;
-        if y_new_idx < nx {
-            let y_new = samples[y_new_idx] - local_mean;
-            sumy2 += y_new * y_new - y0 * y0;
-        }
-
-        // Compute cross-correlation product
-        let mut product: f64 = 0.0;
-        for j in 0..nsamp_window {
-            let x = samples[offset + j] - local_mean;
-            let y = samples[offset + lag + j] - local_mean;
-            product += x * y;
-        }
-
-        // Normalize
-        let norm = (sumx2 * sumy2).sqrt();
+        let corr = fft_buffer[lag].re * fft_scale;
+        let e2 = cum_sq[(lag + nsamp_window).min(span)] - cum_sq[lag];
+        let norm = (sumx2 * e2).sqrt();
         if norm > 0.0 {
-            let corr = product / norm;
-            r[r_offset + lag] = corr;
-            r[r_offset - lag] = corr; // Symmetric
+            let normalized = corr / norm;
+            r[r_offset + lag] = normalized;
+            r[r_offset - lag] = normalized;
         }
     }
 
@@ -1979,38 +2153,33 @@ fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64 {
     let mut result = 0.0;
     let depth_float = max_depth as f64 + 0.5;  // Praat uses maxDepth + 0.5
 
-    // Left half: from midleft down to left
-    {
-        let window_phase_step = PI / depth_float;
-        let sin_window_phase_step = window_phase_step.sin();
-        let cos_window_phase_step = window_phase_step.cos();
+    // Hoist common sin/cos step computation (shared by both halves)
+    let window_phase_step = PI / depth_float;
+    let sin_window_phase_step = window_phase_step.sin();
+    let cos_window_phase_step = window_phase_step.cos();
 
-        // Initialize sinc phase
+    // Left half: from midleft down to left
+    // Note: left_phase can never be 0 in the loop because the early return at
+    // line 2021 (`if x == midleft as f64`) handles that case. The initial phase
+    // is PI * (x - midleft) where x != midleft, and subsequent iterations add PI.
+    {
         let left_phase_initial = PI * (x - midleft as f64);
         let mut left_phase = left_phase_initial;
         let mut half_sin_left_phase = 0.5 * left_phase_initial.sin();
 
-        // Initialize window phase
         let window_phase_initial = left_phase_initial / depth_float;
         let mut sin_window_phase = window_phase_initial.sin();
         let mut cos_window_phase = window_phase_initial.cos();
 
         let mut ix = idx_midleft;
         while ix >= left {
-            // Compute sinc * window contribution
-            let sinc_times_window = if left_phase.abs() < 1e-10 {
-                // Avoid division by zero at phase = 0
-                0.5 * (1.0 + cos_window_phase)
-            } else {
-                half_sin_left_phase / left_phase * (1.0 + cos_window_phase)
-            };
-            result += r[ix as usize] * sinc_times_window;
+            let sinc_times_window = half_sin_left_phase / left_phase * (1.0 + cos_window_phase);
+            // SAFETY: ix is bounded by left..=idx_midleft, validated at lines 2045-2046
+            result += unsafe { *r.get_unchecked(ix as usize) } * sinc_times_window;
 
-            // Update sinc phase (adding pi flips the sign of sin)
             left_phase += PI;
             half_sin_left_phase = -half_sin_left_phase;
 
-            // Update window phase using trig identities
             let next_sin = cos_window_phase * sin_window_phase_step + sin_window_phase * cos_window_phase_step;
             let next_cos = cos_window_phase * cos_window_phase_step - sin_window_phase * sin_window_phase_step;
             sin_window_phase = next_sin;
@@ -2022,35 +2191,23 @@ fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64 {
 
     // Right half: from midright up to right
     {
-        let window_phase_step = PI / depth_float;
-        let sin_window_phase_step = window_phase_step.sin();
-        let cos_window_phase_step = window_phase_step.cos();
-
-        // Initialize sinc phase
         let right_phase_initial = PI * (midright as f64 - x);
         let mut right_phase = right_phase_initial;
         let mut half_sin_right_phase = 0.5 * right_phase_initial.sin();
 
-        // Initialize window phase
         let window_phase_initial = right_phase_initial / depth_float;
         let mut sin_window_phase = window_phase_initial.sin();
         let mut cos_window_phase = window_phase_initial.cos();
 
         let mut ix = idx_midright;
         while ix <= right {
-            // Compute sinc * window contribution
-            let sinc_times_window = if right_phase.abs() < 1e-10 {
-                0.5 * (1.0 + cos_window_phase)
-            } else {
-                half_sin_right_phase / right_phase * (1.0 + cos_window_phase)
-            };
-            result += r[ix as usize] * sinc_times_window;
+            let sinc_times_window = half_sin_right_phase / right_phase * (1.0 + cos_window_phase);
+            // SAFETY: ix is bounded by idx_midright..=right, validated at lines 2045-2046
+            result += unsafe { *r.get_unchecked(ix as usize) } * sinc_times_window;
 
-            // Update sinc phase
             right_phase += PI;
             half_sin_right_phase = -half_sin_right_phase;
 
-            // Update window phase
             let next_sin = cos_window_phase * sin_window_phase_step + sin_window_phase * cos_window_phase_step;
             let next_cos = cos_window_phase * cos_window_phase_step - sin_window_phase * sin_window_phase_step;
             sin_window_phase = next_sin;
