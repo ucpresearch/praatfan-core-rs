@@ -148,9 +148,43 @@ impl PySound {
     ///     Minimum pitch (Hz), typically 75
     /// pitch_ceiling : float
     ///     Maximum pitch (Hz), typically 600
-    fn to_pitch(&self, time_step: f64, pitch_floor: f64, pitch_ceiling: f64) -> PyPitch {
+    /// voicing_threshold : float, optional
+    ///     Voicing threshold for the Viterbi path finder (default 0.45).
+    ///     Set to 0.0 to accept nearly all candidates as voiced, useful
+    ///     for local voicing decisions based on per-frame strength values.
+    /// silence_threshold : float, optional
+    ///     Silence threshold (default 0.03)
+    /// octave_cost : float, optional
+    ///     Octave cost (default 0.01)
+    /// octave_jump_cost : float, optional
+    ///     Octave jump cost (default 0.35)
+    /// voiced_unvoiced_cost : float, optional
+    ///     Voiced/unvoiced transition cost (default 0.14)
+    #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14))]
+    fn to_pitch(
+        &self,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+    ) -> PyPitch {
         PyPitch {
-            inner: RustPitch::from_sound(&self.inner, time_step, pitch_floor, pitch_ceiling),
+            inner: RustPitch::from_sound_full(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                15,
+                silence_threshold,
+                voicing_threshold,
+                octave_cost,
+                octave_jump_cost,
+                voiced_unvoiced_cost,
+            ),
         }
     }
 
@@ -394,6 +428,27 @@ impl PyPitch {
             .map(|i| self.inner.get_time_from_frame(i))
             .collect();
         times.into_pyarray_bound(py)
+    }
+
+    /// Get per-frame strength (autocorrelation peak) of the selected candidate.
+    ///
+    /// When used with voicing_threshold=0.0 in to_pitch(), nearly all frames
+    /// will be voiced and these values will be autocorrelation strengths (0-1,
+    /// higher = more likely voiced), suitable for local voicing thresholding.
+    fn strengths<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        let strengths: Vec<f64> = self
+            .inner
+            .frames()
+            .iter()
+            .map(|f| {
+                if f.candidates.is_empty() {
+                    f64::NAN
+                } else {
+                    f.candidates[0].strength
+                }
+            })
+            .collect();
+        strengths.into_pyarray_bound(py)
     }
 
     #[getter]
