@@ -48,6 +48,10 @@ pub struct PitchFrame {
     pub candidates: Vec<PitchCandidate>,
     /// Intensity of this frame (normalized local peak)
     pub intensity: f64,
+    /// Raw autocorrelation peak in the valid lag range (0-1).
+    /// Purely local, file-length independent, unaffected by voicing threshold
+    /// or candidate selection.
+    pub raw_ac_peak: f64,
 }
 
 /// Pitch contour representing fundamental frequency over time
@@ -1307,6 +1311,7 @@ fn compute_pitch_frame(
         return PitchFrame {
             candidates,
             intensity,
+            raw_ac_peak: 0.0,
         };
     }
 
@@ -1328,6 +1333,12 @@ fn compute_pitch_frame(
             }
         }
     }
+
+    // Raw autocorrelation peak in valid lag range (independent of voicing threshold)
+    let raw_ac_peak = (2..maximum_lag.min(brent_ixmax))
+        .map(|i| r[r_offset + i])
+        .fold(0.0_f64, f64::max)
+        .min(1.0);
 
     // Find maxima in the autocorrelation
     let mut imax = vec![0usize; max_candidates + 1];
@@ -1414,6 +1425,7 @@ fn compute_pitch_frame(
     PitchFrame {
         candidates,
         intensity,
+        raw_ac_peak,
     }
 }
 
@@ -1512,7 +1524,7 @@ fn compute_pitch_frame_multichannel(
     }];
 
     if local_peak == 0.0 {
-        return PitchFrame { candidates, intensity };
+        return PitchFrame { candidates, intensity, raw_ac_peak: 0.0 };
     }
 
     // Compute autocorrelation via FFT, summing power across channels (in-place)
@@ -1532,6 +1544,12 @@ fn compute_pitch_frame_multichannel(
             }
         }
     }
+
+    // Raw autocorrelation peak in valid lag range (independent of voicing threshold)
+    let raw_ac_peak = (2..maximum_lag.min(brent_ixmax))
+        .map(|i| r[r_offset + i])
+        .fold(0.0_f64, f64::max)
+        .min(1.0);
 
     // Find maxima in the autocorrelation (same as single-channel)
     let mut imax = vec![0usize; max_candidates + 1];
@@ -1607,7 +1625,7 @@ fn compute_pitch_frame_multichannel(
         }
     }
 
-    PitchFrame { candidates, intensity }
+    PitchFrame { candidates, intensity, raw_ac_peak }
 }
 
 /// Compute pitch candidates for a single frame using FCC with multiple channels
@@ -1690,12 +1708,12 @@ fn compute_pitch_frame_fcc_multichannel(
     let mut candidates = vec![PitchCandidate { frequency: 0.0, strength: 0.0 }];
 
     if local_peak == 0.0 || local_maximum_lag < 2 {
-        return PitchFrame { candidates, intensity };
+        return PitchFrame { candidates, intensity, raw_ac_peak: 0.0 };
     }
 
     let offset = start_sample_fcc;
     if offset + nsamp_window > nx || offset + local_maximum_lag + nsamp_window > nx {
-        return PitchFrame { candidates, intensity };
+        return PitchFrame { candidates, intensity, raw_ac_peak: 0.0 };
     }
 
     // Pre-subtract mean for each channel into pre-allocated buffers
@@ -1716,7 +1734,7 @@ fn compute_pitch_frame_fcc_multichannel(
     }
 
     if sumx2 == 0.0 {
-        return PitchFrame { candidates, intensity };
+        return PitchFrame { candidates, intensity, raw_ac_peak: 0.0 };
     }
 
     // === FFT-based cross-correlation, summing across channels ===
@@ -1787,6 +1805,12 @@ fn compute_pitch_frame_fcc_multichannel(
             r[r_offset - lag] = normalized;
         }
     }
+
+    // Raw autocorrelation peak in valid lag range (independent of voicing threshold)
+    let raw_ac_peak = (2..local_maximum_lag.min(brent_ixmax))
+        .map(|i| r[r_offset + i])
+        .fold(0.0_f64, f64::max)
+        .min(1.0);
 
     // Track discrete lag positions for each candidate (imax)
     let mut imax: Vec<usize> = vec![0; max_candidates + 1];
@@ -1862,7 +1886,7 @@ fn compute_pitch_frame_fcc_multichannel(
         }
     }
 
-    PitchFrame { candidates, intensity }
+    PitchFrame { candidates, intensity, raw_ac_peak }
 }
 
 /// Compute pitch candidates for a single frame using FCC (Forward Cross-Correlation)
@@ -1953,6 +1977,7 @@ fn compute_pitch_frame_fcc(
         return PitchFrame {
             candidates,
             intensity,
+            raw_ac_peak: 0.0,
         };
     }
 
@@ -1963,6 +1988,7 @@ fn compute_pitch_frame_fcc(
         return PitchFrame {
             candidates,
             intensity,
+            raw_ac_peak: 0.0,
         };
     }
 
@@ -1982,6 +2008,7 @@ fn compute_pitch_frame_fcc(
         return PitchFrame {
             candidates,
             intensity,
+            raw_ac_peak: 0.0,
         };
     }
 
@@ -2044,6 +2071,12 @@ fn compute_pitch_frame_fcc(
             r[r_offset - lag] = normalized;
         }
     }
+
+    // Raw autocorrelation peak in valid lag range (independent of voicing threshold)
+    let raw_ac_peak = (2..local_maximum_lag.min(brent_ixmax))
+        .map(|i| r[r_offset + i])
+        .fold(0.0_f64, f64::max)
+        .min(1.0);
 
     // Track discrete lag positions for each candidate (imax)
     let mut imax: Vec<usize> = vec![0; max_candidates + 1];
@@ -2142,6 +2175,7 @@ fn compute_pitch_frame_fcc(
     PitchFrame {
         candidates,
         intensity,
+        raw_ac_peak,
     }
 }
 

@@ -430,23 +430,20 @@ impl PyPitch {
         times.into_pyarray_bound(py)
     }
 
-    /// Get per-frame strength (autocorrelation peak) of the selected candidate.
+    /// Get per-frame raw autocorrelation peak (range 0-1).
     ///
-    /// When used with voicing_threshold=0.0 in to_pitch(), nearly all frames
-    /// will be voiced and these values will be autocorrelation strengths (0-1,
-    /// higher = more likely voiced), suitable for local voicing thresholding.
-    fn strengths<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+    /// Returns the maximum normalized autocorrelation value among voiced
+    /// candidates in each frame. Higher = stronger periodicity.
+    /// This is purely local (computed from one analysis window) and
+    /// file-length independent — unlike Praat's voicing decision or
+    /// parselmouth's selected_array['strength'], which depend on the
+    /// global Viterbi path.
+    fn raw_ac_strengths<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let strengths: Vec<f64> = self
             .inner
             .frames()
             .iter()
-            .map(|f| {
-                if f.candidates.is_empty() {
-                    f64::NAN
-                } else {
-                    f.candidates[0].strength
-                }
-            })
+            .map(|f| f.raw_ac_peak)
             .collect();
         strengths.into_pyarray_bound(py)
     }
