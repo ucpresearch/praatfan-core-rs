@@ -13,18 +13,18 @@ jobs:
   python-linux-x64:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: python
           target: x86_64
           args: --release --out dist -i python3.12
           manylinux: auto
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wheels-linux-x64
           path: python/dist/*.whl
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
@@ -36,8 +36,8 @@ jobs:
   python-macos-x64:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - uses: PyO3/maturin-action@v1
@@ -45,11 +45,11 @@ jobs:
           working-directory: python
           target: x86_64-apple-darwin
           args: --release --out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wheels-macos-x64
           path: python/dist/*.whl
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
@@ -58,8 +58,8 @@ jobs:
   python-macos-arm64:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - uses: PyO3/maturin-action@v1
@@ -67,11 +67,11 @@ jobs:
           working-directory: python
           target: aarch64-apple-darwin
           args: --release --out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wheels-macos-arm64
           path: python/dist/*.whl
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
@@ -80,8 +80,8 @@ jobs:
   python-windows-x64:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - uses: PyO3/maturin-action@v1
@@ -89,11 +89,11 @@ jobs:
           working-directory: python
           target: x86_64
           args: --release --out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wheels-windows-x64
           path: python/dist/*.whl
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
           files: python/dist/*.whl
@@ -102,18 +102,19 @@ jobs:
   wasm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - uses: jetli/wasm-pack-action@v0.4.0
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
       - name: Build WASM (web target)
         run: cd wasm && wasm-pack build --target web
       - name: Package WASM
         run: cd wasm && zip -r ../praatfan-gpl.zip pkg/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wasm-pkg
           path: praatfan-gpl.zip
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
           files: praatfan-gpl.zip
