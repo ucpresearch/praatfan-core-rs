@@ -428,6 +428,10 @@ pip install target/wheels/praatfan_gpl-*.whl
 
 ### GitHub Actions Workflow (`.github/workflows/release.yml`)
 
+**Node.js 24 compatibility:** All actions upgraded to Node.js 24-compatible versions as of v0.1.4 (2026-04-07). `jetli/wasm-pack-action` replaced with `cargo install wasm-pack` (unmaintained, no Node 24 support). GitHub forces Node.js 24 runtime starting June 2, 2026; Node.js 20 removed from runners Sept 16, 2026.
+
+**RPi5 repo note:** The repo on `transit.u5ls` was on `master` branch (stale). Switched to `main` during v0.1.4 build. Always `git checkout main && git pull` before building.
+
 **Trigger:** On release publish, or manual workflow_dispatch
 
 **Platforms built automatically:**
