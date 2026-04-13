@@ -20,7 +20,7 @@ jobs:
           target: x86_64
           args: --release --out dist -i python3.12
           manylinux: auto
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-x64
           path: python/dist/*.whl
@@ -40,7 +40,7 @@ jobs:
           target: aarch64
           args: --release --out dist -i python3.12
           manylinux: auto
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-arm64
           path: python/dist/*.whl
@@ -62,7 +62,7 @@ jobs:
           working-directory: python
           target: x86_64-apple-darwin
           args: --release --out dist
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-x64
           path: python/dist/*.whl
@@ -84,7 +84,7 @@ jobs:
           working-directory: python
           target: aarch64-apple-darwin
           args: --release --out dist
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-arm64
           path: python/dist/*.whl
@@ -106,7 +106,7 @@ jobs:
           working-directory: python
           target: x86_64
           args: --release --out dist
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-x64
           path: python/dist/*.whl
@@ -128,7 +128,7 @@ jobs:
           working-directory: python
           target: aarch64-pc-windows-msvc
           args: --release --out dist
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-arm64
           path: python/dist/*.whl
@@ -149,7 +149,7 @@ jobs:
         run: cd wasm && wasm-pack build --target web
       - name: Package WASM
         run: cd wasm && zip -r ../praatfan-gpl.zip pkg/
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: wasm-pkg
           path: praatfan-gpl.zip
