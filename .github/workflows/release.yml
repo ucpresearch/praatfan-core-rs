@@ -29,8 +29,25 @@ jobs:
         with:
           files: python/dist/*.whl
 
-  # Linux ARM64: Built manually on RPi5, not in CI
-  # (GitHub's ARM64 runners require paid "larger runners")
+  # Linux ARM64 (Raspberry Pi / Apple Silicon Linux)
+  python-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: aarch64
+          args: --release --out dist -i python3.12
+          manylinux: auto
+      - uses: actions/upload-artifact@v5
+        with:
+          name: wheels-linux-arm64
+          path: python/dist/*.whl
+      - uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: python/dist/*.whl
 
   # macOS x86_64 (Intel) - cross-compiled from ARM64
   python-macos-x64:

@@ -418,7 +418,7 @@ pip install target/wheels/praatfan_gpl-*.whl
 
 9. **M9: CI/CD & Distribution** (implemented)
    - GitHub Actions workflow for multi-platform Python wheel builds
-   - Linux ARM64 built manually on RPi5 (GitHub's ARM64 runners require paid "larger runners")
+   - Linux ARM64 now built in CI via `ubuntu-24.04-arm` runner (switched from manual RPi5 SSH build)
    - Wheels attached to GitHub releases (not PyPI)
    - WASM zip attached to GitHub releases (not npm)
 
@@ -438,14 +438,15 @@ pip install target/wheels/praatfan_gpl-*.whl
 | Platform | Runner | Target |
 |----------|--------|--------|
 | Linux x64 | ubuntu-latest | manylinux_2_35_x86_64 |
+| Linux ARM64 | ubuntu-24.04-arm | manylinux_2_35_aarch64 |
 | macOS x64 | macos-latest | x86_64-apple-darwin (cross-compiled) |
 | macOS ARM64 | macos-latest | aarch64-apple-darwin |
 | Windows x64 | windows-latest | win_amd64 |
 | WASM | ubuntu-latest | wasm32-unknown-unknown |
 
-**Linux ARM64:** Not built in CI. GitHub's ARM64 runners require enabling "larger runners" (paid feature). Built manually on RPi5 instead.
+**Linux ARM64:** Now built in CI using `ubuntu-24.04-arm` runner (as of 2026-04-13). Previously built manually on RPi5 via SSH — see below for the old method if CI doesn't work out.
 
-### Linux ARM64 Manual Build (u5ls.local)
+### Linux ARM64 Manual Build (u5ls.local) — Legacy / Fallback
 
 Build environment on the RPi5:
 ```
@@ -493,8 +494,7 @@ pip install praatfan-gpl
    - Bumped version from 0.1.1 to 0.1.2 in all `Cargo.toml` and `pyproject.toml` files
 
 2. **Build wheels:**
-   - GitHub Actions: 4 platforms (Linux x64, macOS x64/ARM64, Windows x64)
-   - Raspberry Pi 5: Linux ARM64 (built via SSH at `transit.u5ls`)
+   - GitHub Actions: 5 platforms (Linux x64, Linux ARM64, macOS x64/ARM64, Windows x64)
 
 3. **Upload to TestPyPI first:**
    ```bash
