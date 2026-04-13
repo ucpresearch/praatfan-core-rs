@@ -115,6 +115,28 @@ jobs:
         with:
           files: python/dist/*.whl
 
+  # Windows ARM64 (Snapdragon)
+  python-windows-arm64:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: aarch64-pc-windows-msvc
+          args: --release --out dist
+      - uses: actions/upload-artifact@v5
+        with:
+          name: wheels-windows-arm64
+          path: python/dist/*.whl
+      - uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: python/dist/*.whl
+
   # WASM package
   wasm:
     runs-on: ubuntu-latest
