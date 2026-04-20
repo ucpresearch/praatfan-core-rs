@@ -16,6 +16,9 @@ use crate::utils::lpc::{lpc_burg, lpc_to_formants, FormantCandidate};
 use crate::window::praat_formant_window;
 use crate::{FrequencyUnit, Sound};
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 /// A single formant measurement (frequency and bandwidth)
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FormantPoint {
@@ -270,6 +273,54 @@ impl Formant {
             time_step,
             max_num_formants,
             max_formant_hz,
+        }
+    }
+
+    /// Compute Burg-LPC formants for each ceiling in `max_formants_hz`.
+    ///
+    /// Equivalent to calling [`Formant::from_sound_burg`] once per ceiling with
+    /// all other parameters fixed. Results are returned in the same order as
+    /// the input slice. With the `parallel` feature, ceilings are processed
+    /// concurrently via rayon; otherwise a sequential fallback is used.
+    pub fn from_sound_burg_multi(
+        sound: &Sound,
+        time_step: f64,
+        max_num_formants: usize,
+        max_formants_hz: &[f64],
+        window_length: f64,
+        pre_emphasis_from: f64,
+    ) -> Vec<Self> {
+        #[cfg(feature = "parallel")]
+        {
+            max_formants_hz
+                .par_iter()
+                .map(|&hz| {
+                    Self::from_sound_burg(
+                        sound,
+                        time_step,
+                        max_num_formants,
+                        hz,
+                        window_length,
+                        pre_emphasis_from,
+                    )
+                })
+                .collect()
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            max_formants_hz
+                .iter()
+                .map(|&hz| {
+                    Self::from_sound_burg(
+                        sound,
+                        time_step,
+                        max_num_formants,
+                        hz,
+                        window_length,
+                        pre_emphasis_from,
+                    )
+                })
+                .collect()
         }
     }
 

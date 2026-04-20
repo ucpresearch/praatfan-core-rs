@@ -222,6 +222,50 @@ impl PySound {
         }
     }
 
+    /// Compute Burg-LPC formants for each ceiling in ``max_formants_hz``.
+    ///
+    /// Equivalent to calling :meth:`to_formant_burg` once per ceiling with all
+    /// other parameters fixed. Returns one ``Formant`` per ceiling in the same
+    /// order. Ceilings are processed in parallel via rayon (releases the GIL).
+    ///
+    /// Parameters
+    /// ----------
+    /// time_step : float
+    ///     Time between analysis frames (0.0 for automatic)
+    /// max_num_formants : int
+    ///     Maximum number of formants (typically 5)
+    /// max_formants_hz : list[float]
+    ///     Maximum formant frequencies in Hz, one per output Formant
+    /// window_length : float
+    ///     Analysis window duration (typically 0.025)
+    /// pre_emphasis_from : float
+    ///     Pre-emphasis frequency (Hz), typically 50
+    ///
+    /// Returns
+    /// -------
+    /// list[Formant]
+    fn to_formant_burg_multi(
+        &self,
+        py: Python<'_>,
+        time_step: f64,
+        max_num_formants: usize,
+        max_formants_hz: Vec<f64>,
+        window_length: f64,
+        pre_emphasis_from: f64,
+    ) -> Vec<PyFormant> {
+        let formants = py.allow_threads(|| {
+            RustFormant::from_sound_burg_multi(
+                &self.inner,
+                time_step,
+                max_num_formants,
+                &max_formants_hz,
+                window_length,
+                pre_emphasis_from,
+            )
+        });
+        formants.into_iter().map(|inner| PyFormant { inner }).collect()
+    }
+
     /// Compute intensity contour
     ///
     /// Parameters
