@@ -12,6 +12,7 @@ use ::praatfan_core::{
     FrequencyUnit, Interpolation, PitchUnit, WindowShape,
     Sound as RustSound,
     Pitch as RustPitch,
+    PitchMethod as RustPitchMethod,
     Formant as RustFormant,
     Intensity as RustIntensity,
     Spectrum as RustSpectrum,
@@ -186,6 +187,81 @@ impl PySound {
                 voiced_unvoiced_cost,
             ),
         }
+    }
+
+    /// Compute pitch contour using the cross-correlation (FCC) method.
+    ///
+    /// Equivalent to Praat's ``Sound: To Pitch (cc)``. Uses the same Viterbi
+    /// path-finder as :meth:`to_pitch` but with FCC candidate scoring.
+    ///
+    /// Parameters
+    /// ----------
+    /// time_step : float
+    ///     Time between analysis frames (0.0 for automatic).
+    /// pitch_floor : float
+    ///     Minimum pitch (Hz), typically 75.
+    /// pitch_ceiling : float
+    ///     Maximum pitch (Hz), typically 600.
+    /// voicing_threshold : float, optional
+    ///     Voicing threshold for the Viterbi path finder (default 0.45).
+    /// silence_threshold : float, optional
+    ///     Silence threshold (default 0.03).
+    /// octave_cost : float, optional
+    ///     Octave cost (default 0.01).
+    /// octave_jump_cost : float, optional
+    ///     Octave jump cost (default 0.35).
+    /// voiced_unvoiced_cost : float, optional
+    ///     Voiced/unvoiced transition cost (default 0.14).
+    #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14))]
+    fn to_pitch_cc(
+        &self,
+        py: Python<'_>,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+    ) -> PyPitch {
+        let inner = py.allow_threads(|| {
+            RustPitch::from_sound_with_method(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                15,
+                silence_threshold,
+                voicing_threshold,
+                octave_cost,
+                octave_jump_cost,
+                voiced_unvoiced_cost,
+                1.0,
+                RustPitchMethod::FccAccurate,
+            )
+        });
+        PyPitch { inner }
+    }
+
+    /// Resample to a new sample rate.
+    ///
+    /// Uses Praat's FFT-based sinc interpolation (`Sound_resample`), producing
+    /// bit-accurate output against parselmouth. If ``new_sample_rate`` is
+    /// greater than or equal to the current rate, returns a copy without
+    /// upsampling (matching Praat's behavior).
+    ///
+    /// Parameters
+    /// ----------
+    /// new_sample_rate : float
+    ///     Target sample rate in Hz.
+    ///
+    /// Returns
+    /// -------
+    /// Sound
+    fn resample(&self, py: Python<'_>, new_sample_rate: f64) -> Self {
+        let inner = py.allow_threads(|| self.inner.resample(new_sample_rate));
+        Self { inner }
     }
 
     /// Compute formants using Burg's LPC method
@@ -472,6 +548,20 @@ impl PyPitch {
             .map(|i| self.inner.get_time_from_frame(i))
             .collect();
         times.into_pyarray_bound(py)
+    }
+
+    /// Per-frame strength of the Viterbi-selected candidate.
+    ///
+    /// Equivalent to parselmouth's ``Pitch.selected_array['strength']``:
+    /// for voiced frames this is the autocorrelation strength of the winning
+    /// candidate; for unvoiced frames it is the unvoiced-candidate penalty
+    /// strength computed from the silence/voicing thresholds. Values are
+    /// returned as-is (no NaN handling) so they match Praat bit-for-bit.
+    fn strengths<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        let strengths: Vec<f64> = (0..self.inner.num_frames())
+            .map(|i| self.inner.get_strength_at_frame(i).unwrap_or(0.0))
+            .collect();
+        strengths.into_pyarray_bound(py)
     }
 
     /// Get per-frame raw autocorrelation peak (range 0-1).
