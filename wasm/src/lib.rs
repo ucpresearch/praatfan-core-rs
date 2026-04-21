@@ -8,7 +8,7 @@ use js_sys::Float64Array;
 
 // Re-export from praatfan-core-rs
 use praatfan_core::{
-    FrequencyUnit, Interpolation, PitchUnit, WindowShape,
+    FrequencyUnit, Interpolation, PitchMethod, PitchUnit, WindowShape,
 };
 
 /// Initialize panic hook for better error messages in WASM
@@ -111,6 +111,46 @@ impl Sound {
     pub fn to_pitch(&self, time_step: f64, pitch_floor: f64, pitch_ceiling: f64) -> Pitch {
         Pitch {
             inner: praatfan_core::Pitch::from_sound(&self.inner, time_step, pitch_floor, pitch_ceiling),
+        }
+    }
+
+    /// Compute pitch contour using the cross-correlation (FCC) method
+    ///
+    /// Equivalent to Praat's "Sound: To Pitch (cc)". Same Viterbi path-finder
+    /// as `to_pitch`, but with FCC candidate scoring.
+    ///
+    /// @param time_step - Time between analysis frames (0.0 for automatic)
+    /// @param pitch_floor - Minimum pitch (Hz), typically 75
+    /// @param pitch_ceiling - Maximum pitch (Hz), typically 600
+    pub fn to_pitch_cc(&self, time_step: f64, pitch_floor: f64, pitch_ceiling: f64) -> Pitch {
+        Pitch {
+            inner: praatfan_core::Pitch::from_sound_with_method(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                15,
+                0.03,
+                0.45,
+                0.01,
+                0.35,
+                0.14,
+                1.0,
+                PitchMethod::FccAccurate,
+            ),
+        }
+    }
+
+    /// Resample to a new sample rate.
+    ///
+    /// Uses Praat's FFT-based windowed-sinc algorithm. If `new_sample_rate` is
+    /// greater than or equal to the current rate, returns a copy without
+    /// upsampling (matching Praat's Sound_resample behavior).
+    ///
+    /// @param new_sample_rate - Target sample rate in Hz
+    pub fn resample(&self, new_sample_rate: f64) -> Sound {
+        Sound {
+            inner: self.inner.resample(new_sample_rate),
         }
     }
 
@@ -300,6 +340,19 @@ impl Pitch {
             .map(|i| self.inner.get_time_from_frame(i))
             .collect();
         Float64Array::from(&times[..])
+    }
+
+    /// Per-frame strength of the Viterbi-selected candidate.
+    ///
+    /// Equivalent to parselmouth's `Pitch.selected_array['strength']`:
+    /// voiced frames return the winning candidate's autocorrelation strength,
+    /// unvoiced frames return the computed unvoiced-candidate penalty strength.
+    /// Returned as-is (no NaN handling) for Praat bit-parity.
+    pub fn strengths(&self) -> Float64Array {
+        let strengths: Vec<f64> = (0..self.inner.num_frames())
+            .map(|i| self.inner.get_strength_at_frame(i).unwrap_or(0.0))
+            .collect();
+        Float64Array::from(&strengths[..])
     }
 
     #[wasm_bindgen(getter)]
