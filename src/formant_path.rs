@@ -344,10 +344,23 @@ impl FormantPath {
                 .iter()
                 .map(|c| c.frame(itime - 1))
                 .collect();
+            // Cap number of tracks at Praat's `numberOfTracks` =
+            //   std::min(maxnFormants, parameters.size)
+            // This is NOT `self.max_num_formants` alone — Praat also caps at
+            // the `parameters` vector length. Using only `self.max_num_formants`
+            // iterates one extra track (F5) in the frequency-change cost,
+            // which shifts the Viterbi onto a different path for tokens where
+            // that extra track's values differ meaningfully between candidates.
+            let cap_tracks = if num_tracks_fit > 0 {
+                num_tracks_fit
+            } else {
+                self.max_num_formants
+            };
+
             for iformant in 0..n_cand {
                 let fi = frames_i[iformant];
                 let num_tracks_i = match fi {
-                    Some(f) => self.max_num_formants.min(f.num_formants()),
+                    Some(f) => cap_tracks.min(f.num_formants()),
                     None => 0,
                 };
 
@@ -360,7 +373,7 @@ impl FormantPath {
                     if frequency_change_weight > 0.0 {
                         if let (Some(ffi), Some(ffj)) = (fi, fj) {
                             let ntracks =
-                                ffj.num_formants().min(num_tracks_i).min(self.max_num_formants);
+                                ffj.num_formants().min(num_tracks_i).min(cap_tracks);
                             if ntracks > 0 {
                                 let mut fcost = 0.0;
                                 for itrack in 1..=ntracks {
