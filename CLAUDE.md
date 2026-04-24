@@ -1107,8 +1107,131 @@ source ~/local/scr/commonpip/bin/activate
 | Example | Module | Build Command |
 |---------|--------|---------------|
 | `formant_json` | Formant | `cargo build --release --example formant_json` |
+| `formant_path_json` | FormantPath | `cargo build --release --example formant_path_json` |
 | `intensity_json` | Intensity | `cargo build --release --example intensity_json` |
 | `spectrum_json` | Spectrum | `cargo build --release --example spectrum_json` |
 | `spectrogram_json` | Spectrogram | `cargo build --release --example spectrogram_json` |
 | `pitch_json` | Pitch | `cargo build --release --example pitch_json` |
 | `harmonicity_json` | Harmonicity | `cargo build --release --example harmonicity_json` |
+| `fft_dump` | FFTPACK diagnostics | `cargo build --release --example fft_dump` |
+
+---
+
+## FormantPath (Session 2026-04-23)
+
+First-class port of Praat's `Sound: To FormantPath (burg)`. Parselmouth
+doesn't expose FormantPath natively; users historically had to go through
+`parselmouth.praat.call(...)`. Our `FormantPath` type fills that gap in
+Rust/Python/WASM.
+
+Entry points:
+- Rust: `Sound::to_formant_path_burg(...)` returns `FormantPath`
+- Python: `Sound.to_formant_path_burg(...)` returns `FormantPath`
+- WASM: `Sound.to_formant_path_burg(...)` + `to_formant_burg_multi(...)`
+
+FormantPath's internal LPC path differs from standalone `To Formant (burg)`
+(Praat routes candidates through `Sound_into_LPC`, not
+`Sound_to_Formant_any`):
+- All candidates share the middle-ceiling's `(t1, numberOfFrames)` grid
+- Per-frame mean subtraction before windowing
+- Nearest-index sample extraction (round, not floor+1)
+- Zero-padded out-of-bounds samples, zeros included in the mean
+
+Viterbi cost components (`Path finder`): Q-factor bonus, stress penalty
+(via Legendre polynomial fit of each formant track in
+`src/formant_modeler.rs`), frequency change cost, ceiling change cost,
+optional intensity modulation. Implemented to match Praat 6.1.38.
+
+---
+
+## Precision improvements (Session 2026-04-23)
+
+Five changes, one-big-win pattern: most were code-quality wins that didn't
+move formant parity at 1-Hz resolution; the last one-liner moved it
+dramatically.
+
+### 1. `faer` for eigendecomposition (root finding)
+
+Replaced our custom Hessenberg + Francis QR (~200 lines) with `faer::Mat::eigenvalues()`.
+Pure Rust, WASM-compatible. Net numerical change vs old QR: 0 (both at machine precision).
+Removed 200 lines of custom code; `qr_eigenvalues()` / `to_upper_hessenberg()` /
+`francis_qr_step()` are gone.
+
+### 2. Kahan-Neumaier Burg accumulators
+
+Replaced f64 accumulators in `VECburg` (`src/utils/lpc.rs`) with
+Kahan-compensated summation matching Praat's `longdouble`. Net formant change: 0.
+Hygiene fix only.
+
+### 3. Bit-accurate FFTPACK f64 port
+
+Vendored `src/utils/fft_fftpack/` (MIT-licensed c2rust port from `speexdsp-rs`,
+promoted f32 → f64). Fixed two upstream bugs after vendoring:
+- Operator-precedence error in `dradf.rs`: `ch[t1 << (1 + t3 - 1)]` →
+  `ch[(t1 << 1) + t3 - 1]`
+- Truncated constants upgraded to full f64: `TAUI`, `TPI`, `HSQT2`
+
+Verified to match `numpy.fft.rfft` to 5e-16 on a 16-point test signal.
+Wired into `Sound::fft_lowpass_filter`. Net formant parity change: 0 (not
+the bottleneck).
+
+### 4. Sinc interpolation formula for Praat 6.1.38
+
+Praat changed `leftDepth`/`rightDepth` between 6.1.38 (which parselmouth
+0.4.x ships) and 6.2+. We use 6.1.38's asymmetric formula:
+```
+leftDepth  = x - left + 1.0
+rightDepth = right - x + 1.0
+```
+rather than the later `maxDepth + 0.5`. Impact on `Sound::resample`:
+- 16k→10k downsample is **bit-exact** with Praat
+- 16k→20k upsample mean |diff| dropped from 1.4e-7 to 1.8e-9
+
+Net formant parity change: 0 (the Burg + root-finding numerical floor
+absorbs the sample-level precision gain).
+
+### 5. FormantPath Viterbi track-count cap — the big one
+
+In the Viterbi transition-cost loop, we were capping the number of
+formant tracks at `self.max_num_formants` (5) instead of
+`num_tracks_fit = min(max_num_formants, parameters.size)` (4 when
+parameters = `[3, 3, 3, 3]`). The extra track (F5) accumulates enough
+frequency-change cost to flip the Viterbi on vowels where two adjacent
+ceiling candidates are near-tied.
+
+Canonical example: Hillenbrand `w32iy` (woman's /iy/). F2 at vowel
+midpoint was 946 Hz (off 1795 Hz from Praat's 2740). After fix: 2740.58
+(off 0.016 Hz).
+
+Aggregate Hillenbrand 1995 impact (1609 tokens, 50% vowel midpoint):
+
+| Measure | Before | After | Change |
+|---|---:|---:|---|
+| F2 mean | 2.01 Hz | 0.14 Hz | **14×** |
+| F2 max | 1795 Hz | 51 Hz | **35×** |
+| F3 mean | 2.94 Hz | 0.19 Hz | **15×** |
+| F3 P99 | 47 Hz | 1.6 Hz | **29×** |
+
+99.2% of all F1/F2/F3 values now within 1 Hz of Praat.
+
+### Regression-testing workflow
+
+```bash
+source ~/local/scr/commonpip/bin/activate
+# Generate baseline (once, takes ~2 min): writes tests/baselines/h95_formantpath_parity.csv
+python scripts/generate_h95_baseline.py
+# After code changes, verify no parity regression
+python scripts/check_h95_regression.py              # full run
+python scripts/check_h95_regression.py --limit 60   # quick smoke check
+```
+
+Current state snapshot in `tests/baselines/STATE.md`. Next worst token
+is `w32aw` (women's /aw/, F1 diff 31.9 Hz) — Viterbi tie-break
+disagreement, same general pattern as `w32iy` but on a different
+transition.
+
+### What's NOT changed vs old CLAUDE.md numbers
+
+Standalone Formant analysis (via `to_formant_burg`, not
+`to_formant_path_burg`) is unchanged: still 100% F1/F2/F3 within 1 Hz
+on `one_two_three_four_five.wav`. All 63 unit tests pass.
