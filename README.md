@@ -17,6 +17,7 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 | `Pitch` | F0 contour from autocorrelation analysis |
 | `Intensity` | RMS energy contour in dB |
 | `Formant` | LPC-based formant tracks (F1-F4 + bandwidths) |
+| `FormantPath` | Multi-ceiling Burg formant analysis with Viterbi-optimal ceiling selection (not natively exposed by parselmouth) |
 | `Harmonicity` | HNR (harmonics-to-noise ratio) contour |
 | `Spectrum` | Single-frame FFT magnitude spectrum |
 | `Spectrogram` | Time-frequency representation |
@@ -187,6 +188,22 @@ formant = sound.to_formant_burg(
 f1_values = formant.formant_values(1)
 f2_values = formant.formant_values(2)
 
+# FormantPath — multi-ceiling analysis with Viterbi-optimal ceiling selection.
+# Parselmouth does not expose FormantPath natively; this is a first-class
+# replacement for `parselmouth.praat.call(snd, "To FormantPath (burg)", ...)`.
+fp = sound.to_formant_path_burg(
+    time_step=0.005,
+    max_num_formants=5,
+    middle_formant_ceiling=5500.0,
+    window_length=0.025,
+    pre_emphasis_from=50.0,
+    ceiling_step_size=0.05,
+    number_of_steps_up_down=4,
+)
+fp.path_finder(0.5, 0.5, 0.5, 0.5, 5.0, 0.035, [3, 3, 3, 3], 1.25)
+best_formant = fp.extract_formant()
+f1_best = best_formant.formant_values(1)
+
 # Intensity analysis
 intensity = sound.to_intensity(min_pitch=100.0, time_step=0.01)
 intensity_values = intensity.values()
@@ -323,9 +340,45 @@ GPL-3.0 - This project reimplements algorithms from [Praat](https://github.com/p
 
 ## References
 
-- [Praat source code](https://github.com/praat/praat)
+If you use this library in published work, please cite Praat, Parselmouth, and
+— if you use FormantPath — Weenink (2015).
+
+**Praat** (the algorithms this library reimplements; GPL-3):
+
+> Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer*
+> \[Computer program\]. <https://www.fon.hum.uva.nl/praat/>
+
+**Parselmouth** (the Python interface to Praat we validate against):
+
+> Jadoul, Y., Thompson, B., & de Boer, B. (2018). "Introducing Parselmouth:
+> A Python interface to Praat." *Journal of Phonetics, 71*, 1–15.
+> <https://doi.org/10.1016/j.wocn.2018.07.001>
+
+**FormantPath** (multi-ceiling formant analysis; relevant if you use the
+`FormantPath` type / `to_formant_path_burg`):
+
+> Weenink, D. (2015). "Improved formant frequency measurements of short
+> segments." In *Proceedings of the 18th International Congress of Phonetic
+> Sciences* (ICPhS 2015). Glasgow, UK.
+
+> Escudero, P., Boersma, P., Rauber, A. S., & Bion, R. A. H. (2009).
+> "A cross-dialect acoustic description of vowels: Brazilian and European
+> Portuguese." *Journal of the Acoustical Society of America, 126*(3),
+> 1379–1393. (Background for optimal-ceiling selection.)
+
+**Core algorithms:**
+
+- Pitch (AC/CC) — Boersma, P. (1993). "Accurate short-term analysis of the
+  fundamental frequency and the harmonics-to-noise ratio of a sampled sound."
+  *IFA Proceedings, 17*, 97–110.
+- Formant (Burg LPC) — Childers, D. G. (ed.) (1978). *Modern Spectrum
+  Analysis.* IEEE Press, pp. 252–255.
+
+**Resources:**
+
+- [Praat source code](https://github.com/praat/praat) (GPL-3)
 - [Praat manual](https://www.fon.hum.uva.nl/praat/manual/)
-- [parselmouth](https://parselmouth.readthedocs.io/)
+- [Parselmouth docs](https://parselmouth.readthedocs.io/)
 
 
 ## Authors

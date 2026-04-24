@@ -4,6 +4,7 @@
 //! the analysis algorithms.
 
 pub mod fft;
+pub mod fft_fftpack;
 pub mod lpc;
 
 pub use fft::{Fft, FftDirection};

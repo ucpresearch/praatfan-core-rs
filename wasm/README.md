@@ -226,4 +226,16 @@ harmonicity.time_step                        // number
 
 ## License
 
-GPL-3.0 (same as Praat)
+GPL-3.0 (same as Praat).
+
+## Citing
+
+If you use `praatfan-gpl` in published work, please cite Praat, Parselmouth,
+and — if you use `FormantPath` — Weenink (2015):
+
+- Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer.*
+  <https://www.fon.hum.uva.nl/praat/>
+- Jadoul, Y., Thompson, B., & de Boer, B. (2018). "Introducing Parselmouth:
+  A Python interface to Praat." *Journal of Phonetics, 71*, 1–15.
+- Weenink, D. (2015). "Improved formant frequency measurements of short
+  segments." *Proceedings of ICPhS 2015*, Glasgow.

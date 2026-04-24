@@ -824,8 +824,7 @@ impl Sound {
     ///   data[1] = DC, data[2] = Nyquist
     ///   data[2k+1], data[2k+2] = Re, Im of frequency bin k (for k >= 1)
     fn fft_lowpass_filter(&self, upfactor: f64) -> Vec<f64> {
-        use crate::utils::fft::Fft;
-        use num_complex::Complex;
+        use crate::utils::fft_fftpack::RealFftPlan;
 
         let n = self.samples.len();
         // Pad to power of 2 with turnaround (Praat uses 1000 on each side)
@@ -833,91 +832,50 @@ impl Sound {
         let nfft = (n + 2 * anti_turn_around).next_power_of_two();
 
         // Create padded signal: zeros, then signal, then zeros
-        let mut padded = vec![0.0; nfft];
+        let mut data = vec![0.0_f64; nfft];
         for i in 0..n {
-            padded[anti_turn_around + i] = self.samples[i];
+            data[anti_turn_around + i] = self.samples[i];
         }
 
-        // Forward FFT (complex output)
-        let mut fft = Fft::new();
-        let mut spectrum = fft.real_fft(&padded, nfft);
-
-        // Praat zeros from index i_start = floor(upfactor * nfft) to nfft (1-based packed format)
-        // In packed format:
-        //   Index 1 = DC
-        //   Index 2 = Nyquist
-        //   Index 2k+1 = Re(bin k), Index 2k+2 = Im(bin k) for k >= 1
+        // Forward real FFT using Praat-compatible FFTPACK (drftf1). This
+        // leaves `data` in FFTPACK's packed real-spectrum layout:
+        //   data[0] = DC
+        //   data[2k-1], data[2k] = Re(bin k), Im(bin k)   for k in 1..nfft/2
+        //   data[nfft-1]        = Nyquist
         //
-        // Our complex spectrum:
-        //   spectrum[0] = DC
-        //   spectrum[k] = bin k (complex) for k = 1 to nfft/2-1
-        //   spectrum[nfft/2] = Nyquist
-        //   spectrum[nfft-k] = conj(spectrum[k]) for k = 1 to nfft/2-1
+        // Praat's NUMrealft rotates Nyquist into data[1] to get
+        // `[DC, Nyquist, Re1, Im1, Re2, Im2, ...]`. Praat's downstream code
+        // (Sound_resample at line 420) then zeros `data[i]` for
+        // `i = floor(upfactor * nfft) .. nfft` AND explicitly zeros
+        // `data[2]` (which is the Nyquist in the rotated layout). Below we
+        // perform the same operations in Praat's ROTATED layout so that the
+        // index arithmetic reads identically to Praat's source.
+        let mut plan = RealFftPlan::new(nfft);
+        crate::utils::fft_fftpack::realft_forward_praat(&mut plan, &mut data);
 
-        let i_start = (upfactor * nfft as f64).floor() as usize;
-
-        // Zero Nyquist (Praat always zeros data[2])
-        spectrum[nfft / 2] = Complex::new(0.0, 0.0);
-
-        if i_start <= 1 {
-            // Zero everything including DC
-            for i in 0..spectrum.len() {
-                spectrum[i] = Complex::new(0.0, 0.0);
-            }
-        } else if i_start == 2 {
-            // Zero all bins (DC stays, Nyquist already zeroed above)
-            for i in 1..(nfft / 2) {
-                spectrum[i] = Complex::new(0.0, 0.0);
-            }
-            for i in (nfft / 2 + 1)..nfft {
-                spectrum[i] = Complex::new(0.0, 0.0);
-            }
-        } else {
-            // i_start >= 3: zero from Praat index i_start to nfft
-            // For Praat index i (1-based):
-            //   i odd >= 3: Re part of bin (i-1)/2
-            //   i even >= 4: Im part of bin (i-2)/2 = (i/2) - 1
-
-            // Handle partial bin if i_start is even (only zero imag part of that bin)
-            if i_start % 2 == 0 && i_start >= 4 {
-                let partial_bin = (i_start / 2) - 1; // 0-based bin number
-                if partial_bin > 0 && partial_bin < nfft / 2 {
-                    // Zero only imaginary part of this bin
-                    spectrum[partial_bin] = Complex::new(spectrum[partial_bin].re, 0.0);
-                    // For conjugate symmetry, negative bin also loses its imaginary part
-                    let neg_bin = nfft - partial_bin;
-                    spectrum[neg_bin] = Complex::new(spectrum[neg_bin].re, 0.0);
-                }
-            }
-
-            // First fully zeroed bin
-            let first_full_bin = if i_start % 2 == 0 {
-                i_start / 2  // Next bin after the partial one
-            } else {
-                (i_start - 1) / 2  // This bin's real part starts at i_start
-            };
-
-            // Zero all bins from first_full_bin to nfft/2-1
-            for bin in first_full_bin..(nfft / 2) {
-                spectrum[bin] = Complex::new(0.0, 0.0);
-            }
-
-            // Zero corresponding negative frequency bins
-            for bin in first_full_bin..(nfft / 2) {
-                let neg_bin = nfft - bin;
-                if neg_bin < nfft {
-                    spectrum[neg_bin] = Complex::new(0.0, 0.0);
-                }
-            }
+        // Praat (1-based): for (i = floor(upfactor * nfft); i <= nfft; i++)
+        //                      data[i] = 0;
+        //                  data[2] = 0;  // Nyquist
+        // In our 0-based array, Praat's `data[i]` is `data[i-1]` for i=1..=nfft.
+        let i_start_1based = (upfactor * nfft as f64).floor() as usize;
+        // Clamp to valid range [1, nfft]
+        let i_start_1based = i_start_1based.max(1);
+        for i_1 in i_start_1based..=nfft {
+            data[i_1 - 1] = 0.0;
+        }
+        if nfft >= 2 {
+            data[1] = 0.0; // Praat: data[2] in 1-based = Nyquist in rotated layout
         }
 
-        // Inverse FFT
-        let time_domain = fft.inverse_fft(&spectrum);
+        // Inverse real FFT (un-rotate and drftb1). Result is un-normalised
+        // (caller must divide by nfft).
+        crate::utils::fft_fftpack::realft_backward_praat(&mut plan, &mut data);
 
-        // Extract the original portion from where we placed it
+        // Extract the original window, scale by 1/nfft.
+        let scale = 1.0 / nfft as f64;
         let mut result = Vec::with_capacity(n);
         for i in 0..n {
-            result.push(time_domain[anti_turn_around + i].re);
+            result.push(data[anti_turn_around + i] * scale);
         }
         result
     }
@@ -965,9 +923,25 @@ fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize) -> f64 {
 
     let mut result = 0.0;
 
-    // Left half: from midleft down to left
+    // Left half: from midleft down to left.
+    //
+    // The raised-cosine window width is Praat-version-specific:
+    //
+    //   Praat ≤ 6.1.38 (parselmouth 0.4.x, our primary parity target):
+    //       leftDepth  = x - left + 1.0              (ASYMMETRIC, boundary-aware)
+    //       rightDepth = right - x + 1.0
+    //
+    //   Praat ≥ 6.2.x / current (2025):
+    //       leftDepth = rightDepth = maxDepth + 0.5  (symmetric)
+    //
+    // The 6.1.38 formula makes the window wider on the side with more
+    // available samples, which matters near signal boundaries (where
+    // maxDepth is clipped asymmetrically). Using `maxDepth + 0.5` there
+    // produces ~1.5e-5 per-sample drift from Praat's actual resample
+    // output, concentrated in the last/first ~5 samples of each resample.
+    // We use the 6.1.38 formula to match parselmouth's bundled Praat.
     {
-        let left_depth = max_depth as f64 + 0.5;
+        let left_depth = x - left as f64 + 1.0;
         let window_phase_step = std::f64::consts::PI / left_depth;
         let sin_window_phase_step = window_phase_step.sin();
         let cos_window_phase_step = window_phase_step.cos();
@@ -993,9 +967,9 @@ fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize) -> f64 {
         }
     }
 
-    // Right half: from midright up to right
+    // Right half: from midright up to right.
     {
-        let right_depth = max_depth as f64 + 0.5;
+        let right_depth = right as f64 - x + 1.0;
         let window_phase_step = std::f64::consts::PI / right_depth;
         let sin_window_phase_step = window_phase_step.sin();
         let cos_window_phase_step = window_phase_step.cos();

@@ -21,6 +21,11 @@ rustfft = "6.1"
 num-complex = "0.4"
 thiserror = "1.0"
 nalgebra = "0.33"
+# High-precision Hessenberg + Francis QR eigendecomposition (pure Rust,
+# WASM-compatible). We disable default features (rayon, sparse-linalg, rand,
+# npy) to keep the dep minimal and WASM-friendly; only `std` + `linalg` are
+# required for real-matrix eigendecomposition.
+faer = { version = "0.24", default-features = false, features = ["std", "linalg"] }
 
 # File I/O dependencies (optional for WASM compatibility)
 hound = { version = "3.5", optional = true }

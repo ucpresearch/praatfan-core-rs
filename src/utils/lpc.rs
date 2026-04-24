@@ -7,6 +7,24 @@
 use num_complex::Complex;
 use std::f64::consts::PI;
 
+use faer::Mat as FaerMat;
+
+/// Kahan-Neumaier compensated addition.
+///
+/// Updates `sum` and the compensation term `c` to accumulate `value` with
+/// error smaller than a single f64 ulp, emulating what Praat gets "for free"
+/// from its `longdouble` accumulators in VECburg / its sum-of-squares loops.
+#[inline(always)]
+fn kahan_add(sum: &mut f64, c: &mut f64, value: f64) {
+    let t = *sum + value;
+    if sum.abs() >= value.abs() {
+        *c += (*sum - t) + value;
+    } else {
+        *c += (value - t) + *sum;
+    }
+    *sum = t;
+}
+
 /// Result of LPC analysis
 #[derive(Debug, Clone)]
 pub struct LpcResult {
@@ -57,11 +75,17 @@ pub fn lpc_burg(samples: &[f64], order: usize) -> Option<LpcResult> {
     let mut b1 = vec![0.0; n];
     let mut b2 = vec![0.0; n];
 
-    // Compute initial power
-    let mut p: f64 = 0.0;
+    // Compute initial power using Kahan-Neumaier compensated summation.
+    // This matches Praat's `longdouble p` accumulator precision on
+    // platforms with 80-bit long double (IA-32/x86-64 Linux), which was
+    // the source of ~1-Hz-scale formant divergences in long frames.
+    let mut p_sum = 0.0_f64;
+    let mut p_c = 0.0_f64;
     for j in 0..n {
-        p += samples[j] * samples[j];
+        let term = samples[j] * samples[j];
+        kahan_add(&mut p_sum, &mut p_c, term);
     }
+    let p = p_sum + p_c;
 
     let mut xms = p / n as f64;
     if xms <= 0.0 {
@@ -87,12 +111,18 @@ pub fn lpc_burg(samples: &[f64], order: usize) -> Option<LpcResult> {
 
     for i in 0..m {
         // Compute reflection coefficient (Praat uses positive sign: 2*num/den)
-        let mut num: f64 = 0.0;
-        let mut den: f64 = 0.0;
+        // Use Kahan-Neumaier summation for `num` and `den` accumulators —
+        // matches Praat's `longdouble num, denum`.
+        let mut num = 0.0_f64;
+        let mut num_c = 0.0_f64;
+        let mut den = 0.0_f64;
+        let mut den_c = 0.0_f64;
         for j in 0..n - i - 1 {
-            num += b1[j] * b2[j];
-            den += b1[j] * b1[j] + b2[j] * b2[j];
+            kahan_add(&mut num, &mut num_c, b1[j] * b2[j]);
+            kahan_add(&mut den, &mut den_c, b1[j] * b1[j] + b2[j] * b2[j]);
         }
+        let num = num + num_c;
+        let den = den + den_c;
 
         if den <= 0.0 {
             return Some(LpcResult {
@@ -214,10 +244,14 @@ pub fn lpc_to_formants(coefficients: &[f64], sample_rate: f64) -> Vec<FormantCan
             continue;
         }
 
-        // Bandwidth from magnitude: bw = -log(|z|) * nyquist / π
-        let magnitude = root.norm();
-        let bandwidth = if magnitude > 0.0 {
-            -(magnitude.ln()) * nyquist / PI
+        // Bandwidth from squared magnitude: bw = -log(|z|²) * nyquist / π.
+        // Praat uses C++ `norm(complex)` which returns |z|² (NOT |z|), so the
+        // Rust `root.norm()` (magnitude) gives HALF of Praat's bandwidth. See
+        // LPC/Roots_and_Formant.cpp:49 and test in formant_modeler — bandwidth
+        // is the fit weight for FormantPath stress and must match Praat.
+        let norm_sq = root.re * root.re + root.im * root.im;
+        let bandwidth = if norm_sq > 0.0 {
+            -(norm_sq.ln()) * nyquist / PI
         } else {
             nyquist // Maximum bandwidth
         };
@@ -439,238 +473,21 @@ fn find_polynomial_roots_eigen(coefficients: &[f64]) -> Vec<Complex<f64>> {
     // ...
     // [  0   0  ...  1  -c(n-1)]
     //
-    // Uses our own QR implementation with bounded iteration count.
-    // nalgebra's complex_eigenvalues() can hang on pathological matrices
-    // (observed on certain near-silent frames in long audio files).
-    let mut comp = vec![vec![0.0; n]; n];
-    for i in 1..n {
-        comp[i][i - 1] = 1.0;
-    }
-    for i in 0..n {
-        comp[i][n - 1] = -normalized[i];
-    }
-    qr_eigenvalues(&comp)
-}
-
-/// QR iteration to find eigenvalues of a matrix
-///
-/// Uses Francis double-shift implicit QR algorithm for real matrices,
-/// similar to LAPACK's dhseqr.
-fn qr_eigenvalues(matrix: &[Vec<f64>]) -> Vec<Complex<f64>> {
-    let n = matrix.len();
-    if n == 0 {
-        return Vec::new();
-    }
-
-    // Copy matrix to working array (convert to upper Hessenberg first)
-    let mut h = to_upper_hessenberg(matrix);
-
-    let mut eigenvalues = Vec::with_capacity(n);
-    let max_iterations = 100;
-
-    let mut p = n;
-    while p > 0 {
-        let mut iter = 0;
-        while iter < max_iterations {
-            // Check for convergence: look for small subdiagonal element
-            let mut q = p;
-            while q > 1 {
-                let scale = h[q - 2][q - 2].abs() + h[q - 1][q - 1].abs();
-                let scale = if scale == 0.0 { 1.0 } else { scale };
-                if h[q - 1][q - 2].abs() <= 1e-14 * scale {
-                    h[q - 1][q - 2] = 0.0;
-                    break;
-                }
-                q -= 1;
-            }
-
-            if q == p {
-                // Single real eigenvalue
-                eigenvalues.push(Complex::new(h[p - 1][p - 1], 0.0));
-                p -= 1;
-                break;
-            } else if q == p - 1 {
-                // 2x2 block - may have complex eigenvalues
-                let a = h[p - 2][p - 2];
-                let b = h[p - 2][p - 1];
-                let c = h[p - 1][p - 2];
-                let d = h[p - 1][p - 1];
-
-                let trace = a + d;
-                let det = a * d - b * c;
-                let discriminant = trace * trace - 4.0 * det;
-
-                if discriminant >= 0.0 {
-                    let sqrt_d = discriminant.sqrt();
-                    eigenvalues.push(Complex::new((trace + sqrt_d) / 2.0, 0.0));
-                    eigenvalues.push(Complex::new((trace - sqrt_d) / 2.0, 0.0));
-                } else {
-                    let sqrt_d = (-discriminant).sqrt();
-                    eigenvalues.push(Complex::new(trace / 2.0, sqrt_d / 2.0));
-                    eigenvalues.push(Complex::new(trace / 2.0, -sqrt_d / 2.0));
-                }
-                p -= 2;
-                break;
-            }
-
-            // Perform Francis double-shift QR step
-            francis_qr_step(&mut h, q - 1, p - 1);
-            iter += 1;
-        }
-
-        if iter >= max_iterations && p > 0 {
-            // Failed to converge - return what we have and use current diagonal
-            for i in 0..p {
-                eigenvalues.push(Complex::new(h[i][i], 0.0));
-            }
-            break;
-        }
-    }
-
-    eigenvalues
-}
-
-/// Convert matrix to upper Hessenberg form using Householder reflections
-fn to_upper_hessenberg(matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    let n = matrix.len();
-    let mut h: Vec<Vec<f64>> = matrix.to_vec();
-
-    for k in 0..n.saturating_sub(2) {
-        // Create Householder vector for column k below diagonal
-        let mut v = vec![0.0; n - k - 1];
-        let mut norm_sq = 0.0;
-        for i in k + 1..n {
-            v[i - k - 1] = h[i][k];
-            norm_sq += h[i][k] * h[i][k];
-        }
-
-        if norm_sq < 1e-30 {
-            continue;
-        }
-
-        let norm = norm_sq.sqrt();
-        let sign = if v[0] >= 0.0 { 1.0 } else { -1.0 };
-        v[0] += sign * norm;
-
-        // Normalize v
-        let v_norm_sq: f64 = v.iter().map(|&x| x * x).sum();
-        if v_norm_sq < 1e-30 {
-            continue;
-        }
-
-        let scale = 2.0 / v_norm_sq;
-
-        // Apply H = I - 2*v*v'/||v||^2 from left: H * A
-        for j in k..n {
-            let mut dot = 0.0;
-            for i in k + 1..n {
-                dot += v[i - k - 1] * h[i][j];
-            }
-            dot *= scale;
-            for i in k + 1..n {
-                h[i][j] -= dot * v[i - k - 1];
-            }
-        }
-
-        // Apply from right: A * H
-        for i in 0..n {
-            let mut dot = 0.0;
-            for j in k + 1..n {
-                dot += h[i][j] * v[j - k - 1];
-            }
-            dot *= scale;
-            for j in k + 1..n {
-                h[i][j] -= dot * v[j - k - 1];
-            }
-        }
-    }
-
-    h
-}
-
-/// Francis double-shift implicit QR step
-fn francis_qr_step(h: &mut [Vec<f64>], lo: usize, hi: usize) {
-    let n = hi - lo + 1;
-    if n < 2 {
-        return;
-    }
-
-    // Compute shifts from trailing 2x2 block
-    let a = h[hi - 1][hi - 1];
-    let b = h[hi - 1][hi];
-    let c = h[hi][hi - 1];
-    let d = h[hi][hi];
-
-    let trace = a + d;
-    let det = a * d - b * c;
-
-    // Initial column of (H - s1*I)(H - s2*I) = H^2 - trace*H + det*I
-    let h00 = h[lo][lo];
-    let h01 = h[lo][lo + 1];
-    let h10 = h[lo + 1][lo];
-    let h11 = if lo + 1 <= hi {
-        h[lo + 1][lo + 1]
-    } else {
-        0.0
-    };
-    let h21 = if lo + 2 <= hi { h[lo + 2][lo + 1] } else { 0.0 };
-
-    let mut x = h00 * h00 + h01 * h10 - trace * h00 + det;
-    let mut y = h10 * (h00 + h11 - trace);
-    let mut z = h10 * h21;
-
-    for k in lo..hi {
-        // Create Householder to zero out y and z
-        let norm = (x * x + y * y + z * z).sqrt();
-        if norm < 1e-30 {
-            x = 1.0;
-            y = 0.0;
-            z = 0.0;
+    // Eigenvalues via faer's Hessenberg + Francis QR, which is the same
+    // algorithm family LAPACK's dhseqr uses and gives precision ~= machine
+    // epsilon on the eigenvalues. faer is pure Rust and WASM-compatible.
+    let comp = FaerMat::<f64>::from_fn(n, n, |i, j| {
+        if j == n - 1 {
+            -normalized[i]
+        } else if i == j + 1 {
+            1.0
         } else {
-            x /= norm;
-            y /= norm;
-            z /= norm;
+            0.0
         }
-
-        let sign = if x >= 0.0 { 1.0 } else { -1.0 };
-        let _beta = sign * norm;
-        let v0 = x + sign;
-        let v_norm_sq = v0 * v0 + y * y + z * z;
-
-        if v_norm_sq > 1e-30 {
-            let scale = 2.0 / v_norm_sq;
-
-            // Apply from left
-            let r_start = if k > lo { k - 1 } else { k };
-            for j in r_start..=hi {
-                let t = v0 * h[k][j] + y * h[k + 1][j] + (if k + 2 <= hi { z * h[k + 2][j] } else { 0.0 });
-                let t = t * scale;
-                h[k][j] -= t * v0;
-                h[k + 1][j] -= t * y;
-                if k + 2 <= hi {
-                    h[k + 2][j] -= t * z;
-                }
-            }
-
-            // Apply from right
-            let c_end = (k + 3).min(hi);
-            for i in lo..=c_end {
-                let t = v0 * h[i][k] + y * h[i][k + 1] + (if k + 2 <= hi { z * h[i][k + 2] } else { 0.0 });
-                let t = t * scale;
-                h[i][k] -= t * v0;
-                h[i][k + 1] -= t * y;
-                if k + 2 <= hi {
-                    h[i][k + 2] -= t * z;
-                }
-            }
-        }
-
-        // Prepare for next iteration
-        if k + 1 < hi {
-            x = h[k + 1][k];
-            y = h[k + 2][k];
-            z = if k + 3 <= hi { h[k + 3][k] } else { 0.0 };
-        }
+    });
+    match comp.eigenvalues() {
+        Ok(ev) => ev,
+        Err(_) => Vec::new(), // degenerate matrix — caller gets no formants for this frame
     }
 }
 

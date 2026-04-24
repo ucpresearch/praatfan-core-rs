@@ -9,9 +9,21 @@
 //! - [`Pitch`] - F0 contour from autocorrelation analysis
 //! - [`Intensity`] - RMS energy contour in dB
 //! - [`Formant`] - LPC-based formant tracks
+//! - [`FormantPath`] - Multi-ceiling Burg formant analysis with Viterbi-optimal ceiling selection
 //! - [`Harmonicity`] - HNR (harmonics-to-noise ratio) contour
 //! - [`Spectrum`] - Single-frame FFT magnitude spectrum
 //! - [`Spectrogram`] - Time-frequency representation
+//!
+//! # Citing
+//!
+//! If you use this library in published work, please cite:
+//!
+//! - Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer.*
+//!   <https://www.fon.hum.uva.nl/praat/>
+//! - Jadoul, Y., Thompson, B., & de Boer, B. (2018). Introducing Parselmouth:
+//!   A Python interface to Praat. *Journal of Phonetics, 71*, 1–15.
+//! - Weenink, D. (2015). Improved formant frequency measurements of short
+//!   segments. *Proceedings of ICPhS 2015*, Glasgow. (For `FormantPath`.)
 
 pub mod sound;
 pub mod window;
@@ -20,6 +32,8 @@ pub mod intensity;
 pub mod spectrum;
 pub mod pitch;
 pub mod formant;
+pub mod formant_modeler;
+pub mod formant_path;
 pub mod harmonicity;
 pub mod spectrogram;
 
@@ -33,6 +47,7 @@ pub use intensity::{Intensity, intensity_from_channels};
 pub use spectrum::Spectrum;
 pub use pitch::{Pitch, PitchMethod, pitch_from_channels, sinc_interpolate, improve_maximum, BRENT_TOTAL_ITERS, BRENT_TOTAL_CALLS};
 pub use formant::Formant;
+pub use formant_path::FormantPath;
 pub use harmonicity::{Harmonicity, harmonicity_from_channels_ac, harmonicity_from_channels_cc};
 pub use spectrogram::{Spectrogram, spectrogram_from_channels};
 

@@ -14,6 +14,7 @@ use ::praatfan_core::{
     Pitch as RustPitch,
     PitchMethod as RustPitchMethod,
     Formant as RustFormant,
+    FormantPath as RustFormantPath,
     Intensity as RustIntensity,
     Spectrum as RustSpectrum,
     Spectrogram as RustSpectrogram,
@@ -340,6 +341,60 @@ impl PySound {
             )
         });
         formants.into_iter().map(|inner| PyFormant { inner }).collect()
+    }
+
+    /// Compute a FormantPath (multi-ceiling Burg analysis with Viterbi path selection).
+    ///
+    /// Mirrors Praat's ``Sound: To FormantPath (burg)``. Returns a
+    /// :class:`FormantPath` whose path is initialised to the middle candidate;
+    /// call :meth:`FormantPath.path_finder` to compute the optimum path.
+    ///
+    /// Parameters
+    /// ----------
+    /// time_step : float
+    ///     Time between frames (seconds). Typically 0.005.
+    /// max_num_formants : int
+    ///     Maximum formants per frame (typically 5).
+    /// middle_formant_ceiling : float
+    ///     Center ceiling frequency in Hz (typically 5500 for female, 5000 for male).
+    /// window_length : float
+    ///     Analysis window duration (typically 0.025).
+    /// pre_emphasis_from : float
+    ///     Pre-emphasis frequency in Hz (typically 50).
+    /// ceiling_step_size : float
+    ///     Logarithmic step for ceilings (typically 0.05).
+    /// number_of_steps_up_down : int
+    ///     Ceilings generated: ``2 * N + 1`` around ``middle_formant_ceiling``.
+    ///
+    /// References
+    /// ----------
+    /// Boersma, P. & Weenink, D. *Praat: doing phonetics by computer.*
+    /// Weenink, D. *FormantPath* (Praat: LPC/FormantPath.cpp, GPL-3).
+    /// Jadoul, Y., Thompson, B., & de Boer, B. (2018). Introducing Parselmouth.
+    /// *Journal of Phonetics, 71*, 1–15.
+    fn to_formant_path_burg(
+        &self,
+        py: Python<'_>,
+        time_step: f64,
+        max_num_formants: usize,
+        middle_formant_ceiling: f64,
+        window_length: f64,
+        pre_emphasis_from: f64,
+        ceiling_step_size: f64,
+        number_of_steps_up_down: usize,
+    ) -> PyFormantPath {
+        let inner = py.allow_threads(|| {
+            self.inner.to_formant_path_burg(
+                time_step,
+                max_num_formants,
+                middle_formant_ceiling,
+                window_length,
+                pre_emphasis_from,
+                ceiling_step_size,
+                number_of_steps_up_down,
+            )
+        });
+        PyFormantPath { inner }
     }
 
     /// Compute intensity contour
@@ -709,6 +764,170 @@ impl PyFormant {
     }
 }
 
+/// Python wrapper for FormantPath (multi-ceiling Burg analysis with Viterbi).
+///
+/// Mirrors Praat's FormantPath. Produced by :meth:`Sound.to_formant_path_burg`.
+///
+/// References
+/// ----------
+/// Boersma, P. & Weenink, D. *Praat: doing phonetics by computer.*
+/// Weenink, D. *FormantPath* (Praat: LPC/FormantPath.cpp, GPL-3).
+/// Jadoul, Y., Thompson, B., & de Boer, B. (2018). Introducing Parselmouth.
+/// *Journal of Phonetics, 71*, 1–15.
+#[pyclass(name = "FormantPath")]
+pub struct PyFormantPath {
+    inner: RustFormantPath,
+}
+
+#[pymethods]
+impl PyFormantPath {
+    /// Number of candidate formant analyses (= ``2 * number_of_steps_up_down + 1``).
+    #[getter]
+    fn num_candidates(&self) -> usize {
+        self.inner.num_candidates()
+    }
+
+    /// Ceiling frequencies in Hz, in ascending order.
+    fn ceilings<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.inner.ceilings().to_vec().into_pyarray_bound(py)
+    }
+
+    /// Access one candidate Formant by 0-based index.
+    fn candidate(&self, index: usize) -> PyResult<PyFormant> {
+        if index >= self.inner.num_candidates() {
+            return Err(PyValueError::new_err(format!(
+                "candidate index {} out of range (num_candidates={})",
+                index, self.inner.num_candidates()
+            )));
+        }
+        Ok(PyFormant {
+            inner: self.inner.candidate(index).clone(),
+        })
+    }
+
+    /// Current per-frame selected candidate (0-based) as a numpy int64 array.
+    fn path<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<i64>> {
+        let v: Vec<i64> = self.inner.path().iter().map(|&x| x as i64).collect();
+        v.into_pyarray_bound(py)
+    }
+
+    /// Force every frame overlapping ``[t_min, t_max]`` to select ``candidate`` (0-based).
+    fn set_path(&mut self, t_min: f64, t_max: f64, candidate: usize) -> PyResult<()> {
+        if candidate >= self.inner.num_candidates() {
+            return Err(PyValueError::new_err("candidate index out of range"));
+        }
+        self.inner.set_path(t_min, t_max, candidate);
+        Ok(())
+    }
+
+    /// Run Viterbi-optimal path selection. Mirrors Praat's ``Path finder``.
+    ///
+    /// Parameters
+    /// ----------
+    /// q_weight, frequency_change_weight, stress_weight, ceiling_change_weight : float
+    ///     Cost weights (Praat defaults 1.0; some combinations with high
+    ///     weights require a long enough ``path_window_length``).
+    /// intensity_modulation_step_size : float
+    ///     Sigmoid half-width in dB for intensity weighting. Praat default 5.0.
+    /// path_window_length : float
+    ///     Stress-computation window length in seconds. Praat default 0.035.
+    /// parameters : list[int]
+    ///     Number of Legendre coefficients per formant track. Praat default
+    ///     ``[3, 3, 3, 3]``. Use an empty list to skip stress.
+    /// power : float
+    ///     Stress formula exponent. Praat default 1.25.
+    #[pyo3(signature = (q_weight, frequency_change_weight, stress_weight, ceiling_change_weight, intensity_modulation_step_size, path_window_length, parameters, power))]
+    fn path_finder(
+        &mut self,
+        py: Python<'_>,
+        q_weight: f64,
+        frequency_change_weight: f64,
+        stress_weight: f64,
+        ceiling_change_weight: f64,
+        intensity_modulation_step_size: f64,
+        path_window_length: f64,
+        parameters: Vec<i64>,
+        power: f64,
+    ) {
+        py.allow_threads(|| {
+            self.inner.path_finder(
+                q_weight,
+                frequency_change_weight,
+                stress_weight,
+                ceiling_change_weight,
+                intensity_modulation_step_size,
+                path_window_length,
+                &parameters,
+                power,
+            );
+        });
+    }
+
+    /// Build a Formant by selecting, at each frame, the formants from the
+    /// candidate currently indicated by the path.
+    fn extract_formant(&self) -> PyFormant {
+        PyFormant {
+            inner: self.inner.extract_formant(),
+        }
+    }
+
+    /// Stress of one candidate over ``[t_min, t_max]``.
+    ///
+    /// ``from_formant`` / ``to_formant`` are 1-based formant track ranges; use
+    /// ``0, 0`` for the auto-range over all tracks in ``parameters``.
+    #[pyo3(signature = (t_min, t_max, from_formant, to_formant, parameters, power, candidate))]
+    fn get_stress_of_candidate(
+        &self,
+        t_min: f64,
+        t_max: f64,
+        from_formant: usize,
+        to_formant: usize,
+        parameters: Vec<i64>,
+        power: f64,
+        candidate: usize,
+    ) -> PyResult<f64> {
+        if candidate >= self.inner.num_candidates() {
+            return Err(PyValueError::new_err("candidate index out of range"));
+        }
+        Ok(self.inner.get_stress_of_candidate(
+            t_min, t_max, from_formant, to_formant, &parameters, power, candidate,
+        ))
+    }
+
+    /// Stress for every candidate over ``[t_min, t_max]``.
+    #[pyo3(signature = (t_min, t_max, from_formant, to_formant, parameters, power))]
+    fn get_stress_of_candidates<'py>(
+        &self,
+        py: Python<'py>,
+        t_min: f64,
+        t_max: f64,
+        from_formant: usize,
+        to_formant: usize,
+        parameters: Vec<i64>,
+        power: f64,
+    ) -> Bound<'py, PyArray1<f64>> {
+        let v = self.inner.get_stress_of_candidates(
+            t_min, t_max, from_formant, to_formant, &parameters, power,
+        );
+        v.into_pyarray_bound(py)
+    }
+
+    #[getter]
+    fn num_frames(&self) -> usize {
+        self.inner.num_frames()
+    }
+
+    #[getter]
+    fn time_step(&self) -> f64 {
+        self.inner.time_step()
+    }
+
+    #[getter]
+    fn start_time(&self) -> f64 {
+        self.inner.start_time()
+    }
+}
+
 /// Python wrapper for Intensity
 #[pyclass(name = "Intensity")]
 pub struct PyIntensity {
@@ -1020,6 +1239,7 @@ fn praatfan_gpl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySound>()?;
     m.add_class::<PyPitch>()?;
     m.add_class::<PyFormant>()?;
+    m.add_class::<PyFormantPath>()?;
     m.add_class::<PyIntensity>()?;
     m.add_class::<PySpectrum>()?;
     m.add_class::<PySpectrogram>()?;

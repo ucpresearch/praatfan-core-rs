@@ -181,6 +181,80 @@ impl Sound {
         }
     }
 
+    /// Compute Burg-LPC formants for a bundle of ceilings.
+    ///
+    /// Returns a JS array of `Formant` objects (one per ceiling) in input order.
+    /// This is the same analysis that powers `to_formant_path_burg` internally
+    /// but without the path wrapper.
+    ///
+    /// @param time_step - Time between frames (0.0 for automatic)
+    /// @param max_num_formants - Maximum formants (typically 5)
+    /// @param max_formants_hz - Float64Array of ceiling frequencies
+    /// @param window_length - Analysis window (typically 0.025)
+    /// @param pre_emphasis_from - Pre-emphasis (typically 50)
+    pub fn to_formant_burg_multi(
+        &self,
+        time_step: f64,
+        max_num_formants: usize,
+        max_formants_hz: &Float64Array,
+        window_length: f64,
+        pre_emphasis_from: f64,
+    ) -> js_sys::Array {
+        let hz: Vec<f64> = max_formants_hz.to_vec();
+        let formants = praatfan_core::Formant::from_sound_burg_multi(
+            &self.inner,
+            time_step,
+            max_num_formants,
+            &hz,
+            window_length,
+            pre_emphasis_from,
+        );
+        let out = js_sys::Array::new();
+        for f in formants {
+            let wrapper = Formant { inner: f };
+            out.push(&JsValue::from(wrapper));
+        }
+        out
+    }
+
+    /// Compute a FormantPath (multi-ceiling Burg analysis with Viterbi path
+    /// selection). Mirrors Praat's `Sound: To FormantPath (burg)`.
+    ///
+    /// References:
+    ///   Boersma & Weenink — Praat: doing phonetics by computer.
+    ///   Weenink — FormantPath (Praat: LPC/FormantPath.cpp, GPL-3).
+    ///   Jadoul, Thompson & de Boer (2018) — Parselmouth. J. Phonetics 71, 1–15.
+    ///
+    /// @param time_step - Time between frames (seconds). Typically 0.005.
+    /// @param max_num_formants - Maximum formants (typically 5).
+    /// @param middle_formant_ceiling - Center ceiling (Hz).
+    /// @param window_length - Window duration (typically 0.025).
+    /// @param pre_emphasis_from - Pre-emphasis (Hz, typically 50).
+    /// @param ceiling_step_size - Log step (typically 0.05).
+    /// @param number_of_steps_up_down - Ceilings = 2*N+1.
+    pub fn to_formant_path_burg(
+        &self,
+        time_step: f64,
+        max_num_formants: usize,
+        middle_formant_ceiling: f64,
+        window_length: f64,
+        pre_emphasis_from: f64,
+        ceiling_step_size: f64,
+        number_of_steps_up_down: usize,
+    ) -> FormantPath {
+        FormantPath {
+            inner: self.inner.to_formant_path_burg(
+                time_step,
+                max_num_formants,
+                middle_formant_ceiling,
+                window_length,
+                pre_emphasis_from,
+                ceiling_step_size,
+                number_of_steps_up_down,
+            ),
+        }
+    }
+
     /// Compute intensity contour
     ///
     /// @param min_pitch - Minimum expected pitch (Hz)
@@ -473,6 +547,141 @@ impl Formant {
     #[wasm_bindgen(getter)]
     pub fn max_num_formants(&self) -> usize {
         self.inner.max_num_formants()
+    }
+}
+
+/// FormantPath - multi-ceiling Burg analysis with Viterbi path selection.
+///
+/// Mirrors Praat's FormantPath. Produced by `Sound.to_formant_path_burg`.
+#[wasm_bindgen]
+pub struct FormantPath {
+    inner: praatfan_core::FormantPath,
+}
+
+#[wasm_bindgen]
+impl FormantPath {
+    /// Number of candidate analyses (= 2*number_of_steps_up_down+1).
+    #[wasm_bindgen(getter)]
+    pub fn num_candidates(&self) -> usize {
+        self.inner.num_candidates()
+    }
+
+    /// Ceiling frequencies in Hz as a Float64Array.
+    pub fn ceilings(&self) -> Float64Array {
+        Float64Array::from(self.inner.ceilings())
+    }
+
+    /// Access one candidate Formant by 0-based index.
+    pub fn candidate(&self, index: usize) -> Result<Formant, JsError> {
+        if index >= self.inner.num_candidates() {
+            return Err(JsError::new("candidate index out of range"));
+        }
+        Ok(Formant {
+            inner: self.inner.candidate(index).clone(),
+        })
+    }
+
+    /// Current per-frame selected candidate (0-based).
+    pub fn path(&self) -> js_sys::Uint32Array {
+        let v: Vec<u32> = self.inner.path().iter().map(|&x| x as u32).collect();
+        js_sys::Uint32Array::from(&v[..])
+    }
+
+    /// Force every frame overlapping `[t_min, t_max]` to select `candidate`
+    /// (0-based).
+    pub fn set_path(&mut self, t_min: f64, t_max: f64, candidate: usize) -> Result<(), JsError> {
+        if candidate >= self.inner.num_candidates() {
+            return Err(JsError::new("candidate index out of range"));
+        }
+        self.inner.set_path(t_min, t_max, candidate);
+        Ok(())
+    }
+
+    /// Run Viterbi-optimal path selection (Praat's `Path finder`).
+    ///
+    /// @param parameters - Int32Array of Legendre coefficients per track.
+    pub fn path_finder(
+        &mut self,
+        q_weight: f64,
+        frequency_change_weight: f64,
+        stress_weight: f64,
+        ceiling_change_weight: f64,
+        intensity_modulation_step_size: f64,
+        path_window_length: f64,
+        parameters: &js_sys::Int32Array,
+        power: f64,
+    ) {
+        let params: Vec<i64> = parameters.to_vec().into_iter().map(|v| v as i64).collect();
+        self.inner.path_finder(
+            q_weight,
+            frequency_change_weight,
+            stress_weight,
+            ceiling_change_weight,
+            intensity_modulation_step_size,
+            path_window_length,
+            &params,
+            power,
+        );
+    }
+
+    /// Build a Formant by selecting, at each frame, the candidate indicated by
+    /// the path.
+    pub fn extract_formant(&self) -> Formant {
+        Formant {
+            inner: self.inner.extract_formant(),
+        }
+    }
+
+    /// Stress of one candidate over `[t_min, t_max]`.
+    pub fn get_stress_of_candidate(
+        &self,
+        t_min: f64,
+        t_max: f64,
+        from_formant: usize,
+        to_formant: usize,
+        parameters: &js_sys::Int32Array,
+        power: f64,
+        candidate: usize,
+    ) -> Result<f64, JsError> {
+        if candidate >= self.inner.num_candidates() {
+            return Err(JsError::new("candidate index out of range"));
+        }
+        let params: Vec<i64> = parameters.to_vec().into_iter().map(|v| v as i64).collect();
+        Ok(self.inner.get_stress_of_candidate(
+            t_min, t_max, from_formant, to_formant, &params, power, candidate,
+        ))
+    }
+
+    /// Stress for every candidate as a Float64Array.
+    pub fn get_stress_of_candidates(
+        &self,
+        t_min: f64,
+        t_max: f64,
+        from_formant: usize,
+        to_formant: usize,
+        parameters: &js_sys::Int32Array,
+        power: f64,
+    ) -> Float64Array {
+        let params: Vec<i64> = parameters.to_vec().into_iter().map(|v| v as i64).collect();
+        let v = self.inner.get_stress_of_candidates(
+            t_min, t_max, from_formant, to_formant, &params, power,
+        );
+        Float64Array::from(&v[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn num_frames(&self) -> usize {
+        self.inner.num_frames()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn time_step(&self) -> f64 {
+        self.inner.time_step()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn start_time(&self) -> f64 {
+        self.inner.start_time()
     }
 }
 

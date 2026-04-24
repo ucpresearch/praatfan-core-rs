@@ -33,8 +33,7 @@ pub struct FormantPoint {
 pub struct FormantFrame {
     /// Formants for this frame (F1, F2, F3, ...)
     formants: Vec<FormantPoint>,
-    /// Intensity of the frame (for weighting in future tracking algorithms)
-    #[allow(dead_code)]
+    /// Intensity of the frame (sum of squared samples before windowing)
     intensity: f64,
 }
 
@@ -55,6 +54,16 @@ impl FormantFrame {
     /// Get the number of formants in this frame
     pub fn num_formants(&self) -> usize {
         self.formants.len()
+    }
+
+    /// Get the intensity of this frame (sum of squared samples before windowing)
+    pub fn intensity(&self) -> f64 {
+        self.intensity
+    }
+
+    /// Get the formants in this frame as a slice
+    pub fn formants(&self) -> &[FormantPoint] {
+        &self.formants
     }
 }
 
@@ -98,6 +107,56 @@ impl Formant {
         max_formant_hz: f64,
         window_length: f64,
         pre_emphasis_from: f64,
+    ) -> Self {
+        Self::from_sound_burg_impl(
+            sound,
+            time_step,
+            max_num_formants,
+            max_formant_hz,
+            window_length,
+            pre_emphasis_from,
+            None,
+            false,
+        )
+    }
+
+    /// Like [`from_sound_burg`] but forces the analysis frame grid (first-frame
+    /// time + number-of-frames) to the given values AND subtracts the frame
+    /// mean before windowing (matches Praat's `Sound_into_LPC` code path used
+    /// by `Sound_to_FormantPath_any`). Do NOT use this for standalone
+    /// formant analysis — it differs from `Sound_to_Formant_any` by exactly
+    /// one `Vector_subtractMean` call (Praat `Sound_and_LPC.cpp:471`).
+    pub fn from_sound_burg_with_grid(
+        sound: &Sound,
+        time_step: f64,
+        max_num_formants: usize,
+        max_formant_hz: f64,
+        window_length: f64,
+        pre_emphasis_from: f64,
+        forced_t1: f64,
+        forced_num_frames: usize,
+    ) -> Self {
+        Self::from_sound_burg_impl(
+            sound,
+            time_step,
+            max_num_formants,
+            max_formant_hz,
+            window_length,
+            pre_emphasis_from,
+            Some((forced_t1, forced_num_frames)),
+            true,
+        )
+    }
+
+    fn from_sound_burg_impl(
+        sound: &Sound,
+        time_step: f64,
+        max_num_formants: usize,
+        max_formant_hz: f64,
+        window_length: f64,
+        pre_emphasis_from: f64,
+        forced_grid: Option<(f64, usize)>,
+        subtract_mean_per_frame: bool,
     ) -> Self {
         // Validate parameters
         let max_num_formants = max_num_formants.max(1).min(10);
@@ -153,7 +212,24 @@ impl Formant {
         // Frame timing - exactly as Praat does it (verified with source code)
         // physicalDuration = nx * dx
         let physical_duration = samples.len() as f64 * dx;
-        let num_frames = 1 + ((physical_duration - dt_window) / time_step).floor() as usize;
+        let (first_frame_time, num_frames) = if let Some((t1, nf)) = forced_grid {
+            (t1, nf)
+        } else {
+            let nf = 1 + ((physical_duration - dt_window) / time_step).floor() as usize;
+            if nf == 0 || samples.is_empty() {
+                return Self {
+                    frames: Vec::new(),
+                    start_time: sound.start_time(),
+                    time_step,
+                    max_num_formants,
+                    max_formant_hz,
+                };
+            }
+            // t1 = x1 + 0.5 * (physicalDuration - dx - (numberOfFrames - 1) * dt)
+            // This is Praat's exact formula from Sound_to_Formant.cpp
+            let t1 = x1_sound + 0.5 * (physical_duration - dx - (nf - 1) as f64 * time_step);
+            (t1, nf)
+        };
 
         if num_frames == 0 || samples.is_empty() {
             return Self {
@@ -165,63 +241,106 @@ impl Formant {
             };
         }
 
-        // t1 = x1 + 0.5 * (physicalDuration - dx - (numberOfFrames - 1) * dt)
-        // This is Praat's exact formula from Sound_to_Formant.cpp
-        let first_frame_time =
-            x1_sound + 0.5 * (physical_duration - dx - (num_frames - 1) as f64 * time_step);
-
         let mut frames = Vec::with_capacity(num_frames);
 
         for frame_idx in 0..num_frames {
             let frame_time = first_frame_time + frame_idx as f64 * time_step;
 
-            // Sample extraction - exactly as Praat does it (Sound_to_Formant.cpp)
-            // leftSample = floor((t - x1) / dx)
-            // rightSample = leftSample + 1
-            // startSample = rightSample - halfnsamp_window
-            // endSample = leftSample + halfnsamp_window
-            let left_sample = ((frame_time - x1_sound) / dx).floor() as isize;
-            let right_sample = left_sample + 1;
-            let start_sample_raw = right_sample - halfnsamp_window as isize;
-            let end_sample_raw = left_sample + halfnsamp_window as isize;
-
-            // Clamp to valid range
-            let start_sample = start_sample_raw.max(0) as usize;
-            let end_sample = (end_sample_raw as usize).min(samples.len().saturating_sub(1));
-            let actual_frame_length = if end_sample >= start_sample {
-                end_sample - start_sample + 1
+            // Sample extraction semantics differ between Praat's two code paths:
+            //
+            // * `Sound_to_Formant.cpp` (standalone To Formant (burg)) uses
+            //   `Sampled_xToLowIndex` = `floor((t-x1)/dx) + 1` (1-based), giving
+            //   startSample = leftSample + 1 - halfnsamp_window (our default).
+            //
+            // * `Sound_into_LPC` (used by FormantPath) uses `Sound_into_Sound`
+            //   which calls `Sampled_xToNearestIndex` = `round((t-x1)/dx) + 1`,
+            //   yielding a start offset that can differ by 1 sample when the
+            //   real-valued sample position has fractional part < 0.5.
+            //
+            // `subtract_mean_per_frame` doubles as the FormantPath flag, so we
+            // switch sample-extraction convention accordingly.
+            let (start_sample_raw, end_sample_raw) = if subtract_mean_per_frame {
+                // Praat `Sound_into_Sound`: start_0 = round((t - 0.5*windowDuration - x1)/dx)
+                let start_time_abs = frame_time - 0.5 * (nsamp_window as f64) * dx;
+                let nearest = ((start_time_abs - x1_sound) / dx).round() as isize;
+                (nearest, nearest + nsamp_window as isize - 1)
             } else {
-                0
+                let left_sample = ((frame_time - x1_sound) / dx).floor() as isize;
+                let right_sample = left_sample + 1;
+                (
+                    right_sample - halfnsamp_window as isize,
+                    left_sample + halfnsamp_window as isize,
+                )
             };
+
+            // Raw frame extraction: for the FormantPath path
+            // (`subtract_mean_per_frame = true`), Praat's `Sound_into_Sound`
+            // ZERO-PADS out-of-bounds samples to produce a fixed-length
+            // `nsamp_window` buffer. For standalone, we simply clamp to
+            // available samples (matching `Sound_to_Formant_any`).
+            let raw_frame: Vec<f64> = if subtract_mean_per_frame {
+                let mut out = Vec::with_capacity(nsamp_window);
+                for i in 0..nsamp_window {
+                    let j = start_sample_raw + i as isize;
+                    let v = if j < 0 || (j as usize) >= samples.len() {
+                        0.0
+                    } else {
+                        samples[j as usize]
+                    };
+                    out.push(v);
+                }
+                out
+            } else {
+                let start_sample = start_sample_raw.max(0) as usize;
+                let end_sample = (end_sample_raw as usize).min(samples.len().saturating_sub(1));
+                if end_sample >= start_sample {
+                    samples[start_sample..=end_sample].to_vec()
+                } else {
+                    Vec::new()
+                }
+            };
+            let actual_frame_length = raw_frame.len();
 
             // Check maximum intensity on raw (un-windowed) pre-emphasized samples.
             // Praat skips Burg analysis if all samples are zero (Sound_to_Formant.cpp line 342).
             let mut maximum_intensity = 0.0_f64;
-            for i in 0..actual_frame_length {
-                let sample_idx = start_sample + i;
-                let value = samples[sample_idx];
+            for &value in raw_frame.iter() {
                 let intensity = value * value;
                 if intensity > maximum_intensity {
                     maximum_intensity = intensity;
                 }
             }
 
-            // Extract windowed frame - apply Gaussian window to samples
-            let mut windowed = Vec::with_capacity(actual_frame_length);
-            let energy = maximum_intensity;
+            // Extract windowed frame - optionally subtract frame mean, then
+            // apply Gaussian window. Praat's `Sound_into_LPC` (used by
+            // FormantPath's candidate LPCs) subtracts the mean of the full
+            // `nsamp_window`-sample frame (including any zero-padding) before
+            // windowing, via `Vector_subtractMean`
+            // (`LPC/Sound_and_LPC.cpp:471`). The standalone
+            // `Sound_to_Formant_any` does NOT subtract the mean at all.
+            let mean = if subtract_mean_per_frame && !raw_frame.is_empty() {
+                raw_frame.iter().sum::<f64>() / raw_frame.len() as f64
+            } else {
+                0.0
+            };
 
+            let mut windowed = Vec::with_capacity(actual_frame_length);
             for i in 0..actual_frame_length {
-                let sample_idx = start_sample + i;
                 let w = if i < window.len() { window[i] } else { 0.0 };
-                let s = samples[sample_idx] * w;
+                let s = (raw_frame[i] - mean) * w;
                 windowed.push(s);
             }
 
             // Skip Burg analysis if all samples are zero (Burg cannot stand all zeroes).
             // Matches Praat's Sound_to_Formant.cpp line 342-343.
+            // `energy` is filled below with the LPC residual (gain) so that it
+            // matches Praat's `Formant_Frame.intensity` semantics (used by
+            // FormantPath's intensity modulation).
+            let mut energy = 0.0_f64;
             let formant_points = if maximum_intensity == 0.0 {
                 Vec::new()
             } else if let Some(lpc_result) = lpc_burg(&windowed, lpc_order) {
+                energy = lpc_result.gain;
                 // Find formants from LPC polynomial roots
                 let candidates = lpc_to_formants(&lpc_result.coefficients, sample_rate);
 
@@ -541,6 +660,36 @@ impl Formant {
     /// Get the maximum formant frequency setting used for analysis
     pub fn max_formant_hz(&self) -> f64 {
         self.max_formant_hz
+    }
+
+    /// Get the analysis frames as a slice
+    pub fn frames(&self) -> &[FormantFrame] {
+        &self.frames
+    }
+
+    /// Access a single frame by 0-based index
+    pub fn frame(&self, index: usize) -> Option<&FormantFrame> {
+        self.frames.get(index)
+    }
+
+    /// Build a new Formant by copying one frame per frame from a source selector.
+    /// `source_frames[t]` yields the FormantFrame to use at frame `t`. The grid
+    /// (start_time, time_step, max_num_formants, max_formant_hz) is taken from `template`.
+    pub fn from_frame_selector<F>(template: &Formant, num_frames: usize, mut source_frames: F) -> Self
+    where
+        F: FnMut(usize) -> FormantFrame,
+    {
+        let mut frames = Vec::with_capacity(num_frames);
+        for t in 0..num_frames {
+            frames.push(source_frames(t));
+        }
+        Self {
+            frames,
+            start_time: template.start_time,
+            time_step: template.time_step,
+            max_num_formants: template.max_num_formants,
+            max_formant_hz: template.max_formant_hz,
+        }
     }
 }
 
