@@ -64,4 +64,10 @@ __all__ = [
     "compat",
 ]
 
-__version__ = "0.1.1"
+# Derived from installed package metadata — stays in sync with
+# pyproject.toml / Cargo.toml without needing manual bumps.
+try:
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("praatfan-gpl")
+except Exception:
+    __version__ = "unknown"
