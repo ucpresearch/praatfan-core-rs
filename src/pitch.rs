@@ -181,6 +181,107 @@ impl Pitch {
         periods_per_window: f64,
         method: PitchMethod,
     ) -> Self {
+        Self::from_sound_with_method_impl(
+            sound,
+            time_step,
+            pitch_floor,
+            pitch_ceiling,
+            max_candidates,
+            silence_threshold,
+            voicing_threshold,
+            octave_cost,
+            octave_jump_cost,
+            voiced_unvoiced_cost,
+            periods_per_window,
+            method,
+            None,
+        )
+    }
+
+    /// Like [`from_sound_with_method`](Self::from_sound_with_method), but the
+    /// amplitude reference for per-frame relative intensity (the
+    /// voiced/unvoiced and silence gating) is decoupled from the whole-file
+    /// peak.
+    ///
+    /// - `Some(x)`: use `x` wherever the whole-file `global_peak` is used
+    ///   today. Must be finite and `> 0`.
+    /// - `None`: run [`estimate_speech_reference`](crate::estimate_speech_reference)
+    ///   with default parameters and use its `reference_peak`; if that is
+    ///   `<= 0` (all-zero signal), fall back to the legacy whole-file peak.
+    ///
+    /// The unmodified entry points are byte-identical to Praat; this variant
+    /// exists for long conversational recordings, where a single loud event
+    /// otherwise forces quiet voiced frames unvoiced.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_sound_with_method_referenced(
+        sound: &Sound,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        max_candidates: usize,
+        silence_threshold: f64,
+        voicing_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+        periods_per_window: f64,
+        method: PitchMethod,
+        reference_peak: Option<f64>,
+    ) -> crate::Result<Self> {
+        let resolved = match reference_peak {
+            Some(r) => {
+                if !r.is_finite() || r <= 0.0 {
+                    return Err(crate::PraatError::InvalidParameter(format!(
+                        "reference_peak must be finite and > 0, got {r}"
+                    )));
+                }
+                Some(r)
+            }
+            None => {
+                let est = crate::speech_reference::estimate_speech_reference_default(
+                    sound.samples(),
+                    sound.sample_rate(),
+                );
+                // All-zero signal: fall back to the legacy whole-file peak
+                // (which yields an empty, all-unvoiced result anyway).
+                (est.reference_peak > 0.0).then_some(est.reference_peak)
+            }
+        };
+        Ok(Self::from_sound_with_method_impl(
+            sound,
+            time_step,
+            pitch_floor,
+            pitch_ceiling,
+            max_candidates,
+            silence_threshold,
+            voicing_threshold,
+            octave_cost,
+            octave_jump_cost,
+            voiced_unvoiced_cost,
+            periods_per_window,
+            method,
+            resolved,
+        ))
+    }
+
+    /// Internal implementation: `reference_override = None` reproduces
+    /// Praat's behavior exactly (whole-file peak as amplitude reference).
+    #[allow(clippy::too_many_arguments)]
+    fn from_sound_with_method_impl(
+        sound: &Sound,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        max_candidates: usize,
+        silence_threshold: f64,
+        voicing_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+        periods_per_window: f64,
+        method: PitchMethod,
+        reference_override: Option<f64>,
+    ) -> Self {
         // Match Praat's parameter validation
         let pitch_floor = pitch_floor.max(10.0);
         let pitch_ceiling = pitch_ceiling.min(0.5 / sound.dx());
@@ -211,6 +312,7 @@ impl Pitch {
                 voiced_unvoiced_cost,
                 periods_per_window,
                 brent_depth,
+                reference_override,
             );
         }
 
@@ -336,6 +438,7 @@ impl Pitch {
         if global_peak == 0.0 {
             return Self::empty(xmin, xmax, dt, pitch_floor, pitch_ceiling);
         }
+        let global_peak = reference_override.unwrap_or(global_peak);
 
         // Adjust max_candidates if needed
         let max_candidates = max_candidates.max((pitch_ceiling / pitch_floor).floor() as usize);
@@ -888,6 +991,7 @@ impl Pitch {
         voiced_unvoiced_cost: f64,
         periods_per_window: f64,
         brent_depth: usize,
+        reference_override: Option<f64>,
     ) -> Self {
         let pitch_floor = pitch_floor.max(10.0);
         let pitch_ceiling = pitch_ceiling.min(0.5 / sound.dx());
@@ -958,6 +1062,7 @@ impl Pitch {
         if global_peak == 0.0 {
             return Self::empty(xmin, xmax, dt, pitch_floor, pitch_ceiling);
         }
+        let global_peak = reference_override.unwrap_or(global_peak);
 
         // Adjust max_candidates if needed
         let max_candidates = max_candidates.max((pitch_ceiling / pitch_floor).floor() as usize);

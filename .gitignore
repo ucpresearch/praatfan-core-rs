@@ -33,3 +33,7 @@ build/
 # development
 CLAUDE.md
 CLEANROOM.md
+
+# Internal cross-project planning docs (not for publication)
+SPEC-speech-reference-normalization.md
+BUG-speech-reference-normalization.md

@@ -36,6 +36,7 @@ pub mod formant_modeler;
 pub mod formant_path;
 pub mod harmonicity;
 pub mod spectrogram;
+pub mod speech_reference;
 
 pub mod utils;
 
@@ -50,6 +51,7 @@ pub use formant::Formant;
 pub use formant_path::FormantPath;
 pub use harmonicity::{Harmonicity, harmonicity_from_channels_ac, harmonicity_from_channels_cc};
 pub use spectrogram::{Spectrogram, spectrogram_from_channels};
+pub use speech_reference::{SpeechReference, estimate_speech_reference, estimate_speech_reference_default};
 
 use thiserror::Error;
 

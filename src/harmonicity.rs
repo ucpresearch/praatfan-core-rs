@@ -87,6 +87,96 @@ impl Harmonicity {
         )
     }
 
+    /// Like [`from_sound_ac`](Self::from_sound_ac), but the amplitude
+    /// reference for the silence gate is decoupled from the whole-file peak.
+    ///
+    /// - `Some(x)`: use `x` as the amplitude reference (must be finite, > 0).
+    /// - `None`: estimate a speech reference internally
+    ///   ([`crate::estimate_speech_reference`] with default parameters),
+    ///   falling back to the legacy whole-file peak on an all-zero signal.
+    pub fn from_sound_ac_referenced(
+        sound: &Sound,
+        time_step: f64,
+        min_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> crate::Result<Self> {
+        Self::from_pitch_method_referenced(
+            sound,
+            PitchMethod::AcGauss,
+            time_step,
+            min_pitch,
+            silence_threshold,
+            periods_per_window,
+            reference_peak,
+        )
+    }
+
+    /// Like [`from_sound_cc`](Self::from_sound_cc), but with a decoupled
+    /// amplitude reference. See
+    /// [`from_sound_ac_referenced`](Self::from_sound_ac_referenced).
+    pub fn from_sound_cc_referenced(
+        sound: &Sound,
+        time_step: f64,
+        min_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> crate::Result<Self> {
+        Self::from_pitch_method_referenced(
+            sound,
+            PitchMethod::FccAccurate,
+            time_step,
+            min_pitch,
+            silence_threshold,
+            periods_per_window,
+            reference_peak,
+        )
+    }
+
+    /// Internal: referenced-variant counterpart of `from_pitch_method`.
+    fn from_pitch_method_referenced(
+        sound: &Sound,
+        method: PitchMethod,
+        time_step: f64,
+        min_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> crate::Result<Self> {
+        let pitch_ceiling = 0.5 / sound.dx();
+
+        let pitch = Pitch::from_sound_with_method_referenced(
+            sound,
+            time_step,
+            min_pitch,
+            pitch_ceiling,
+            15,                 // maxnCandidates
+            silence_threshold,  // silenceThreshold
+            0.0,                // voicingThreshold (not used for HNR)
+            0.0,                // octaveCost
+            0.0,                // octaveJumpCost
+            0.0,                // voicedUnvoicedCost
+            periods_per_window, // Pass through the user's setting
+            method,             // AC_GAUSS for AC, FCC_ACCURATE for CC
+            reference_peak,
+        )?;
+
+        let mut values = Vec::with_capacity(pitch.num_frames());
+        for frame in pitch.frames() {
+            let hnr = Self::strength_to_hnr(frame);
+            values.push(hnr);
+        }
+
+        Ok(Self {
+            values,
+            start_time: pitch.start_time(),
+            time_step: pitch.time_step(),
+            min_pitch,
+        })
+    }
+
     /// Internal: compute harmonicity from pitch analysis
     fn from_pitch_method(
         sound: &Sound,
