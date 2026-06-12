@@ -19,6 +19,7 @@ use ::praatfan_core::{
     Spectrum as RustSpectrum,
     Spectrogram as RustSpectrogram,
     Harmonicity as RustHarmonicity,
+    SpeechReference as RustSpeechReference,
 };
 
 /// Python wrapper for Sound
@@ -243,6 +244,99 @@ impl PySound {
             )
         });
         PyPitch { inner }
+    }
+
+    /// Autocorrelation pitch with a speech-referenced amplitude reference.
+    ///
+    /// Same analysis as :meth:`to_pitch`, except the amplitude reference used
+    /// for per-frame relative intensity (the silence gate and voiced-candidate
+    /// strength) is decoupled from the whole-file peak. On long conversational
+    /// recordings the whole-file peak is set by whatever is loudest anywhere
+    /// (a click, laugh, or interviewer burst), which forces quiet voiced
+    /// frames unvoiced; this variant is robust to that.
+    ///
+    /// Parameters
+    /// ----------
+    /// (same as :meth:`to_pitch`)
+    /// reference_peak : float or None, keyword-only
+    ///     If a float, it is used wherever the whole-file peak is used in the
+    ///     original analysis (must be finite and > 0). If None (default), a
+    ///     speech reference is estimated internally with
+    ///     :func:`estimate_speech_reference` default parameters.
+    ///
+    /// The original :meth:`to_pitch` remains byte-identical to Praat.
+    #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14, *, reference_peak=None))]
+    fn to_pitch_ac_referenced(
+        &self,
+        py: Python<'_>,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+        reference_peak: Option<f64>,
+    ) -> PyResult<PyPitch> {
+        let inner = py.allow_threads(|| {
+            RustPitch::from_sound_with_method_referenced(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                15,
+                silence_threshold,
+                voicing_threshold,
+                octave_cost,
+                octave_jump_cost,
+                voiced_unvoiced_cost,
+                3.0,
+                RustPitchMethod::AcHanning,
+                reference_peak,
+            )
+        })
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyPitch { inner })
+    }
+
+    /// Cross-correlation pitch with a speech-referenced amplitude reference.
+    ///
+    /// Same analysis as :meth:`to_pitch_cc`; see
+    /// :meth:`to_pitch_ac_referenced` for the ``reference_peak`` semantics.
+    #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14, *, reference_peak=None))]
+    fn to_pitch_cc_referenced(
+        &self,
+        py: Python<'_>,
+        time_step: f64,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+        voicing_threshold: f64,
+        silence_threshold: f64,
+        octave_cost: f64,
+        octave_jump_cost: f64,
+        voiced_unvoiced_cost: f64,
+        reference_peak: Option<f64>,
+    ) -> PyResult<PyPitch> {
+        let inner = py.allow_threads(|| {
+            RustPitch::from_sound_with_method_referenced(
+                &self.inner,
+                time_step,
+                pitch_floor,
+                pitch_ceiling,
+                15,
+                silence_threshold,
+                voicing_threshold,
+                octave_cost,
+                octave_jump_cost,
+                voiced_unvoiced_cost,
+                1.0,
+                RustPitchMethod::FccAccurate,
+                reference_peak,
+            )
+        })
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyPitch { inner })
     }
 
     /// Resample to a new sample rate.
@@ -516,6 +610,62 @@ impl PySound {
                 periods_per_window,
             ),
         }
+    }
+
+    /// AC harmonicity with a speech-referenced amplitude reference.
+    ///
+    /// Same analysis as :meth:`to_harmonicity_ac`; see
+    /// :meth:`to_pitch_ac_referenced` for the ``reference_peak`` semantics.
+    #[pyo3(signature = (time_step, min_pitch, silence_threshold, periods_per_window, *, reference_peak=None))]
+    fn to_harmonicity_ac_referenced(
+        &self,
+        py: Python<'_>,
+        time_step: f64,
+        min_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> PyResult<PyHarmonicity> {
+        let inner = py.allow_threads(|| {
+            RustHarmonicity::from_sound_ac_referenced(
+                &self.inner,
+                time_step,
+                min_pitch,
+                silence_threshold,
+                periods_per_window,
+                reference_peak,
+            )
+        })
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyHarmonicity { inner })
+    }
+
+    /// CC harmonicity with a speech-referenced amplitude reference.
+    ///
+    /// Same analysis as :meth:`to_harmonicity_cc`; see
+    /// :meth:`to_pitch_ac_referenced` for the ``reference_peak`` semantics.
+    #[pyo3(signature = (time_step, min_pitch, silence_threshold, periods_per_window, *, reference_peak=None))]
+    fn to_harmonicity_cc_referenced(
+        &self,
+        py: Python<'_>,
+        time_step: f64,
+        min_pitch: f64,
+        silence_threshold: f64,
+        periods_per_window: f64,
+        reference_peak: Option<f64>,
+    ) -> PyResult<PyHarmonicity> {
+        let inner = py.allow_threads(|| {
+            RustHarmonicity::from_sound_cc_referenced(
+                &self.inner,
+                time_step,
+                min_pitch,
+                silence_threshold,
+                periods_per_window,
+                reference_peak,
+            )
+        })
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyHarmonicity { inner })
     }
 
     /// Create a pure tone (sine wave)
@@ -1226,6 +1376,125 @@ fn parse_frequency_unit(s: &str) -> PyResult<FrequencyUnit> {
 /// This module provides exact reimplementations of Praat's acoustic analysis
 /// algorithms, designed to produce bit-accurate output matching Praat/parselmouth.
 ///
+/// Result of :func:`estimate_speech_reference`.
+#[pyclass(name = "SpeechReference", frozen)]
+pub struct PySpeechReference {
+    inner: RustSpeechReference,
+}
+
+#[pymethods]
+impl PySpeechReference {
+    /// Per-frame "this looks like speech" flags (hop grid), bool array.
+    #[getter]
+    fn speech_mask<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<bool>> {
+        self.inner.speech_mask.to_vec().into_pyarray_bound(py)
+    }
+
+    /// Frame centers in seconds, float64 array.
+    #[getter]
+    fn frame_times<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.inner.frame_times.to_vec().into_pyarray_bound(py)
+    }
+
+    /// Median per-frame mean over speech frames (DC reference).
+    #[getter]
+    fn mean(&self) -> f64 {
+        self.inner.mean
+    }
+
+    /// Median per-frame RMS over speech frames (the z-norm scale; never <= 0).
+    #[getter]
+    fn std(&self) -> f64 {
+        self.inner.std
+    }
+
+    /// Typical-speech peak: a percentile of per-frame peak |x| over speech
+    /// frames. The Praat-``global_peak`` replacement for the ``*_referenced``
+    /// analysis methods.
+    #[getter]
+    fn reference_peak(&self) -> f64 {
+        self.inner.reference_peak
+    }
+
+    /// Fraction of frames in the speech mask.
+    #[getter]
+    fn speech_fraction(&self) -> f64 {
+        self.inner.speech_fraction
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SpeechReference(reference_peak={}, std={}, mean={}, frames={}, speech_fraction={:.3})",
+            self.inner.reference_peak,
+            self.inner.std,
+            self.inner.mean,
+            self.inner.speech_mask.len(),
+            self.inner.speech_fraction
+        )
+    }
+}
+
+/// Estimate speech-referenced norming standards for a signal.
+///
+/// Frames the signal, marks frames whose level is within ``speech_floor_db``
+/// of the 95th-percentile frame level as speech, and derives **frame-level**
+/// robust standards over those frames: ``std`` (median per-frame RMS), ``mean``
+/// (median per-frame mean), and ``reference_peak`` (``peak_percentile``-ile of
+/// per-frame peak |x| — a typical-speech peak). Frame-level statistics, unlike
+/// sample-level moments, are not dominated by a short loud burst.
+///
+/// Pass ``reference_peak`` to the ``*_referenced`` analysis methods (here or in
+/// any other praatfan-family package — the estimator definition is shared) to
+/// make voicing decisions robust to loud one-off events in long recordings.
+///
+/// Parameters
+/// ----------
+/// samples : numpy.ndarray
+///     Mono audio samples (float64).
+/// sample_rate : float
+///     Sample rate in Hz.
+/// frame_s : float, keyword-only
+///     Analysis frame length in seconds (default 0.05).
+/// hop_s : float, keyword-only
+///     Hop between frames in seconds (default 0.01).
+/// speech_floor_db : float, keyword-only
+///     Speech-mask floor below the 95th-percentile frame level (default 30.0).
+/// reference_percentile : float, keyword-only
+///     Percentile (across frames) of per-frame peak |x| over speech frames
+///     (default 75.0). The contamination cliff is ``(100 - p)%`` of
+///     speech-masked time; p=75 → 25%. Raise toward 90–95 for a "loud-speech
+///     peak" closer to Praat's original global-peak semantics.
+///
+/// Returns
+/// -------
+/// SpeechReference
+///     With ``speech_mask``, ``frame_times``, ``mean``, ``std``,
+///     ``reference_peak``, and ``speech_fraction``.
+#[pyfunction]
+#[pyo3(signature = (samples, sample_rate, *, frame_s=0.05, hop_s=0.01, speech_floor_db=30.0, reference_percentile=75.0))]
+fn estimate_speech_reference(
+    py: Python<'_>,
+    samples: PyReadonlyArray1<f64>,
+    sample_rate: f64,
+    frame_s: f64,
+    hop_s: f64,
+    speech_floor_db: f64,
+    reference_percentile: f64,
+) -> PyResult<PySpeechReference> {
+    let samples = samples.as_slice()?.to_vec();
+    let inner = py.allow_threads(|| {
+        ::praatfan_core::estimate_speech_reference(
+            &samples,
+            sample_rate,
+            frame_s,
+            hop_s,
+            speech_floor_db,
+            reference_percentile,
+        )
+    });
+    Ok(PySpeechReference { inner })
+}
+
 /// Main classes:
 /// - Sound: Audio data with loading, filtering, and analysis methods
 /// - Pitch: F0 contour from autocorrelation analysis
@@ -1244,5 +1513,7 @@ fn praatfan_gpl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySpectrum>()?;
     m.add_class::<PySpectrogram>()?;
     m.add_class::<PyHarmonicity>()?;
+    m.add_class::<PySpeechReference>()?;
+    m.add_function(wrap_pyfunction!(estimate_speech_reference, m)?)?;
     Ok(())
 }

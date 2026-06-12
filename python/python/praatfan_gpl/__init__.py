@@ -47,6 +47,8 @@ from .praatfan_gpl import (
     Spectrum,
     Spectrogram,
     Harmonicity,
+    SpeechReference,
+    estimate_speech_reference,
 )
 
 # Compatibility layer for parselmouth API
@@ -61,6 +63,8 @@ __all__ = [
     "Spectrum",
     "Spectrogram",
     "Harmonicity",
+    "SpeechReference",
+    "estimate_speech_reference",
     "compat",
 ]
 

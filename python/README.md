@@ -111,7 +111,53 @@ sound.to_intensity(min_pitch, dt)        # Intensity contour
 sound.to_spectrum(fast)                  # Single-frame FFT
 sound.to_spectrogram(...)                # Time-frequency analysis
 sound.to_harmonicity_ac/cc(...)          # HNR analysis
+
+# Speech-referenced variants (robust on long recordings — see below)
+sound.to_pitch_ac_referenced(dt, floor, ceil, *, reference_peak=None)
+sound.to_pitch_cc_referenced(dt, floor, ceil, *, reference_peak=None)
+sound.to_harmonicity_ac_referenced(dt, min_pitch, silence, ppw, *, reference_peak=None)
+sound.to_harmonicity_cc_referenced(dt, min_pitch, silence, ppw, *, reference_peak=None)
 ```
+
+### Speech-referenced normalization (long recordings)
+
+Praat references each frame's amplitude against the **whole-file peak**. On
+utterance-length audio that peak is the speech peak, which is correct. On long
+conversational recordings (e.g. 10-minute Buckeye files) the peak is set by
+whatever is loudest anywhere — a click, laugh, or interviewer burst — so every
+quiet voiced frame's relative intensity drops and gets misclassified as silent,
+which then NaN-gates downstream formants and HNR.
+
+The `*_referenced` methods substitute a robust amplitude reference for the
+whole-file peak. The plain `to_pitch` / `to_harmonicity_*` methods are
+unchanged and remain bit-exact with Praat.
+
+```python
+import praatfan_gpl as pg
+
+# Estimate one reference per recording, then share it across pitch and HNR.
+# Standards are frame-level robust statistics over speech-active frames, so a
+# short loud burst cannot dominate them:
+ref = pg.estimate_speech_reference(samples, sample_rate)
+ref.reference_peak    # 75th-pct of per-frame peak |x| — a typical-speech peak
+ref.std               # median per-frame RMS (z-norm scale)
+ref.mean              # median per-frame mean (DC reference)
+ref.speech_mask       # per-frame bool, hop_s=0.01 grid
+ref.frame_times       # frame centers (s)
+ref.speech_fraction   # fraction of frames in the speech mask
+
+pitch = sound.to_pitch_ac_referenced(0.01, 75.0, 600.0,
+                                     reference_peak=ref.reference_peak)
+hnr   = sound.to_harmonicity_cc_referenced(0.01, 75.0, 0.1, 1.0,
+                                           reference_peak=ref.reference_peak)
+
+# Or pass reference_peak=None (the default) to have each call estimate the
+# reference internally.
+```
+
+The estimator definition and constants are shared across the praatfan package
+family (`praatfan`, `praatfan-rust`, `praatfan-gpl`), so a `reference_peak`
+computed by one package is interchangeable with the others.
 
 ### Pitch
 

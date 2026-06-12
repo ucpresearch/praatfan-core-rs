@@ -1235,3 +1235,88 @@ transition.
 Standalone Formant analysis (via `to_formant_burg`, not
 `to_formant_path_burg`) is unchanged: still 100% F1/F2/F3 within 1 Hz
 on `one_two_three_four_five.wav`. All 63 unit tests pass.
+
+---
+
+## Speech-referenced amplitude normalization (Session 2026-06-12)
+
+Praat references each frame's amplitude against the whole-file
+`global_peak`; on long conversational recordings one loud event
+(click/laugh/interviewer) depresses every frame's relative intensity,
+forcing quiet voiced frames unvoiced and NaN-gating downstream
+formants/HNR. Correct for utterance-length sounds, wrong-by-design for
+10-minute files.
+
+Normative spec: the cross-package
+`DECISIONS-speech-reference-normalization.md` in `../praatfan-core-clean/`.
+The estimator definition is shared across the praatfan package family
+(`praatfan` / `praatfan-rust` / `praatfan-gpl`) so a `reference_peak` is
+interchangeable across packages. **praatfan-core-clean (MIT) is the
+load-bearing fix**; this GPL repo keeps the reference implementation in
+sync.
+
+### What landed
+
+- **`src/speech_reference.rs`** — `estimate_speech_reference(samples,
+  sample_rate, frame_s=0.05, hop_s=0.01, speech_floor_db=30.0,
+  reference_percentile=75.0) -> SpeechReference { speech_mask,
+  frame_times, mean, std, reference_peak, speech_fraction }`. Plus
+  `estimate_speech_reference_default`. Standards are **frame-level**
+  robust statistics over speech-masked frames (NOT sample-level — a
+  40x burst is ~99% of energy at ~5% of samples, so sample-level
+  moments stay burst-dominated; per-frame medians/percentiles don't).
+  Percentile = NumPy type 7 (linear interpolation), implemented
+  directly. Speech mask = frames within 30 dB of the **95th-percentile**
+  frame log-RMS (the 95 is a fixed contract constant). `std` = median
+  per-frame RMS, `mean` = median per-frame mean, `reference_peak` =
+  **75th-percentile of per-frame peak |x|** (a typical-speech peak, the
+  contamination cliff is (100−p)% of speech time). RMS carries a +1e-20
+  epsilon; empty mask falls back to all-true; short signal (N < frame)
+  → one frame with population-std / max|x| fallbacks. Verified
+  **bit-for-bit (to 1e-9 rel) against the canonical praatfan-core-clean
+  reference implementation** on burst / noisy / short / all-zero /
+  random / empty inputs.
+- **`src/pitch.rs`** — `Pitch::from_sound_with_method_referenced(...,
+  reference_peak: Option<f64>) -> Result<Pitch>`. `Some(x)` (finite, >0
+  else `Err`) substitutes for `global_peak` in the per-frame intensity
+  ratio (silence gate + voiced-candidate strength); `None` runs the
+  estimator, falling back to legacy `global_peak` if it returns ≤0.
+  Threaded through both AC and FCC paths via a private
+  `from_sound_with_method_impl(..., reference_override: Option<f64>)`;
+  `reference_override = None` reproduces Praat byte-for-byte.
+- **`src/harmonicity.rs`** — `from_sound_ac_referenced` /
+  `from_sound_cc_referenced` ride the same `Pitch` machinery.
+- **`python/src/lib.rs`** — module-level `estimate_speech_reference` +
+  `SpeechReference` class; `Sound.to_pitch_ac_referenced`,
+  `to_pitch_cc_referenced`, `to_harmonicity_ac_referenced`,
+  `to_harmonicity_cc_referenced` (all with keyword-only
+  `reference_peak=None`). **Exact method names matter** — the unified
+  praatfan selector feature-detects them via `hasattr`.
+
+### Critical invariant
+
+The original entry points (`to_pitch`, `to_harmonicity_*`,
+`from_sound_with_method`, …) are **byte-identical** to before. Verified:
+pitch parity 104/104 within 0.0018 Hz, HNR AC/CC 100% within 1 dB on
+`one_two_three_four_five.wav`; h95 formant regression checker reports 0
+changed values. The new behavior lives only in the `*_referenced`
+variants.
+
+### Tests
+
+`tests/test_speech_reference.rs` — the shared §5 synthetic fixture
+(10-min 16 kHz quiet 120 Hz sine + one 0.5 s 0.9 burst at t=300):
+legacy voicing changes file-wide, referenced changes confined to ±2 s,
+explicit-reference determinism, power-of-2 scale invariance bit-identical,
+estimator burst-immunity <10%. Plus estimator unit tests in
+`src/speech_reference.rs` (NumPy-type-7 percentile, degenerate cases,
+framing counts). Cargo `[profile.test]` set to `opt-level = 2` so the
+10-minute fixture runs in seconds (no fast-math in Rust → results
+unaffected).
+
+### Build note
+
+`maturin develop` produces `praatfan_gpl.abi3.so`; an older
+`praatfan_gpl.cpython-312-*.so` left in
+`python/python/praatfan_gpl/` will shadow it and hide new symbols —
+delete the stale cpython-tagged `.so` after rebuilding if imports fail.

@@ -1,6 +1,6 @@
 [package]
 name = "praatfan-core-rs"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 license = "GPL-3.0"
 description = "Rust reimplementation of Praat's core acoustic analysis algorithms"
@@ -46,3 +46,10 @@ path = "src/lib.rs"
 [profile.release]
 opt-level = 3
 lto = true
+
+# The speech-reference regression test (tests/test_speech_reference.rs) runs
+# seven pitch analyses over a 10-minute synthetic signal; unoptimized that
+# takes many minutes. Optimization does not change f64 results (no fast-math
+# in Rust), so parity tests are unaffected.
+[profile.test]
+opt-level = 2
