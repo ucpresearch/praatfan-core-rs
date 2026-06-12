@@ -170,7 +170,9 @@ impl FormantModeler {
 
     /// Praat `FormantModeler_getStress` over tracks [from_track, to_track]:
     ///
-    ///     stress = sqrt( (var / num_free)^power * (chisq / ndf) )
+    /// ```text
+    /// stress = sqrt( (var / num_free)^power * (chisq / ndf) )
+    /// ```
     ///
     /// Returns NaN when variance, chisq, num_free, or ndf are undefined /
     /// non-positive (matches Praat's `isdefined` gate).

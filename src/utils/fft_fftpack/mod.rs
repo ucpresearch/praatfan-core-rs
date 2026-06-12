@@ -21,19 +21,23 @@
 //!
 //! Packed output layout (drftf1 forward FFT):
 //!
-//!     data[0] = DC
-//!     data[1] = Re(bin 1)      data[2] = Im(bin 1)
-//!     data[3] = Re(bin 2)      data[4] = Im(bin 2)
-//!     ...
-//!     data[n-2] = Re(bin n/2-1)  data[n-1] = Im(bin n/2-1)    (or Nyquist for even n)
+//! ```text
+//! data[0] = DC
+//! data[1] = Re(bin 1)      data[2] = Im(bin 1)
+//! data[3] = Re(bin 2)      data[4] = Im(bin 2)
+//! ...
+//! data[n-2] = Re(bin n/2-1)  data[n-1] = Im(bin n/2-1)    (or Nyquist for even n)
+//! ```
 //!
 //! Praat's `NUMforwardRealFastFourierTransform` rotates this so that
 //! `data[1]` (0-based) becomes Nyquist — our wrapper does the same rotation
 //! so that callers see Praat's 1-based packed layout:
 //!
-//!     data[1] = DC (was data[0])
-//!     data[2] = Nyquist (was data[n-1] for even n)
-//!     data[3] = Re(bin 1), data[4] = Im(bin 1), ...
+//! ```text
+//! data[1] = DC (was data[0])
+//! data[2] = Nyquist (was data[n-1] for even n)
+//! data[3] = Re(bin 1), data[4] = Im(bin 1), ...
+//! ```
 
 pub mod dradb;
 pub mod dradf;
