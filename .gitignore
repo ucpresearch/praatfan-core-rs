@@ -37,3 +37,8 @@ CLEANROOM.md
 # Internal cross-project planning docs (not for publication)
 SPEC-speech-reference-normalization.md
 BUG-speech-reference-normalization.md
+
+# Local artifacts
+.venv
+praatfan-gpl.zip
+scripts/accuracy_histogram.png
