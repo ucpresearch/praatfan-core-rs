@@ -826,6 +826,7 @@ cargo build --release --example formant_json
 | **FLAC** | Full | Lossless, recommended for testing |
 | **MP3** | Partial | Works but decoder timing differences cause large formant errors |
 | **OGG** | Rust only | Praat/parselmouth doesn't support OGG natively |
+| **NIST SPHERE** | Full (v0.1.9+) | Incl. shorten-compressed PCM/µ-law; decoded via the `desphere` fallback (Praat itself errors on shorten). See the v0.1.9 session below. |
 
 **MP3 Warning:** MP3 decoders handle encoder delay differently. Symphonia (used by praatfan-core-rs) and Praat's internal decoder may produce different sample counts and timing. For accurate comparison, use lossless formats (WAV, FLAC).
 
@@ -1320,3 +1321,62 @@ unaffected).
 `praatfan_gpl.cpython-312-*.so` left in
 `python/python/praatfan_gpl/` will shadow it and hide new symbols —
 delete the stale cpython-tagged `.so` after rebuilding if imports fail.
+
+---
+
+## NIST SPHERE support + v0.1.9 release (Session 2026-06-28)
+
+`Sound::from_file` / `from_file_channels` now decode **NIST SPHERE**,
+including **shorten-compressed** PCM/µ-law — files `symphonia`/`hound`
+cannot read and that Praat itself errors on (`Cannot unshorten` on
+shorten-PCM; silently misreads shorten-µ-law).
+
+### How it works (`src/sound.rs`)
+
+Decoding falls back to the MIT-licensed
+[`desphere`](https://github.com/ucpresearch/desphere) transcoder (SPHERE
+→ WAV in memory) **only on the error path**, after the symphonia and
+hound attempts fail. Ordinary formats (WAV/FLAC/MP3/OGG) are unaffected;
+if `desphere` can't decode the bytes either, the original symphonia error
+is surfaced.
+
+- The hound readers were refactored to a reader-generic core
+  (`from_wav_reader` / `from_wav_reader_channels`) so transcoded bytes
+  decode through the exact same path as on-disk WAV.
+- `desphere` is an **optional, tag-pinned git dependency** (`tag =
+  "v0.1.0"`) gated under the existing `file-io` feature — so
+  WASM/non-file-io builds are unchanged. The Python bindings inherit it
+  automatically (they don't disable default features).
+- Local desphere checkout: `../desphere` → symlink to `../mercator`
+  (the repo); the build uses the pinned git tag, not the symlink.
+
+### Test (`tests/test_sphere_desphere.rs`)
+
+Guards the fallback wiring end to end against
+`tests/fixtures/tone_mono_shorten.sph` — a **self-owned, license-clean**
+400-sample 16 kHz 200 Hz sine, written as PCM SPHERE then
+shorten-compressed with the canonical `shorten` encoder. Its decode was
+verified byte-for-byte against **both** the `sph2pipe` oracle and the
+`desphere` library at generation time (no restricted-corpus bytes, so it
+is committable — unlike the gitignored LDC/sph2pipe `123_*` corpora).
+Regenerate via the scratch `gen_sphere_fixture.py` if needed. (The
+encoder/oracle binaries live in `../mercator/oracles/`; the desphere
+Python pkg runs from `../mercator/src` via `PYTHONPATH`.)
+
+### Release process notes
+
+Cut as **v0.1.9** (commits 70aeedd SPHERE support, d49fa10 test, 8853764
+version bump). Version bumped in all four manifests (root `Cargo.toml`,
+`python/Cargo.toml`, `python/pyproject.toml`, `wasm/Cargo.toml`).
+Standard flow confirmed: FF-merge feature → `main`, push, then
+`gh release create v0.1.9 --target main` triggers the CI wheel build (6
+platforms + WASM, ~4 min), then `twine upload` the **CI** wheels (the
+broad `manylinux_2_17`, not a local `manylinux_2_39` build) to PyPI.
+All 6 wheels live at https://pypi.org/project/praatfan-gpl/0.1.9/.
+
+**Env gotchas this session:** (1) `wasm/target` and `python/target` are
+symlinks to scratch dirs (`~/local/scr/praat-core-rs-{wasm,python}-debug`)
+that get wiped — recreate the dir if a build fails with "Not a directory".
+(2) Pushing over SSH needs `source /var/run/user/1000/agent.txt` first
+(loads the ssh-agent socket). (3) Direct pushes to `main` are gated by
+the harness classifier; the human pushed `main` manually.

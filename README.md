@@ -8,6 +8,7 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 - **Exact output parity** with Praat (within floating-point tolerance)
 - **Cross-platform**: Native Rust, Python bindings (PyO3), and WASM
 - **No GUI dependencies** - pure computational library
+- **Broad audio format support**: WAV, FLAC, MP3, OGG, and NIST SPHERE (including shorten-compressed PCM/µ-law, which Praat itself cannot read)
 
 ### Supported Analysis Types
 
