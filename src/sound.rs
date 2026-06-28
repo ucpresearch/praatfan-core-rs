@@ -95,7 +95,15 @@ impl Sound {
             }
         }
 
-        // If symphonia failed and it's not a WAV, return the symphonia error
+        // Fall back to desphere for NIST SPHERE (incl. shorten-compressed), which
+        // symphonia/hound cannot decode. Only attempted on the error path, so
+        // ordinary formats are unaffected; if desphere can't decode it either, we
+        // surface the original symphonia error below.
+        if let Ok(sound) = Self::from_file_desphere(path) {
+            return Ok(sound);
+        }
+
+        // If symphonia failed and the fallbacks didn't apply, return the symphonia error
         Self::from_file_symphonia(path)
     }
 
@@ -124,6 +132,11 @@ impl Sound {
                     }
                 }
             }
+        }
+
+        // NIST SPHERE (incl. shorten-compressed) fallback via desphere.
+        if let Ok(sounds) = Self::from_file_desphere_channels(path) {
+            return Ok(sounds);
         }
 
         Self::from_file_symphonia_channels(path)
@@ -234,7 +247,37 @@ impl Sound {
     /// Load a Sound from a WAV file using hound
     #[cfg(feature = "file-io")]
     fn from_file_wav<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let reader = hound::WavReader::open(path)?;
+        Self::from_wav_reader(hound::WavReader::open(path)?)
+    }
+
+    /// Decode NIST SPHERE (incl. shorten-compressed) to a mono Sound via desphere.
+    ///
+    /// Transcodes the file to in-memory WAV, then reuses the hound WAV reader.
+    /// Returns an error (not a panic) if the file is not SPHERE desphere can decode.
+    #[cfg(feature = "file-io")]
+    fn from_file_desphere<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let wav = Self::desphere_transcode(path)?;
+        Self::from_wav_reader(hound::WavReader::new(std::io::Cursor::new(wav))?)
+    }
+
+    /// Decode NIST SPHERE to per-channel Sounds via desphere (see `from_file_desphere`).
+    #[cfg(feature = "file-io")]
+    fn from_file_desphere_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
+        let wav = Self::desphere_transcode(path)?;
+        Self::from_wav_reader_channels(hound::WavReader::new(std::io::Cursor::new(wav))?)
+    }
+
+    /// Read a file and transcode it from NIST SPHERE to WAV bytes via desphere.
+    #[cfg(feature = "file-io")]
+    fn desphere_transcode<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
+        let bytes = std::fs::read(path).map_err(PraatError::Io)?;
+        desphere::transcode(&bytes)
+            .map_err(|e| PraatError::Analysis(format!("desphere SPHERE decode failed: {}", e)))
+    }
+
+    /// Load a mono Sound from any hound WAV reader (file or in-memory bytes).
+    #[cfg(feature = "file-io")]
+    fn from_wav_reader<R: std::io::Read>(reader: hound::WavReader<R>) -> Result<Self> {
         let spec = reader.spec();
         let sample_rate = spec.sample_rate as f64;
         let channels = spec.channels as usize;
@@ -380,7 +423,12 @@ impl Sound {
     /// Load channels separately from WAV using hound
     #[cfg(feature = "file-io")]
     fn from_file_wav_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
-        let reader = hound::WavReader::open(path)?;
+        Self::from_wav_reader_channels(hound::WavReader::open(path)?)
+    }
+
+    /// Load per-channel Sounds from any hound WAV reader (file or in-memory bytes).
+    #[cfg(feature = "file-io")]
+    fn from_wav_reader_channels<R: std::io::Read>(reader: hound::WavReader<R>) -> Result<Vec<Self>> {
         let spec = reader.spec();
         let sample_rate = spec.sample_rate as f64;
         let channels = spec.channels as usize;

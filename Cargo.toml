@@ -11,7 +11,7 @@ categories = ["multimedia::audio", "science"]
 [features]
 default = ["file-io"]
 # File I/O support - disable for WASM builds
-file-io = ["dep:hound", "dep:symphonia"]
+file-io = ["dep:hound", "dep:symphonia", "dep:desphere"]
 # Multi-threaded frame computation - disable for WASM builds
 parallel = ["dep:rayon"]
 
@@ -30,6 +30,11 @@ faer = { version = "0.24", default-features = false, features = ["std", "linalg"
 # File I/O dependencies (optional for WASM compatibility)
 hound = { version = "3.5", optional = true }
 symphonia = { version = "0.5", features = ["mp3", "ogg", "flac", "wav", "pcm", "vorbis"], optional = true }
+# NIST SPHERE (incl. shorten-compressed) decoder, used only as a fallback in
+# Sound::from_file when symphonia/hound cannot decode the file. MIT-licensed,
+# dependency-free core; tag-pinned git dep (not on crates.io by design — its
+# repo-root virtual workspace exposes the crate from the rust/ subdirectory).
+desphere = { git = "https://github.com/ucpresearch/desphere", tag = "v0.1.0", optional = true }
 
 # Parallelism (optional for WASM compatibility)
 rayon = { version = "1.10", optional = true }
