@@ -104,12 +104,12 @@ import init, { Sound } from 'https://ucpresearch.github.io/praatfan-core-rs/pkg/
 JSON stdin → JSON stdout interface — usable from R, shell, or any language
 that can spawn a process. Download the binary for your platform from the
 [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases)
-(`praatfan-gpl-pipe-linux-x64`, `-linux-arm64`, `-macos-x64`, `-macos-arm64`,
-`-windows-x64.exe`, `-windows-arm64.exe`), then:
+(`praatfan-gpl-pipe-linux-x86_64`, `-linux-aarch64`, `-macos-x86_64`,
+`-macos-aarch64`, `-windows-x86_64.exe`, `-windows-aarch64.exe`), then:
 
 ```bash
-chmod +x praatfan-gpl-pipe-linux-x64   # Linux/macOS only
-./praatfan-gpl-pipe-linux-x64 --help
+chmod +x praatfan-gpl-pipe-linux-x86_64   # Linux/macOS only
+./praatfan-gpl-pipe-linux-x86_64 --help
 ```
 
 The wire protocol is identical to `praatfan-open-pipe` from the MIT-licensed
