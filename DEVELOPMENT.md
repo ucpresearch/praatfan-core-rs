@@ -4,17 +4,21 @@
 
 ### GitHub Actions Workflow
 
-The project uses GitHub Actions (`.github/workflows/release.yml`) to build Python wheels and WASM packages automatically when a release is published.
+The project uses GitHub Actions (`.github/workflows/release.yml`) to build Python wheels, the `praatfan-gpl-pipe` CLI binary, and WASM packages automatically when a release is published.
 
 **Platforms built automatically:**
 - Linux x86_64 (manylinux)
+- Linux ARM64 (aarch64, via `ubuntu-24.04-arm` runner)
 - macOS x86_64 (Intel, cross-compiled from ARM)
 - macOS ARM64 (Apple Silicon)
 - Windows x86_64
+- Windows ARM64 (Snapdragon)
 - WASM (web target)
 
+The `pipe` matrix job builds `praatfan-gpl-pipe` for all six OS/arch targets and attaches them to the release as `praatfan-gpl-pipe-<platform>[.exe]`. Build locally with `cargo build --release --features pipe --bin praatfan-gpl-pipe`.
+
 **Linux ARM64 (aarch64):**
-Built manually on a Raspberry Pi 5 because GitHub's ARM64 runners require paid "larger runners". See the manual build process below.
+Previously built manually on a Raspberry Pi 5; now built in CI. The manual build process below is kept as a fallback.
 
 ### Installing from GitHub Release
 
