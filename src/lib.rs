@@ -38,6 +38,9 @@ pub mod harmonicity;
 pub mod spectrogram;
 pub mod speech_reference;
 
+#[cfg(feature = "pipe")]
+pub mod pipe;
+
 pub mod utils;
 
 // Re-export main types at crate root

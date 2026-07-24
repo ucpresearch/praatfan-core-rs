@@ -14,6 +14,9 @@ default = ["file-io"]
 file-io = ["dep:hound", "dep:symphonia", "dep:desphere"]
 # Multi-threaded frame computation - disable for WASM builds
 parallel = ["dep:rayon"]
+# JSON stdin → JSON stdout interface for R / shell / other languages.
+# Build with: cargo build --release --features pipe --bin praatfan-gpl-pipe
+pipe = ["dep:serde", "dep:serde_json", "file-io"]
 
 [dependencies]
 ndarray = "0.15"
@@ -39,6 +42,12 @@ desphere = { git = "https://github.com/ucpresearch/desphere", tag = "v0.1.0", op
 # Parallelism (optional for WASM compatibility)
 rayon = { version = "1.10", optional = true }
 
+# Pipe interface (optional, enabled with "pipe" feature)
+serde = { version = "1.0", features = ["derive"], optional = true }
+# float_roundtrip: exact f64 parsing, so request "times" (and test round-trips)
+# are bit-faithful; serialization is already exact-shortest via ryu.
+serde_json = { version = "1.0", features = ["float_roundtrip"], optional = true }
+
 [dev-dependencies]
 approx = "0.5"
 serde = { version = "1.0", features = ["derive"] }
@@ -47,6 +56,11 @@ serde_json = "1.0"
 [lib]
 name = "praatfan_core"
 path = "src/lib.rs"
+
+[[bin]]
+name = "praatfan-gpl-pipe"
+path = "src/bin/praatfan_gpl_pipe.rs"
+required-features = ["pipe"]
 
 [profile.release]
 opt-level = 3

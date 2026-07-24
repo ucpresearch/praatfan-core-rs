@@ -98,12 +98,41 @@ import init, { Sound } from 'https://ucpresearch.github.io/praatfan-core-rs/pkg/
 
 **Live Demo:** https://ucpresearch.github.io/praatfan-core-rs/
 
+### Pipe CLI (from GitHub Release)
+
+`praatfan-gpl-pipe` is a standalone binary exposing the analyses over a
+JSON stdin → JSON stdout interface — usable from R, shell, or any language
+that can spawn a process. Download the binary for your platform from the
+[releases page](https://github.com/ucpresearch/praatfan-core-rs/releases)
+(`praatfan-gpl-pipe-linux-x64`, `-linux-arm64`, `-macos-x64`, `-macos-arm64`,
+`-windows-x64.exe`, `-windows-arm64.exe`), then:
+
+```bash
+chmod +x praatfan-gpl-pipe-linux-x64   # Linux/macOS only
+./praatfan-gpl-pipe-linux-x64 --help
+```
+
+The wire protocol is identical to `praatfan-open-pipe` from the MIT-licensed
+[praatfan-core-clean](https://github.com/ucpresearch/praatfan-core-clean), so
+callers can swap the two binaries without changing their workflow (output
+values differ slightly — this crate is the Praat-bit-accurate engine).
+
 ### Build from Source
 
 #### Native Rust Library
 
 ```bash
 cargo build --release
+```
+
+#### Pipe CLI
+
+```bash
+cargo build --release --features pipe --bin praatfan-gpl-pipe
+# binary at target/release/praatfan-gpl-pipe
+
+# or install to ~/.cargo/bin:
+cargo install --path . --features pipe
 ```
 
 #### Python Bindings
@@ -268,6 +297,26 @@ formant.free();
 intensity.free();
 sound.free();
 ```
+
+### Pipe CLI (any language)
+
+One JSON request on stdin runs any number of analyses against a single audio
+file; one JSON response comes back on stdout with parallel arrays per analysis
+(in request order). Non-finite values serialize as `null`.
+
+```bash
+echo '{"wav_path":"audio.wav","analyses":[
+  {"type":"pitch_ac"},
+  {"type":"formant_burg","max_formant_hz":5000.0},
+  {"type":"spectral_moments","times":[0.10,0.15,0.20]}]}' | praatfan-gpl-pipe
+```
+
+Analysis types: `pitch_ac`, `pitch_cc`, `formant_burg`, `intensity`,
+`harmonicity_ac`, `harmonicity_cc`, `spectral_moments`, `band_energy`.
+Omitted parameters take Praat's command defaults; unknown types or parameter
+keys are hard errors. Multi-channel files require an explicit 0-based
+`"channel"` field. See `praatfan-gpl-pipe --help` for all parameters and
+defaults.
 
 ## Verification
 
