@@ -3,9 +3,88 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
-## [Unreleased]
+## [0.1.10] - 2026-08-26
+
+Adds the JSON pipe binary; everything else is documentation and a regression
+guard.  **No analysis output changes** — every value this release produces is
+bit-identical to 0.1.9.
 
 ### Added
+
+- **`praatfan-gpl-pipe`** — a JSON stdin/stdout batch-analysis binary, behind a
+  new `pipe` cargo feature (optional `serde`/`serde_json` with
+  `float_roundtrip`; implies `file-io`, so default, WASM and Python builds are
+  unchanged).  One request loads the audio once and runs any number of
+  analyses: `pitch_ac`, `pitch_cc`, `formant_burg`, `intensity`,
+  `harmonicity_ac`, `harmonicity_cc`, `spectral_moments`, `band_energy`.
+
+  ```bash
+  cargo build --release --features pipe --bin praatfan-gpl-pipe
+  # or: cargo install --path . --features pipe
+  ```
+
+  The wire protocol is **identical** to praatfan-core-clean's
+  `praatfan-open-pipe`, so the two binaries are swappable without workflow
+  changes.  The values differ — that one is the clean-room engine, this one is
+  the Praat-bit-accurate engine.  Three deliberate contract points: an omitted
+  `channel` on a multi-channel file is a hard error rather than a mixdown
+  (matching the clean pipe's mono enforcement); `pitch_cc` runs
+  `PitchMethod::FccAccurate`, this crate's only CC method; absent
+  formants/moments serialize as JSON `null`, never bare `NaN`.  Unknown
+  analysis types and typo'd parameter keys are hard errors.
+
+  Release CI gains a 6-platform matrix job attaching
+  `praatfan-gpl-pipe-<os>-<arch>` binaries to GitHub releases.
+
+- `DIVERGENCES.md` — a standing record of every place where this crate is
+  knowingly *not* bit-accurate with Praat, and of the places where the sibling
+  clean-room package (`praatfan` / `praatfan_rust`, MIT, praatfan-core-clean)
+  has deliberately chosen different behaviour that this crate does **not**
+  adopt.  Written after reviewing praatfan-core-clean 0.1.10, whose release
+  changes the AC-harmonicity boundary representation.
+
+  Nothing in this repo changed.  The six entries, each verified against Praat
+  6.1.38 source and parselmouth output rather than asserted:
+
+  1. **HNR at `r → 1`.**  Praat reports `+150.0` dB for `r > 1 - 1e-15`; we do
+     the same; praatfan 0.1.10 now reports `NaN`.  Not adopted — `NaN` turns
+     every downstream `numpy` reduction over a contour into `NaN` for callers
+     who were getting a finite number from Praat.
+  2. **HNR at `r → 0`.**  Praat reports `-150.0` dB for `r <= 1e-15`; we do the
+     same; praatfan 0.1.10 folds this into its `-200.0` unvoiced marker.  Not
+     adopted, same reason.
+
+     Both markers were measured to be unreachable on speech: 0 frames at or
+     above 150 dB on `one_two_three_four_five.wav` at
+     `periods_per_window` 1.0, 3.0 and 4.5.
+  3. **The clamp.**  praatfan 0.1.10's headline fix removes
+     `r.clamp(1e-10, 1 - 1e-10)`.  Not applicable — we never had it, as pinned
+     by `tests/test_harmonicity_saturation.rs` in `8bd4bfb`.
+  4. **AC `periods_per_window < 3.0`.**  praatfan 0.1.10 raises a
+     `FutureWarning` and intends an error.  Not adopted: our lag search is
+     bounded by Praat's own `brent_ixmax`, so low `ppw` is a noisier estimate
+     here rather than the ill-conditioned regime that motivated the warning
+     there.  Measured against parselmouth on the standard fixture (voiced
+     frames, AC): max abs diff **0.014 dB / Pearson 1.000000** at ppw 4.5
+     (Praat's default), **5.11 dB / 0.996556** at 3.0 (Praat's minimum),
+     **11.05 dB / 0.988150** at 1.0 (which Praat's command layer refuses).
+     Use 4.5.
+  5. **Interpolating across marker frames** — the one entry that is a genuine
+     pre-existing parity gap *here*, not just a difference to note.  Praat's
+     `Harmonicity: Get value at time...` is a plain `Vector_getValueAtX`, so it
+     blends the `-200` sentinel into neighbouring readings: across the
+     boundary at t = 0.391 s (12.361 dB) → t = 0.401 s (-200 dB), parselmouth
+     returns -35.6 / -106.4 / -170.9 dB at the quarter points.  We treat the
+     sentinel as undefined and hold the defined neighbour (12.361 dB at all
+     three).  praatfan 0.1.10 excludes markers too but returns the *nearest*
+     frame, a third answer again.  We keep ours, but callers needing
+     byte-parity with Praat at arbitrary times should read `values()` and
+     interpolate themselves; frame-level access already matches Praat exactly.
+  6. **HNR bandwidth on 48 kHz input.**  praatfan-core-clean's synthetic
+     ground-truth work indicates Praat's HNR is effectively band-limited and
+     under-responds to aperiodic energy near Nyquist.  We match Praat, so we
+     inherit that.  Resample to 16–24 kHz when HNR is the measurement of
+     interest on wideband recordings.
 
 - `tests/test_harmonicity_saturation.rs` — a guard against the AC-harmonicity
   saturation bug that was found in the sibling clean-room package
@@ -29,6 +108,17 @@ Python bindings).
   tone must read high but finite and unclamped, and a mixed signal's high
   values must not cluster on a single number — so a future change to the pitch
   strength path cannot reintroduce the clamp behaviour here.
+
+### Changed
+
+- Release assets for the pipe binary follow the shared cross-package naming
+  convention `praatfan-gpl-pipe-<os>-<arch>[.exe]`, using Rust target
+  spellings (`x86_64` / `aarch64`, not `x64` / `arm64`).  The v0.1.9 assets
+  were re-uploaded under the new names.
+- `Harmonicity::from_sound_ac`'s documentation no longer says
+  `periods_per_window` is "typically 1.0".  That is parselmouth's default, not
+  Praat's — see the note at the end of this entry.  1.0 remains correct for
+  `from_sound_cc`.
 
 ### Verified
 

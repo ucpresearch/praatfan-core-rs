@@ -59,34 +59,61 @@ pip install praatfan-gpl
 
 [![PyPI](https://img.shields.io/pypi/v/praatfan-gpl.svg)](https://pypi.org/project/praatfan-gpl/)
 
-**Platform support**: Linux (x86_64, ARM64), macOS (Intel, Apple Silicon), Windows (x86_64)
+**Platform support**: Linux (x86_64, ARM64), macOS (Intel, Apple Silicon), Windows (x86_64, ARM64). Python 3.9+ (`abi3` wheels).
 
 ### Python (from GitHub Release)
 
-Alternatively, install directly from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases):
+Alternatively, install directly from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases).
+The wheels are `abi3` (built against the stable ABI), so one wheel per platform
+covers **Python 3.9 and newer** — pick by platform, not by interpreter version:
 
 ```bash
-# Linux x86_64
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+V=0.1.10
+BASE=https://github.com/ucpresearch/praatfan-core-rs/releases/download/v$V
 
-# Linux ARM64 (e.g., Raspberry Pi 5)
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-manylinux_2_35_aarch64.whl
+# Linux x86_64
+pip install $BASE/praatfan_gpl-$V-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+
+# Linux ARM64 (e.g. Raspberry Pi 5)
+pip install $BASE/praatfan_gpl-$V-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
 
 # macOS Apple Silicon (M1/M2/M3)
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-macosx_11_0_arm64.whl
+pip install $BASE/praatfan_gpl-$V-cp39-abi3-macosx_11_0_arm64.whl
 
 # macOS Intel
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-macosx_10_12_x86_64.whl
+pip install $BASE/praatfan_gpl-$V-cp39-abi3-macosx_10_12_x86_64.whl
 
 # Windows x86_64
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.2/praatfan_gpl-0.1.2-cp312-cp312-win_amd64.whl
+pip install $BASE/praatfan_gpl-$V-cp39-abi3-win_amd64.whl
+
+# Windows ARM64
+pip install $BASE/praatfan_gpl-$V-cp39-abi3-win_arm64.whl
 ```
 
-**Note:** These wheels require Python 3.12. For other Python versions, build from source (see below).
+### `praatfan-gpl-pipe` (from GitHub Release)
+
+Prebuilt JSON pipe binaries are attached to every release under names that do
+not carry the version, so `latest` always resolves:
+
+```bash
+BASE=https://github.com/ucpresearch/praatfan-core-rs/releases/latest/download
+
+curl -L -o praatfan-gpl-pipe $BASE/praatfan-gpl-pipe-linux-x86_64   # or
+                                                                     # -linux-aarch64
+                                                                     # -macos-x86_64
+                                                                     # -macos-aarch64
+                                                                     # -windows-x86_64.exe
+                                                                     # -windows-aarch64.exe
+chmod +x praatfan-gpl-pipe
+```
 
 ### WASM (from GitHub Release)
 
-Download `praatfan-gpl.zip` from the [releases page](https://github.com/ucpresearch/praatfan-core-rs/releases), extract, and copy the `pkg/` directory to your web project.
+```bash
+curl -L -O https://github.com/ucpresearch/praatfan-core-rs/releases/latest/download/praatfan-gpl.zip
+```
+
+Extract, and copy the `pkg/` directory to your web project.
 
 ### WASM (from CDN)
 
@@ -383,6 +410,16 @@ To regenerate this table:
 cargo build --release --examples
 python scripts/accuracy_histogram.py
 ```
+
+### Known divergences
+
+A small number of behaviours are knowingly *not* bit-accurate with Praat —
+notably `Harmonicity: Get value at time` across unvoiced frames, and the
+`periods_per_window` range for the AC method. **[DIVERGENCES.md](DIVERGENCES.md)**
+records each one, what Praat does, what this crate does, and what it costs in
+measured dB. It also records where the sibling clean-room package
+(`praatfan`, MIT) has deliberately chosen different behaviour from Praat that
+this crate does not adopt.
 
 ## License
 

@@ -37,7 +37,17 @@ impl Harmonicity {
     /// * `time_step` - Time between analysis frames (0.0 for automatic)
     /// * `min_pitch` - Minimum expected pitch (Hz), determines max lag for correlation
     /// * `silence_threshold` - Threshold for silence detection (typically 0.1)
-    /// * `periods_per_window` - Number of periods per analysis window (typically 1.0)
+    /// * `periods_per_window` - Number of periods per analysis window.
+    ///   **Use 4.5 for the AC method**, which is Praat's own default here; its
+    ///   `Sound: To Harmonicity (ac)...` command refuses anything below 3.0
+    ///   ("The number of periods per window must be at least 3.0"). The check
+    ///   lives in Praat's command layer, not in `Sound_to_Harmonicity_ac()`,
+    ///   which is why parselmouth -- calling the C function directly --
+    ///   defaults this to 1.0 and accepts it. 1.0 is the correct default for
+    ///   the **cc** method, not this one. Measured agreement with parselmouth
+    ///   on `one_two_three_four_five.wav` (voiced frames): max abs diff
+    ///   0.014 dB at 4.5, 5.11 dB at 3.0, 11.05 dB at 1.0. See
+    ///   `DIVERGENCES.md` SS4.
     pub fn from_sound_ac(
         sound: &Sound,
         time_step: f64,
@@ -68,7 +78,9 @@ impl Harmonicity {
     /// * `time_step` - Time between analysis frames (0.0 for automatic)
     /// * `min_pitch` - Minimum expected pitch (Hz), determines max lag for correlation
     /// * `silence_threshold` - Threshold for silence detection (typically 0.1)
-    /// * `periods_per_window` - Number of periods per analysis window (typically 1.0)
+    /// * `periods_per_window` - Number of periods per analysis window
+    ///   (1.0 -- Praat's own default for the cc method, and unlike the ac
+    ///   method Praat imposes no lower bound here)
     pub fn from_sound_cc(
         sound: &Sound,
         time_step: f64,
@@ -296,6 +308,24 @@ impl Harmonicity {
     }
 
     /// Convert pitch frame strength to HNR in dB
+    ///
+    /// Reproduces `Sound_to_Harmonicity.cpp` exactly, including both of
+    /// Praat's boundary markers:
+    ///
+    /// * unvoiced (first candidate at 0 Hz) -> `-200.0`
+    /// * `r <= 1e-15` -> `-150.0`
+    /// * `r > 1.0 - 1e-15` -> `+150.0`
+    /// * otherwise `10 * log10(r / (1 - r))`
+    ///
+    /// Both markers are effectively unreachable on speech, because the pitch
+    /// frame routine reflects over-1 correlations around 1 (`r -> 1/r`) and
+    /// bounds the lag search by `brent_ixmax`. Measured: 0 frames at or above
+    /// 150 dB on the standard fixture at `periods_per_window` 1.0 / 3.0 / 4.5.
+    ///
+    /// The sibling clean-room package (`praatfan`, MIT) reports `NaN` and
+    /// `-200.0` at these two boundaries instead. That choice is deliberate
+    /// there and deliberately not adopted here -- see `DIVERGENCES.md` SS1-3.
+    /// Do not "fix" this to match it without reading that file first.
     fn strength_to_hnr(frame: &PitchFrame) -> f64 {
         if frame.candidates.is_empty() || frame.candidates[0].frequency == 0.0 {
             // Unvoiced
@@ -338,6 +368,30 @@ impl Harmonicity {
     ///
     /// # Returns
     /// HNR in dB, or None if time is outside range or undefined
+    ///
+    /// # Known divergence from Praat
+    ///
+    /// This does **not** match Praat, deliberately. Praat's
+    /// `Harmonicity: Get value at time...` is a plain
+    /// `Vector_getValueAtX (me, time, 1, interpolation)`, with no awareness
+    /// that `-200` is a sentinel, so it blends the sentinel into neighbouring
+    /// readings. Measured on `one_two_three_four_five.wav` across the
+    /// boundary at t = 0.3910 s (12.361 dB) -> t = 0.4010 s (-200 dB),
+    /// parselmouth returns -35.632 / -106.408 / -170.890 dB at the quarter
+    /// points; this function returns 12.361 dB at all three.
+    ///
+    /// We treat `<= -199` as undefined and let `interpolate_with_undefined`
+    /// hold the defined neighbour, rather than report a blend of a
+    /// measurement and a sentinel as though it were dB. (Praat itself
+    /// excludes `-200` from `Get mean` / `Get standard deviation` /
+    /// `Get quantile` via `Harmonicity_getSoundingValues`, so its own
+    /// aggregate queries treat it as a sentinel while this point query does
+    /// not.)
+    ///
+    /// Frame-level access (`values`, `get_value_at_frame`) is unaffected and
+    /// matches Praat exactly. Callers needing byte-parity with Praat at
+    /// arbitrary times should read the frames and interpolate themselves.
+    /// See `DIVERGENCES.md` SS5.
     pub fn get_value_at_time(&self, time: f64, interpolation: Interpolation) -> Option<f64> {
         if self.values.is_empty() {
             return None;
