@@ -44,6 +44,60 @@ export class Formant {
 }
 
 /**
+ * FormantPath - multi-ceiling Burg analysis with Viterbi path selection.
+ *
+ * Mirrors Praat's FormantPath. Produced by `Sound.to_formant_path_burg`.
+ */
+export class FormantPath {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Access one candidate Formant by 0-based index.
+     */
+    candidate(index: number): Formant;
+    /**
+     * Ceiling frequencies in Hz as a Float64Array.
+     */
+    ceilings(): Float64Array;
+    /**
+     * Build a Formant by selecting, at each frame, the candidate indicated by
+     * the path.
+     */
+    extract_formant(): Formant;
+    /**
+     * Stress of one candidate over `[t_min, t_max]`.
+     */
+    get_stress_of_candidate(t_min: number, t_max: number, from_formant: number, to_formant: number, parameters: Int32Array, power: number, candidate: number): number;
+    /**
+     * Stress for every candidate as a Float64Array.
+     */
+    get_stress_of_candidates(t_min: number, t_max: number, from_formant: number, to_formant: number, parameters: Int32Array, power: number): Float64Array;
+    /**
+     * Current per-frame selected candidate (0-based).
+     */
+    path(): Uint32Array;
+    /**
+     * Run Viterbi-optimal path selection (Praat's `Path finder`).
+     *
+     * @param parameters - Int32Array of Legendre coefficients per track.
+     */
+    path_finder(q_weight: number, frequency_change_weight: number, stress_weight: number, ceiling_change_weight: number, intensity_modulation_step_size: number, path_window_length: number, parameters: Int32Array, power: number): void;
+    /**
+     * Force every frame overlapping `[t_min, t_max]` to select `candidate`
+     * (0-based).
+     */
+    set_path(t_min: number, t_max: number, candidate: number): void;
+    /**
+     * Number of candidate analyses (= 2*number_of_steps_up_down+1).
+     */
+    readonly num_candidates: number;
+    readonly num_frames: number;
+    readonly start_time: number;
+    readonly time_step: number;
+}
+
+/**
  * Harmonicity (HNR) - WASM wrapper
  */
 export class Harmonicity {
@@ -118,6 +172,15 @@ export class Pitch {
      */
     get_value_at_time(time: number, unit: string, interpolation: string): number | undefined;
     /**
+     * Per-frame strength of the Viterbi-selected candidate.
+     *
+     * Equivalent to parselmouth's `Pitch.selected_array['strength']`:
+     * voiced frames return the winning candidate's autocorrelation strength,
+     * unvoiced frames return the computed unvoiced-candidate penalty strength.
+     * Returned as-is (no NaN handling) for Praat bit-parity.
+     */
+    strengths(): Float64Array;
+    /**
      * Get all frame times as Float64Array
      */
     times(): Float64Array;
@@ -170,6 +233,16 @@ export class Sound {
      */
     pre_emphasis(from_frequency: number): Sound;
     /**
+     * Resample to a new sample rate.
+     *
+     * Uses Praat's FFT-based windowed-sinc algorithm. If `new_sample_rate` is
+     * greater than or equal to the current rate, returns a copy without
+     * upsampling (matching Praat's Sound_resample behavior).
+     *
+     * @param new_sample_rate - Target sample rate in Hz
+     */
+    resample(new_sample_rate: number): Sound;
+    /**
      * Get the root-mean-square amplitude
      */
     rms(): number;
@@ -187,6 +260,38 @@ export class Sound {
      * @param pre_emphasis_from - Pre-emphasis frequency (Hz), typically 50
      */
     to_formant_burg(time_step: number, max_num_formants: number, max_formant_hz: number, window_length: number, pre_emphasis_from: number): Formant;
+    /**
+     * Compute Burg-LPC formants for a bundle of ceilings.
+     *
+     * Returns a JS array of `Formant` objects (one per ceiling) in input order.
+     * This is the same analysis that powers `to_formant_path_burg` internally
+     * but without the path wrapper.
+     *
+     * @param time_step - Time between frames (0.0 for automatic)
+     * @param max_num_formants - Maximum formants (typically 5)
+     * @param max_formants_hz - Float64Array of ceiling frequencies
+     * @param window_length - Analysis window (typically 0.025)
+     * @param pre_emphasis_from - Pre-emphasis (typically 50)
+     */
+    to_formant_burg_multi(time_step: number, max_num_formants: number, max_formants_hz: Float64Array, window_length: number, pre_emphasis_from: number): Array<any>;
+    /**
+     * Compute a FormantPath (multi-ceiling Burg analysis with Viterbi path
+     * selection). Mirrors Praat's `Sound: To FormantPath (burg)`.
+     *
+     * References:
+     *   Boersma & Weenink — Praat: doing phonetics by computer.
+     *   Weenink — FormantPath (Praat: LPC/FormantPath.cpp, GPL-3).
+     *   Jadoul, Thompson & de Boer (2018) — Parselmouth. J. Phonetics 71, 1–15.
+     *
+     * @param time_step - Time between frames (seconds). Typically 0.005.
+     * @param max_num_formants - Maximum formants (typically 5).
+     * @param middle_formant_ceiling - Center ceiling (Hz).
+     * @param window_length - Window duration (typically 0.025).
+     * @param pre_emphasis_from - Pre-emphasis (Hz, typically 50).
+     * @param ceiling_step_size - Log step (typically 0.05).
+     * @param number_of_steps_up_down - Ceilings = 2*N+1.
+     */
+    to_formant_path_burg(time_step: number, max_num_formants: number, middle_formant_ceiling: number, window_length: number, pre_emphasis_from: number, ceiling_step_size: number, number_of_steps_up_down: number): FormantPath;
     /**
      * Compute harmonicity using autocorrelation method
      */
@@ -210,6 +315,17 @@ export class Sound {
      * @param pitch_ceiling - Maximum pitch (Hz), typically 600
      */
     to_pitch(time_step: number, pitch_floor: number, pitch_ceiling: number): Pitch;
+    /**
+     * Compute pitch contour using the cross-correlation (FCC) method
+     *
+     * Equivalent to Praat's "Sound: To Pitch (cc)". Same Viterbi path-finder
+     * as `to_pitch`, but with FCC candidate scoring.
+     *
+     * @param time_step - Time between analysis frames (0.0 for automatic)
+     * @param pitch_floor - Minimum pitch (Hz), typically 75
+     * @param pitch_ceiling - Maximum pitch (Hz), typically 600
+     */
+    to_pitch_cc(time_step: number, pitch_floor: number, pitch_ceiling: number): Pitch;
     /**
      * Compute spectrogram
      *
@@ -317,6 +433,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_formant_free: (a: number, b: number) => void;
+    readonly __wbg_formantpath_free: (a: number, b: number) => void;
     readonly __wbg_harmonicity_free: (a: number, b: number) => void;
     readonly __wbg_intensity_free: (a: number, b: number) => void;
     readonly __wbg_pitch_free: (a: number, b: number) => void;
@@ -333,6 +450,18 @@ export interface InitOutput {
     readonly formant_start_time: (a: number) => number;
     readonly formant_time_step: (a: number) => number;
     readonly formant_times: (a: number) => any;
+    readonly formantpath_candidate: (a: number, b: number) => [number, number, number];
+    readonly formantpath_ceilings: (a: number) => any;
+    readonly formantpath_extract_formant: (a: number) => number;
+    readonly formantpath_get_stress_of_candidate: (a: number, b: number, c: number, d: number, e: number, f: any, g: number, h: number) => [number, number, number];
+    readonly formantpath_get_stress_of_candidates: (a: number, b: number, c: number, d: number, e: number, f: any, g: number) => any;
+    readonly formantpath_num_candidates: (a: number) => number;
+    readonly formantpath_num_frames: (a: number) => number;
+    readonly formantpath_path: (a: number) => any;
+    readonly formantpath_path_finder: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: any, i: number) => void;
+    readonly formantpath_set_path: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly formantpath_start_time: (a: number) => number;
+    readonly formantpath_time_step: (a: number) => number;
     readonly harmonicity_get_value_at_time: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly harmonicity_max: (a: number) => [number, number];
     readonly harmonicity_mean: (a: number) => [number, number];
@@ -358,6 +487,7 @@ export interface InitOutput {
     readonly pitch_pitch_ceiling: (a: number) => number;
     readonly pitch_pitch_floor: (a: number) => number;
     readonly pitch_start_time: (a: number) => number;
+    readonly pitch_strengths: (a: number) => any;
     readonly pitch_time_step: (a: number) => number;
     readonly pitch_times: (a: number) => any;
     readonly pitch_values: (a: number) => any;
@@ -371,15 +501,19 @@ export interface InitOutput {
     readonly sound_num_samples: (a: number) => number;
     readonly sound_peak: (a: number) => number;
     readonly sound_pre_emphasis: (a: number, b: number) => number;
+    readonly sound_resample: (a: number, b: number) => number;
     readonly sound_rms: (a: number) => number;
     readonly sound_sample_rate: (a: number) => number;
     readonly sound_samples: (a: number) => any;
     readonly sound_start_time: (a: number) => number;
     readonly sound_to_formant_burg: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly sound_to_formant_burg_multi: (a: number, b: number, c: number, d: any, e: number, f: number) => any;
+    readonly sound_to_formant_path_burg: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly sound_to_harmonicity_ac: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly sound_to_harmonicity_cc: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly sound_to_intensity: (a: number, b: number, c: number) => number;
     readonly sound_to_pitch: (a: number, b: number, c: number, d: number) => number;
+    readonly sound_to_pitch_cc: (a: number, b: number, c: number, d: number) => number;
     readonly sound_to_spectrogram: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly sound_to_spectrum: (a: number, b: number) => number;
     readonly spectrogram_freq_max: (a: number) => number;

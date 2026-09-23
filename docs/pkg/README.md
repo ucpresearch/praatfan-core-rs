@@ -18,6 +18,14 @@ wasm-pack build --target web
 wasm-pack build --target bundler
 ```
 
+The WASM build is single-threaded (the core crate's `parallel` feature is
+ignored on `wasm32`) and produces output bit-identical to the native serial
+build.
+
+If loading the module fails with `CompileError: ... Invalid prefixed opcode
+263`, your local `wasm/Cargo.lock` has `pulp` 0.22.2, which emits relaxed-SIMD
+instructions. Run `cargo update -p pulp` in `wasm/` and rebuild.
+
 ## Usage in JavaScript
 
 ### In a Web Application
@@ -226,4 +234,16 @@ harmonicity.time_step                        // number
 
 ## License
 
-GPL-3.0 (same as Praat)
+GPL-3.0 (same as Praat).
+
+## Citing
+
+If you use `praatfan-gpl` in published work, please cite Praat, Parselmouth,
+and — if you use `FormantPath` — Weenink (2015):
+
+- Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer.*
+  <https://www.fon.hum.uva.nl/praat/>
+- Jadoul, Y., Thompson, B., & de Boer, B. (2018). "Introducing Parselmouth:
+  A Python interface to Praat." *Journal of Phonetics, 71*, 1–15.
+- Weenink, D. (2015). "Improved formant frequency measurements of short
+  segments." *Proceedings of ICPhS 2015*, Glasgow.
