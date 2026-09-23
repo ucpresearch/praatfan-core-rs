@@ -1,6 +1,6 @@
 [package]
 name = "praatfan-core-rs"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2021"
 license = "GPL-3.0"
 description = "Rust reimplementation of Praat's core acoustic analysis algorithms"
@@ -12,11 +12,13 @@ categories = ["multimedia::audio", "science"]
 default = ["file-io"]
 # File I/O support - disable for WASM builds
 file-io = ["dep:hound", "dep:symphonia", "dep:desphere"]
-# Multi-threaded frame computation - disable for WASM builds
+# Multi-threaded frame computation (bit-identical to serial). Ignored on
+# wasm32, which always runs the serial fallback. Thread count honours
+# RAYON_NUM_THREADS.
 parallel = ["dep:rayon"]
 # JSON stdin → JSON stdout interface for R / shell / other languages.
 # Build with: cargo build --release --features pipe --bin praatfan-gpl-pipe
-pipe = ["dep:serde", "dep:serde_json", "file-io"]
+pipe = ["dep:serde", "dep:serde_json", "file-io", "parallel"]
 
 [dependencies]
 ndarray = "0.15"
@@ -50,6 +52,7 @@ serde_json = { version = "1.0", features = ["float_roundtrip"], optional = true 
 
 [dev-dependencies]
 approx = "0.5"
+rayon = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 

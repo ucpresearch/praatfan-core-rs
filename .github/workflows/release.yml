@@ -14,12 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: python
           target: x86_64
           args: --release --out dist -i python3.12
           manylinux: auto
+      - name: Smoke-test wheel (1 thread vs all cores, fork safety)
+        shell: bash
+        run: |
+          python -m pip install numpy
+          python -m pip install --no-index --find-links python/dist praatfan-gpl
+          python python/tests/smoke_test_wheel.py "$(grep -m1 '^version' python/pyproject.toml | cut -d'"' -f2)"
       - uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-x64
@@ -34,12 +43,21 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: python
           target: aarch64
           args: --release --out dist -i python3.12
           manylinux: auto
+      - name: Smoke-test wheel (1 thread vs all cores, fork safety)
+        shell: bash
+        run: |
+          python -m pip install numpy
+          python -m pip install --no-index --find-links python/dist praatfan-gpl
+          python python/tests/smoke_test_wheel.py "$(grep -m1 '^version' python/pyproject.toml | cut -d'"' -f2)"
       - uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-arm64
@@ -49,7 +67,8 @@ jobs:
         with:
           files: python/dist/*.whl
 
-  # macOS x86_64 (Intel) - cross-compiled from ARM64
+  # macOS x86_64 (Intel) - cross-compiled from ARM64 (not smoke-tested: the
+  # runner's Python is arm64 and can't install an x86_64 wheel)
   python-macos-x64:
     runs-on: macos-latest
     steps:
@@ -84,6 +103,12 @@ jobs:
           working-directory: python
           target: aarch64-apple-darwin
           args: --release --out dist
+      - name: Smoke-test wheel (1 thread vs all cores, fork safety)
+        shell: bash
+        run: |
+          python -m pip install numpy
+          python -m pip install --no-index --find-links python/dist praatfan-gpl
+          python python/tests/smoke_test_wheel.py "$(grep -m1 '^version' python/pyproject.toml | cut -d'"' -f2)"
       - uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-arm64
@@ -106,6 +131,12 @@ jobs:
           working-directory: python
           target: x86_64
           args: --release --out dist
+      - name: Smoke-test wheel (1 thread vs all cores, fork safety)
+        shell: bash
+        run: |
+          python -m pip install numpy
+          python -m pip install --no-index --find-links python/dist praatfan-gpl
+          python python/tests/smoke_test_wheel.py "$(grep -m1 '^version' python/pyproject.toml | cut -d'"' -f2)"
       - uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-x64
@@ -128,6 +159,12 @@ jobs:
           working-directory: python
           target: aarch64-pc-windows-msvc
           args: --release --out dist
+      - name: Smoke-test wheel (1 thread vs all cores, fork safety)
+        shell: bash
+        run: |
+          python -m pip install numpy
+          python -m pip install --no-index --find-links python/dist praatfan-gpl
+          python python/tests/smoke_test_wheel.py "$(grep -m1 '^version' python/pyproject.toml | cut -d'"' -f2)"
       - uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-arm64
@@ -169,6 +206,21 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Build pipe binary
         run: cargo build --release --features pipe --bin praatfan-gpl-pipe --target ${{ matrix.target }}
+      - name: Smoke-test pipe binary (1 thread vs all cores)
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/praatfan-gpl-pipe"
+          req='{"wav_path":"tests/fixtures/one_two_three_four_five.wav","analyses":[{"type":"pitch_ac"},{"type":"pitch_cc"},{"type":"formant_burg"},{"type":"harmonicity_cc"},{"type":"intensity"}]}'
+          if [[ "${{ matrix.target }}" == x86_64-apple-darwin ]]; then
+            echo "cross-compiled; running under Rosetta if available"
+            /usr/bin/arch -x86_64 true 2>/dev/null || { echo "no Rosetta, skipping"; exit 0; }
+          fi
+          one=$(echo "$req" | RAYON_NUM_THREADS=1 "$bin")
+          all=$(echo "$req" | "$bin")
+          echo "${one:0:80}"
+          [[ "$one" == *'"ok":true'* ]] || { echo "pipe request failed"; exit 1; }
+          [[ "$one" == "$all" ]] || { echo "FAIL: output differs between 1 thread and all cores"; exit 1; }
+          echo "pipe: 1 thread == all cores"
       - name: Rename binary for release
         shell: bash
         run: |
@@ -194,6 +246,25 @@ jobs:
         run: cargo install wasm-pack
       - name: Build WASM (web target)
         run: cd wasm && wasm-pack build --target web
+      - name: Smoke-test WASM (load module, run analyses)
+        run: |
+          cat > /tmp/wasm_smoke.mjs <<'JS'
+          import { readFileSync } from 'fs';
+          const pkg = process.cwd() + '/wasm/pkg/';
+          const m = await import(pkg + 'praatfan_gpl.js');
+          m.initSync({ module: readFileSync(pkg + 'praatfan_gpl_bg.wasm') });
+          const sr = 16000, x = new Float64Array(2 * sr);
+          for (let i = 0; i < x.length; i++) x[i] = 0.3 * Math.sin(2 * Math.PI * 120 * i / sr);
+          const s = new m.Sound(x, sr);
+          const f0 = s.to_pitch(0.01, 75, 600).values().filter(v => !isNaN(v));
+          const n = s.to_formant_burg(0.01, 5, 5500, 0.025, 50).num_frames;
+          s.to_harmonicity_cc(0.01, 75, 0.1, 1.0); s.to_intensity(100, 0);
+          if (f0.length === 0 || Math.abs(f0[f0.length >> 1] - 120) > 1 || n === 0) {
+            console.error('WASM smoke test failed', f0.length, n); process.exit(1);
+          }
+          console.log('WASM OK: median F0', f0[f0.length >> 1].toFixed(3), 'Hz,', n, 'formant frames');
+          JS
+          node /tmp/wasm_smoke.mjs
       - name: Package WASM
         run: cd wasm && zip -r ../praatfan-gpl.zip pkg/
       - uses: actions/upload-artifact@v7

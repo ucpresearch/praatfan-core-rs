@@ -3,6 +3,43 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
+## [0.1.11] - 2026-09-23
+
+Multi-threaded frame analysis.  **No analysis output changes**: every value
+is bit-identical to 0.1.10 at any thread count, and serial builds (including
+WASM) are bit-identical to 0.1.10's.
+
+### Changed
+
+- **Per-frame work runs in parallel** under the `parallel` feature (on for the
+  Python bindings and, now, the `pipe` feature; ignored on `wasm32`):
+  pitch AC/CC (and therefore HNR AC/CC), formant frames, formant ceilings
+  (multi-ceiling and FormantPath), intensity, spectrogram, and the sinc step
+  of resampling (the FFT low-pass stays serial).  Frames are mapped in order
+  with unchanged per-frame arithmetic.  Thread count honours
+  `RAYON_NUM_THREADS`.  On a 623 s, 16 kHz file with 20 threads: pitch AC
+  1.7 → 0.3 s, pitch CC 6.6 → 1.1 s, HNR AC 20 → 2.7 s, formant 7.0 → 2.3 s,
+  FormantPath (9 ceilings) 92 → 17 s.
+- **Python: every `Sound.to_*` analysis releases the GIL** (previously only
+  some did).
+- The FFT wrapper reuses rustfft scratch (`process_with_scratch`) instead of
+  allocating on every transform.
+
+### Fixed
+
+- **Deadlock in forked children.**  Earlier releases ran pitch/HNR on rayon's
+  global pool, which does not survive `fork()`: after one analysis in the
+  parent, any analysis in a Python `multiprocessing` fork child (the Linux
+  default) hung forever.  The crate now owns a pool tagged with the process
+  id and rebuilds it in a forked child.  A caller's own rayon pool is still
+  used when the call is made from inside it.
+
+### Added
+
+- `examples/bitdump.rs` (exact-bit dump of every analysis, for serial vs
+  parallel comparison), `tests/test_parallel_bit_identity.rs` (pools of
+  1/2/3/8 threads), `python/tests/test_fork_safety.py`.
+
 ## [0.1.10] - 2026-08-26
 
 Adds the JSON pipe binary; everything else is documentation and a regression

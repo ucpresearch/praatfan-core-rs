@@ -136,9 +136,7 @@ impl Intensity {
         let first_time = our_mid_time - 0.5 * thy_duration + 0.5 * time_step;
 
         let samples = sound.samples();
-        let mut values = Vec::with_capacity(num_frames);
-
-        for iframe in 0..num_frames {
+        let values = crate::par::map_init(num_frames, || (), |_, iframe| {
             // midTime = Sampled_indexToX(thee, iframe) = firstTime + iframe * timeStep
             let mid_time = first_time + iframe as f64 * time_step;
 
@@ -153,8 +151,7 @@ impl Intensity {
             let right_sample_clamped = (right_sample as usize).min(nx);
 
             if right_sample_clamped < left_sample_clamped {
-                values.push(-300.0);
-                continue;
+                return -300.0;
             }
 
             // Calculate window offset
@@ -202,14 +199,12 @@ impl Intensity {
             let hearing_threshold_pa2 = REFERENCE_PRESSURE * REFERENCE_PRESSURE;
             let intensity_re_threshold = intensity_in_pa2 / hearing_threshold_pa2;
 
-            let intensity_db = if intensity_re_threshold < 1.0e-30 {
+            if intensity_re_threshold < 1.0e-30 {
                 -300.0
             } else {
                 10.0 * intensity_re_threshold.log10()
-            };
-
-            values.push(intensity_db);
-        }
+            }
+        });
 
         Self::new(values, first_time, time_step, min_pitch)
     }
@@ -276,9 +271,7 @@ impl Intensity {
         // Collect all channel samples
         let all_samples: Vec<&[f64]> = sounds.iter().map(|s| s.samples()).collect();
 
-        let mut values = Vec::with_capacity(num_frames);
-
-        for iframe in 0..num_frames {
+        let values = crate::par::map_init(num_frames, || (), |_, iframe| {
             let mid_time = first_time + iframe as f64 * time_step;
             let sound_centre_sample = ((mid_time - x1) / dx).round() as i64 + 1;
             let left_sample = sound_centre_sample - half_window_samples;
@@ -287,8 +280,7 @@ impl Intensity {
             let right_sample_clamped = (right_sample as usize).min(nx);
 
             if right_sample_clamped < left_sample_clamped {
-                values.push(-300.0);
-                continue;
+                return -300.0;
             }
 
             let window_from_sound_offset = window_centre - sound_centre_sample;
@@ -334,14 +326,12 @@ impl Intensity {
             let hearing_threshold_pa2 = REFERENCE_PRESSURE * REFERENCE_PRESSURE;
             let intensity_re_threshold = intensity_in_pa2 / hearing_threshold_pa2;
 
-            let intensity_db = if intensity_re_threshold < 1.0e-30 {
+            if intensity_re_threshold < 1.0e-30 {
                 -300.0
             } else {
                 10.0 * intensity_re_threshold.log10()
-            };
-
-            values.push(intensity_db);
-        }
+            }
+        });
 
         Self::new(values, first_time, time_step, min_pitch)
     }

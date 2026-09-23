@@ -166,14 +166,9 @@ impl Spectrogram {
 
         let one_by_bin_width = 1.0 / windowssq / bin_width_samples as f64;
 
-        // Initialize data storage [freq_bin][time_frame]
-        let mut data: Vec<Vec<f64>> = (0..number_of_freqs)
-            .map(|_| vec![0.0; number_of_times])
-            .collect();
-
-        let mut fft = Fft::new();
-
-        for iframe in 0..number_of_times {
+        // Frames are independent: compute each frame's column (in parallel
+        // when enabled), then transpose into [freq_bin][time_frame].
+        let columns: Vec<Vec<f64>> = crate::par::map_init(number_of_times, Fft::new, |fft, iframe| {
             let t = t1 + iframe as f64 * time_step;
 
             // Find sample indices
@@ -211,6 +206,7 @@ impl Spectrogram {
             power_spectrum[half_nsamp_fft] = spectrum[half_nsamp_fft].re * spectrum[half_nsamp_fft].re; // Nyquist
 
             // Binning: combine multiple FFT bins into spectrogram bins
+            let mut column = vec![0.0; number_of_freqs];
             for iband in 0..number_of_freqs {
                 let lower_sample = iband * bin_width_samples;
                 let higher_sample = lower_sample + bin_width_samples;
@@ -221,9 +217,14 @@ impl Spectrogram {
                     power += power_spectrum[k];
                 }
 
-                data[iband][iframe] = power * one_by_bin_width;
+                column[iband] = power * one_by_bin_width;
             }
-        }
+            column
+        });
+
+        let data: Vec<Vec<f64>> = (0..number_of_freqs)
+            .map(|iband| columns.iter().map(|col| col[iband]).collect())
+            .collect();
 
         Self {
             data,
@@ -382,7 +383,7 @@ impl Spectrogram {
         })
     }
 
-    /// Get the entire power matrix [frequency_bin][time_frame]
+    /// Get the entire power matrix `[frequency_bin][time_frame]`
     pub fn values(&self) -> &Vec<Vec<f64>> {
         &self.data
     }

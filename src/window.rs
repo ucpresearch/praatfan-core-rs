@@ -152,7 +152,7 @@ fn bessel_i0(x: f64) -> f64 {
 /// Generate Praat's specific Gaussian window for formant analysis
 ///
 /// This matches Praat's exact formula from Sound_to_Formant.cpp:
-/// window[i] = (exp(-48.0 * (i - imid)² / (nsamp_window + 1)²) - edge) / (1.0 - edge)
+/// `window[i] = (exp(-48.0 * (i - imid)² / (nsamp_window + 1)²) - edge) / (1.0 - edge)`
 /// where edge = exp(-12.0)
 ///
 /// This window is different from the standard Gaussian window used elsewhere.

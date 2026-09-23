@@ -76,11 +76,11 @@ gh release upload vX.Y.Z dist/*.whl
 
 ### Creating a New Release
 
-1. Update version in `Cargo.toml`, `python/Cargo.toml`, `python/pyproject.toml`, `wasm/Cargo.toml`
+1. Update version in `Cargo.toml`, `python/Cargo.toml`, `python/pyproject.toml`, `wasm/Cargo.toml` (and the `V=` example in `README.md`); date the `CHANGELOG.md` entry
 2. Commit and push to main
-3. Create release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "Release notes"`
-4. GitHub Actions automatically builds and uploads wheels (except Linux ARM64)
-5. Manually build and upload Linux ARM64 wheel from RPi5
+3. Create release: `gh release create vX.Y.Z --target main --title "vX.Y.Z" --notes "Release notes"`
+4. GitHub Actions builds and attaches the wheels for all platforms (including Linux ARM64), the `praatfan-gpl-pipe` binaries and the WASM zip (~4 min)
+5. Download the CI wheels (`gh release download vX.Y.Z -p '*.whl' -D dist/`) and upload them to PyPI with `twine upload dist/*` (use the CI `manylinux_2_17` wheels, not a local build)
 
 ---
 
@@ -764,3 +764,60 @@ for (integer channel = 1; channel <= my ny; channel ++) {
     ac [i] += frame [channel] [i] * frame [channel] [i] + ...  // Sum power spectrum
 }
 ```
+
+## Parallel Frame Analysis
+
+All per-frame loops go through `src/par.rs`:
+
+- `par::map_init(n, init, f)` — `(0..n).map(|i| f(&mut scratch, i)).collect()`.
+  Under the `parallel` feature (and not on `wasm32`) it runs on rayon with
+  `map_init`; otherwise it is a plain loop over one reused scratch value.
+- `par::map(items, f)` — the same, over a slice, with no scratch.
+
+Rules for anything new that goes through it:
+
+1. **Compute global quantities serially first** (global peak, windows, window
+   autocorrelation, FFT sizes), then map over frames. Viterbi / path finding
+   stays serial after the map.
+2. **Don't change per-frame arithmetic or reduction order.** Only the loop
+   moves; results are collected in index order. This is what keeps output
+   bit-identical.
+3. **Scratch must be fully overwritten on every item.** rayon calls `init`
+   once per split job, not per thread or per item, so scratch carries state
+   between frames exactly as it does in the serial loop.
+4. A whole-signal FFT (e.g. the resampling low-pass) can't be split without
+   changing bits and stays serial.
+
+**Thread pool.** `par.rs` never uses rayon's global pool, which deadlocks in a
+child after `fork()`. It owns a pool tagged with `std::process::id()` and
+rebuilds it when the pid changes (the stale pool is `mem::forget`-ed; dropping
+it would try to join threads that don't exist in the child). When called from
+inside a rayon pool, it uses that pool, so `ThreadPool::install` gives callers
+control. Size honours `RAYON_NUM_THREADS`.
+
+**Verification** (run after touching any analysis):
+
+```bash
+# Serial build vs parallel build, several thread counts, exact bits
+cargo build --release --example bitdump && cp target/release/examples/bitdump /tmp/bitdump-serial
+cargo build --release --example bitdump --features parallel
+/tmp/bitdump-serial audio.wav serial.txt
+for t in 1 2 7 20; do RAYON_NUM_THREADS=$t target/release/examples/bitdump audio.wav par$t.txt; cmp serial.txt par$t.txt; done
+
+cargo test --features parallel --test test_parallel_bit_identity   # pools of 1/2/3/8
+python python/tests/test_fork_safety.py                            # needs the built wheel
+```
+
+Use a long file (several minutes) as well as the fixtures: chunk and job
+boundaries only appear with many frames.
+
+### WASM: stale `pulp` in a local `wasm/Cargo.lock`
+
+`wasm/Cargo.lock` is gitignored, so a local checkout can hold older
+dependencies than CI resolves. `pulp` 0.22.2 (pulled in by `faer`) emits
+relaxed-SIMD instructions unconditionally on `wasm32`; engines without relaxed
+SIMD (Node 18, some browsers) then refuse the whole module with
+`CompileError: ... Invalid prefixed opcode 263`. `pulp` 0.22.3 gates this
+behind an opt-in feature. If you see that error, run
+`cd wasm && cargo update -p pulp` and rebuild. CI builds resolve fresh and are
+unaffected.

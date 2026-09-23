@@ -16,8 +16,6 @@ use crate::utils::lpc::{lpc_burg, lpc_to_formants, FormantCandidate};
 use crate::window::praat_formant_window;
 use crate::{FrequencyUnit, Sound};
 
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 /// A single formant measurement (frequency and bandwidth)
 #[derive(Debug, Clone, Copy, Default)]
@@ -120,7 +118,7 @@ impl Formant {
         )
     }
 
-    /// Like [`from_sound_burg`] but forces the analysis frame grid (first-frame
+    /// Like [`Formant::from_sound_burg`] but forces the analysis frame grid (first-frame
     /// time + number-of-frames) to the given values AND subtracts the frame
     /// mean before windowing (matches Praat's `Sound_into_LPC` code path used
     /// by `Sound_to_FormantPath_any`). Do NOT use this for standalone
@@ -241,9 +239,8 @@ impl Formant {
             };
         }
 
-        let mut frames = Vec::with_capacity(num_frames);
-
-        for frame_idx in 0..num_frames {
+        // Every frame is independent: map over them in parallel (order kept).
+        let frames = crate::par::map_init(num_frames, || (), |_, frame_idx| {
             let frame_time = first_frame_time + frame_idx as f64 * time_step;
 
             // Sample extraction semantics differ between Praat's two code paths:
@@ -383,8 +380,8 @@ impl Formant {
                 });
             }
 
-            frames.push(FormantFrame::new(formants, energy));
-        }
+            FormantFrame::new(formants, energy)
+        });
 
         Self {
             frames,
@@ -399,8 +396,8 @@ impl Formant {
     ///
     /// Equivalent to calling [`Formant::from_sound_burg`] once per ceiling with
     /// all other parameters fixed. Results are returned in the same order as
-    /// the input slice. With the `parallel` feature, ceilings are processed
-    /// concurrently via rayon; otherwise a sequential fallback is used.
+    /// the input slice. With the `parallel` feature, ceilings (and the frames
+    /// within each) are processed concurrently; otherwise serially.
     pub fn from_sound_burg_multi(
         sound: &Sound,
         time_step: f64,
@@ -409,38 +406,16 @@ impl Formant {
         window_length: f64,
         pre_emphasis_from: f64,
     ) -> Vec<Self> {
-        #[cfg(feature = "parallel")]
-        {
-            max_formants_hz
-                .par_iter()
-                .map(|&hz| {
-                    Self::from_sound_burg(
-                        sound,
-                        time_step,
-                        max_num_formants,
-                        hz,
-                        window_length,
-                        pre_emphasis_from,
-                    )
-                })
-                .collect()
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            max_formants_hz
-                .iter()
-                .map(|&hz| {
-                    Self::from_sound_burg(
-                        sound,
-                        time_step,
-                        max_num_formants,
-                        hz,
-                        window_length,
-                        pre_emphasis_from,
-                    )
-                })
-                .collect()
-        }
+        crate::par::map(max_formants_hz, |&hz| {
+            Self::from_sound_burg(
+                sound,
+                time_step,
+                max_num_formants,
+                hz,
+                window_length,
+                pre_emphasis_from,
+            )
+        })
     }
 
     /// Get the formant frequency at a specific time

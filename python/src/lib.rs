@@ -166,6 +166,7 @@ impl PySound {
     #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14))]
     fn to_pitch(
         &self,
+        py: Python<'_>,
         time_step: f64,
         pitch_floor: f64,
         pitch_ceiling: f64,
@@ -175,8 +176,8 @@ impl PySound {
         octave_jump_cost: f64,
         voiced_unvoiced_cost: f64,
     ) -> PyPitch {
-        PyPitch {
-            inner: RustPitch::from_sound_full(
+        let inner = py.allow_threads(|| {
+            RustPitch::from_sound_full(
                 &self.inner,
                 time_step,
                 pitch_floor,
@@ -187,8 +188,9 @@ impl PySound {
                 octave_cost,
                 octave_jump_cost,
                 voiced_unvoiced_cost,
-            ),
-        }
+            )
+        });
+        PyPitch { inner }
     }
 
     /// Compute pitch contour using the cross-correlation (FCC) method.
@@ -375,22 +377,24 @@ impl PySound {
     ///     Pre-emphasis frequency (Hz), typically 50
     fn to_formant_burg(
         &self,
+        py: Python<'_>,
         time_step: f64,
         max_num_formants: usize,
         max_formant_hz: f64,
         window_length: f64,
         pre_emphasis_from: f64,
     ) -> PyFormant {
-        PyFormant {
-            inner: RustFormant::from_sound_burg(
+        let inner = py.allow_threads(|| {
+            RustFormant::from_sound_burg(
                 &self.inner,
                 time_step,
                 max_num_formants,
                 max_formant_hz,
                 window_length,
                 pre_emphasis_from,
-            ),
-        }
+            )
+        });
+        PyFormant { inner }
     }
 
     /// Compute Burg-LPC formants for each ceiling in ``max_formants_hz``.
@@ -499,10 +503,11 @@ impl PySound {
     ///     Minimum expected pitch (Hz), determines window size
     /// time_step : float
     ///     Time between frames (0.0 for automatic)
-    fn to_intensity(&self, min_pitch: f64, time_step: f64) -> PyIntensity {
-        PyIntensity {
-            inner: RustIntensity::from_sound(&self.inner, min_pitch, time_step, true),
-        }
+    fn to_intensity(&self, py: Python<'_>, min_pitch: f64, time_step: f64) -> PyIntensity {
+        let inner = py.allow_threads(|| {
+            RustIntensity::from_sound(&self.inner, min_pitch, time_step, true)
+        });
+        PyIntensity { inner }
     }
 
     /// Compute spectrum (single-frame FFT)
@@ -511,10 +516,11 @@ impl PySound {
     /// ----------
     /// fast : bool
     ///     If True, use power-of-2 FFT size for faster computation
-    fn to_spectrum(&self, fast: bool) -> PySpectrum {
-        PySpectrum {
-            inner: RustSpectrum::from_sound(&self.inner, fast),
-        }
+    fn to_spectrum(&self, py: Python<'_>, fast: bool) -> PySpectrum {
+        let inner = py.allow_threads(|| {
+            RustSpectrum::from_sound(&self.inner, fast)
+        });
+        PySpectrum { inner }
     }
 
     /// Compute spectrogram (time-frequency representation)
@@ -533,6 +539,7 @@ impl PySound {
     ///     Window function: "gaussian", "hanning", "hamming", "rectangular"
     fn to_spectrogram(
         &self,
+        py: Python<'_>,
         effective_analysis_width: f64,
         max_frequency: f64,
         time_step: f64,
@@ -540,16 +547,17 @@ impl PySound {
         window_shape: &str,
     ) -> PyResult<PySpectrogram> {
         let ws = parse_window_shape(window_shape)?;
-        Ok(PySpectrogram {
-            inner: RustSpectrogram::from_sound(
+        let inner = py.allow_threads(|| {
+            RustSpectrogram::from_sound(
                 &self.inner,
                 effective_analysis_width,
                 max_frequency,
                 time_step,
                 frequency_step,
                 ws,
-            ),
-        })
+            )
+        });
+        Ok(PySpectrogram { inner })
     }
 
     /// Compute harmonicity using autocorrelation method
@@ -566,20 +574,22 @@ impl PySound {
     ///     Number of periods per analysis window (typically 1.0)
     fn to_harmonicity_ac(
         &self,
+        py: Python<'_>,
         time_step: f64,
         min_pitch: f64,
         silence_threshold: f64,
         periods_per_window: f64,
     ) -> PyHarmonicity {
-        PyHarmonicity {
-            inner: RustHarmonicity::from_sound_ac(
+        let inner = py.allow_threads(|| {
+            RustHarmonicity::from_sound_ac(
                 &self.inner,
                 time_step,
                 min_pitch,
                 silence_threshold,
                 periods_per_window,
-            ),
-        }
+            )
+        });
+        PyHarmonicity { inner }
     }
 
     /// Compute harmonicity using cross-correlation method
@@ -596,20 +606,22 @@ impl PySound {
     ///     Number of periods per analysis window (typically 1.0)
     fn to_harmonicity_cc(
         &self,
+        py: Python<'_>,
         time_step: f64,
         min_pitch: f64,
         silence_threshold: f64,
         periods_per_window: f64,
     ) -> PyHarmonicity {
-        PyHarmonicity {
-            inner: RustHarmonicity::from_sound_cc(
+        let inner = py.allow_threads(|| {
+            RustHarmonicity::from_sound_cc(
                 &self.inner,
                 time_step,
                 min_pitch,
                 silence_threshold,
                 periods_per_window,
-            ),
-        }
+            )
+        });
+        PyHarmonicity { inner }
     }
 
     /// AC harmonicity with a speech-referenced amplitude reference.

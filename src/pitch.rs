@@ -14,8 +14,6 @@ use crate::{PitchUnit, Sound};
 use num_complex::Complex;
 use std::f64::consts::PI;
 
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 /// Maximum number of pitch candidates per frame
 const MAX_CANDIDATES: usize = 15;
@@ -444,18 +442,17 @@ impl Pitch {
         let max_candidates = max_candidates.max((pitch_ceiling / pitch_floor).floor() as usize);
 
         // Process each frame
-        #[cfg(feature = "parallel")]
-        drop(fft); // each thread creates its own FFT planner
-
-        #[cfg(feature = "parallel")]
-        let mut frames: Vec<PitchFrame> = (0..number_of_frames)
-            .into_par_iter()
-            .map(|iframe| {
-                let mut fft = Fft::new();
-                let mut frame_data = vec![0.0; nsamp_fft];
-                let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-                let mut ac_output = vec![0.0; nsamp_fft];
-                let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+        drop(fft); // each worker creates its own FFT planner
+        let mut frames: Vec<PitchFrame> = crate::par::map_init(
+            number_of_frames,
+            || (
+                Fft::new(),
+                vec![0.0; nsamp_fft],
+                vec![Complex::new(0.0, 0.0); nsamp_fft],
+                vec![0.0; nsamp_fft],
+                vec![0.0; 2 * nsamp_window + 1],
+            ),
+            |(fft, frame_data, fft_buffer, ac_output, r_buf), iframe| {
                 let time = t1 + iframe as f64 * dt;
                 compute_pitch_frame(
                     samples, dx, x1, time,
@@ -465,36 +462,11 @@ impl Pitch {
                     nsamp_period, halfnsamp_period,
                     maximum_lag, brent_ixmax, brent_depth,
                     global_peak, &window, &window_r_norm,
-                    &mut fft, nsamp_fft,
-                    &mut frame_data, &mut fft_buffer, &mut ac_output, &mut r_buf,
+                    fft, nsamp_fft,
+                    frame_data, fft_buffer, ac_output, r_buf,
                 )
-            })
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut frames: Vec<PitchFrame> = {
-            let mut frame_data = vec![0.0; nsamp_fft];
-            let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-            let mut ac_output = vec![0.0; nsamp_fft];
-            let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-            let mut frames = Vec::with_capacity(number_of_frames);
-            for iframe in 0..number_of_frames {
-                let time = t1 + iframe as f64 * dt;
-                let frame = compute_pitch_frame(
-                    samples, dx, x1, time,
-                    pitch_floor, pitch_ceiling, max_candidates,
-                    voicing_threshold, octave_cost,
-                    nsamp_window, halfnsamp_window,
-                    nsamp_period, halfnsamp_period,
-                    maximum_lag, brent_ixmax, brent_depth,
-                    global_peak, &window, &window_r_norm,
-                    &mut fft, nsamp_fft,
-                    &mut frame_data, &mut fft_buffer, &mut ac_output, &mut r_buf,
-                );
-                frames.push(frame);
-            }
-            frames
-        };
+            },
+        );
 
         // Run path finder (Viterbi)
         pitch_path_finder(
@@ -727,19 +699,18 @@ impl Pitch {
         let nchan = sounds.len();
 
         // Process each frame
-        #[cfg(feature = "parallel")]
-        drop(fft);
-
-        #[cfg(feature = "parallel")]
-        let mut frames: Vec<PitchFrame> = (0..number_of_frames)
-            .into_par_iter()
-            .map(|iframe| {
-                let mut fft = Fft::new();
-                let mut frame_data_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; nsamp_fft]).collect();
-                let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-                let mut power_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-                let mut ac_output = vec![0.0; nsamp_fft];
-                let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
+        drop(fft); // each worker creates its own FFT planner
+        let mut frames: Vec<PitchFrame> = crate::par::map_init(
+            number_of_frames,
+            || (
+                Fft::new(),
+                (0..nchan).map(|_| vec![0.0; nsamp_fft]).collect::<Vec<Vec<f64>>>(),
+                vec![Complex::new(0.0, 0.0); nsamp_fft],
+                vec![Complex::new(0.0, 0.0); nsamp_fft],
+                vec![0.0; nsamp_fft],
+                vec![0.0; 2 * nsamp_window + 1],
+            ),
+            |(fft, frame_data_pool, fft_buffer, power_buffer, ac_output, r_buf), iframe| {
                 let time = t1 + iframe as f64 * dt;
                 compute_pitch_frame_multichannel(
                     &channel_samples, dx, x1, time,
@@ -749,39 +720,12 @@ impl Pitch {
                     nsamp_period, halfnsamp_period,
                     maximum_lag, brent_ixmax, brent_depth,
                     global_peak, &window, &window_r_norm,
-                    &mut fft, nsamp_fft,
-                    &mut frame_data_pool, &mut fft_buffer, &mut power_buffer,
-                    &mut ac_output, &mut r_buf,
+                    fft, nsamp_fft,
+                    frame_data_pool, fft_buffer, power_buffer,
+                    ac_output, r_buf,
                 )
-            })
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut frames: Vec<PitchFrame> = {
-            let mut frame_data_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; nsamp_fft]).collect();
-            let mut fft_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-            let mut power_buffer = vec![Complex::new(0.0, 0.0); nsamp_fft];
-            let mut ac_output = vec![0.0; nsamp_fft];
-            let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-            let mut frames = Vec::with_capacity(number_of_frames);
-            for iframe in 0..number_of_frames {
-                let time = t1 + iframe as f64 * dt;
-                let frame = compute_pitch_frame_multichannel(
-                    &channel_samples, dx, x1, time,
-                    pitch_floor, pitch_ceiling, max_candidates,
-                    voicing_threshold, octave_cost,
-                    nsamp_window, halfnsamp_window,
-                    nsamp_period, halfnsamp_period,
-                    maximum_lag, brent_ixmax, brent_depth,
-                    global_peak, &window, &window_r_norm,
-                    &mut fft, nsamp_fft,
-                    &mut frame_data_pool, &mut fft_buffer, &mut power_buffer,
-                    &mut ac_output, &mut r_buf,
-                );
-                frames.push(frame);
-            }
-            frames
-        };
+            },
+        );
 
         // Run path finder (Viterbi)
         pitch_path_finder(
@@ -895,17 +839,18 @@ impl Pitch {
         let fcc_fft_size = (nsamp_window + max_span).next_power_of_two();
 
         // Process each frame
-        #[cfg(feature = "parallel")]
-        let mut frames: Vec<PitchFrame> = (0..number_of_frames)
-            .into_par_iter()
-            .map(|iframe| {
-                let mut fft = Fft::new();
-                let mut mean_sub_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; max_span]).collect();
-                let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-                let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-                let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-                let mut power_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-                let mut cum_sq_buf = vec![0.0; max_span + 1];
+        let mut frames: Vec<PitchFrame> = crate::par::map_init(
+            number_of_frames,
+            || (
+                Fft::new(),
+                (0..nchan).map(|_| vec![0.0; max_span]).collect::<Vec<Vec<f64>>>(),
+                vec![0.0; 2 * nsamp_window + 1],
+                vec![Complex::new(0.0, 0.0); fcc_fft_size],
+                vec![Complex::new(0.0, 0.0); fcc_fft_size],
+                vec![Complex::new(0.0, 0.0); fcc_fft_size],
+                vec![0.0; max_span + 1],
+            ),
+            |(fft, mean_sub_pool, r_buf, fft_buffer, fft_a_buf, power_buffer, cum_sq_buf), iframe| {
                 let time = t1 + iframe as f64 * dt;
                 compute_pitch_frame_fcc_multichannel(
                     &channel_samples, dx, x1, nx, time,
@@ -915,43 +860,13 @@ impl Pitch {
                     halfnsamp_period, maximum_lag,
                     brent_ixmax, brent_depth,
                     global_peak, dt_window,
-                    &mut mean_sub_pool, &mut r_buf,
-                    &mut fft, &mut fft_buffer, &mut fft_a_buf,
-                    &mut power_buffer, &mut cum_sq_buf,
+                    mean_sub_pool, r_buf,
+                    fft, fft_buffer, fft_a_buf,
+                    power_buffer, cum_sq_buf,
                     fcc_fft_size,
                 )
-            })
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut frames: Vec<PitchFrame> = {
-            let mut fft = Fft::new();
-            let mut mean_sub_pool: Vec<Vec<f64>> = (0..nchan).map(|_| vec![0.0; max_span]).collect();
-            let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-            let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-            let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-            let mut power_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-            let mut cum_sq_buf = vec![0.0; max_span + 1];
-            let mut frames = Vec::with_capacity(number_of_frames);
-            for iframe in 0..number_of_frames {
-                let time = t1 + iframe as f64 * dt;
-                let frame = compute_pitch_frame_fcc_multichannel(
-                    &channel_samples, dx, x1, nx, time,
-                    pitch_floor, pitch_ceiling, max_candidates,
-                    voicing_threshold, octave_cost,
-                    nsamp_window, halfnsamp_window,
-                    halfnsamp_period, maximum_lag,
-                    brent_ixmax, brent_depth,
-                    global_peak, dt_window,
-                    &mut mean_sub_pool, &mut r_buf,
-                    &mut fft, &mut fft_buffer, &mut fft_a_buf,
-                    &mut power_buffer, &mut cum_sq_buf,
-                    fcc_fft_size,
-                );
-                frames.push(frame);
-            }
-            frames
-        };
+            },
+        );
 
         pitch_path_finder(
             &mut frames,
@@ -1075,16 +990,17 @@ impl Pitch {
         let fcc_fft_size = (nsamp_window + max_span).next_power_of_two();
 
         // Process each frame using FCC
-        #[cfg(feature = "parallel")]
-        let mut frames: Vec<PitchFrame> = (0..number_of_frames)
-            .into_par_iter()
-            .map(|iframe| {
-                let mut fft = Fft::new();
-                let mut mean_sub_buf = vec![0.0; max_span];
-                let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-                let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-                let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-                let mut cum_sq_buf = vec![0.0; max_span + 1];
+        let mut frames: Vec<PitchFrame> = crate::par::map_init(
+            number_of_frames,
+            || (
+                Fft::new(),
+                vec![0.0; max_span],
+                vec![0.0; 2 * nsamp_window + 1],
+                vec![Complex::new(0.0, 0.0); fcc_fft_size],
+                vec![Complex::new(0.0, 0.0); fcc_fft_size],
+                vec![0.0; max_span + 1],
+            ),
+            |(fft, mean_sub_buf, r_buf, fft_buffer, fft_a_buf, cum_sq_buf), iframe| {
                 let time = t1 + iframe as f64 * dt;
                 compute_pitch_frame_fcc(
                     samples, dx, x1, nx, time,
@@ -1094,40 +1010,12 @@ impl Pitch {
                     halfnsamp_period, maximum_lag,
                     brent_ixmax, brent_depth,
                     global_peak, dt_window,
-                    &mut mean_sub_buf, &mut r_buf,
-                    &mut fft, &mut fft_buffer, &mut fft_a_buf,
-                    &mut cum_sq_buf, fcc_fft_size,
+                    mean_sub_buf, r_buf,
+                    fft, fft_buffer, fft_a_buf,
+                    cum_sq_buf, fcc_fft_size,
                 )
-            })
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut frames: Vec<PitchFrame> = {
-            let mut fft = Fft::new();
-            let mut mean_sub_buf = vec![0.0; max_span];
-            let mut r_buf = vec![0.0; 2 * nsamp_window + 1];
-            let mut fft_buffer = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-            let mut fft_a_buf = vec![Complex::new(0.0, 0.0); fcc_fft_size];
-            let mut cum_sq_buf = vec![0.0; max_span + 1];
-            let mut frames = Vec::with_capacity(number_of_frames);
-            for iframe in 0..number_of_frames {
-                let time = t1 + iframe as f64 * dt;
-                let frame = compute_pitch_frame_fcc(
-                    samples, dx, x1, nx, time,
-                    pitch_floor, pitch_ceiling, max_candidates,
-                    voicing_threshold, octave_cost,
-                    nsamp_window, halfnsamp_window,
-                    halfnsamp_period, maximum_lag,
-                    brent_ixmax, brent_depth,
-                    global_peak, dt_window,
-                    &mut mean_sub_buf, &mut r_buf,
-                    &mut fft, &mut fft_buffer, &mut fft_a_buf,
-                    &mut cum_sq_buf, fcc_fft_size,
-                );
-                frames.push(frame);
-            }
-            frames
-        };
+            },
+        );
 
         // Run path finder (Viterbi)
         pitch_path_finder(

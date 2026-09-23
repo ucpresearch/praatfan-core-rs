@@ -16,6 +16,8 @@ pub enum FftDirection {
 /// FFT processor with cached plans
 pub struct Fft {
     planner: FftPlanner<f64>,
+    /// Reused rustfft scratch (`process()` would allocate on every call).
+    scratch: Vec<Complex<f64>>,
 }
 
 impl Fft {
@@ -23,7 +25,18 @@ impl Fft {
     pub fn new() -> Self {
         Self {
             planner: FftPlanner::new(),
+            scratch: Vec::new(),
         }
+    }
+
+    /// In-place transform using the reusable scratch buffer. Same algorithm
+    /// as rustfft's `process()`, which just allocates scratch and calls this.
+    fn run(fft: &dyn rustfft::Fft<f64>, buffer: &mut [Complex<f64>], scratch: &mut Vec<Complex<f64>>) {
+        let len = fft.get_inplace_scratch_len();
+        if scratch.len() < len {
+            scratch.resize(len, Complex::new(0.0, 0.0));
+        }
+        fft.process_with_scratch(buffer, &mut scratch[..len]);
     }
 
     /// Compute FFT of real-valued input
@@ -45,7 +58,7 @@ impl Fft {
             .take(fft_size)
             .collect();
 
-        fft.process(&mut buffer);
+        Self::run(&*fft, &mut buffer, &mut self.scratch);
         buffer
     }
 
@@ -61,7 +74,7 @@ impl Fft {
         let fft = self.planner.plan_fft_inverse(fft_size);
 
         let mut buffer = input.to_vec();
-        fft.process(&mut buffer);
+        Self::run(&*fft, &mut buffer, &mut self.scratch);
 
         // Normalize by dividing by N
         let scale = 1.0 / fft_size as f64;
@@ -220,7 +233,7 @@ impl Fft {
 
         // Forward FFT
         let fft = self.planner.plan_fft_forward(n);
-        fft.process(&mut buffer[..n]);
+        Self::run(&*fft, &mut buffer[..n], &mut self.scratch);
 
         // Power spectrum in-place
         for i in 0..n {
@@ -229,7 +242,7 @@ impl Fft {
 
         // Inverse FFT
         let ifft = self.planner.plan_fft_inverse(n);
-        ifft.process(&mut buffer[..n]);
+        Self::run(&*ifft, &mut buffer[..n], &mut self.scratch);
 
         // Extract and normalize
         let scale = 1.0 / n as f64;
@@ -276,7 +289,7 @@ impl Fft {
                 };
             }
 
-            fft.process(&mut buffer[..n]);
+            Self::run(&*fft, &mut buffer[..n], &mut self.scratch);
 
             // Accumulate power spectrum
             for i in 0..n {
@@ -286,7 +299,7 @@ impl Fft {
 
         // Inverse FFT on accumulated power
         let ifft = self.planner.plan_fft_inverse(n);
-        ifft.process(&mut power_buffer[..n]);
+        Self::run(&*ifft, &mut power_buffer[..n], &mut self.scratch);
 
         // Extract and normalize
         let scale = 1.0 / n as f64;
@@ -298,7 +311,7 @@ impl Fft {
     /// In-place forward FFT.
     pub fn fft_forward_inplace(&mut self, buffer: &mut [Complex<f64>], n: usize) {
         let fft = self.planner.plan_fft_forward(n);
-        fft.process(&mut buffer[..n]);
+        Self::run(&*fft, &mut buffer[..n], &mut self.scratch);
     }
 
     /// Combined forward FFT → power spectrum → inverse FFT, all in-place.
@@ -309,14 +322,14 @@ impl Fft {
     /// This avoids allocating intermediate vectors.
     pub fn fft_power_ifft(&mut self, buffer: &mut [Complex<f64>], n: usize) {
         let fft = self.planner.plan_fft_forward(n);
-        fft.process(&mut buffer[..n]);
+        Self::run(&*fft, &mut buffer[..n], &mut self.scratch);
 
         for i in 0..n {
             buffer[i] = Complex::new(buffer[i].norm_sqr(), 0.0);
         }
 
         let ifft = self.planner.plan_fft_inverse(n);
-        ifft.process(&mut buffer[..n]);
+        Self::run(&*ifft, &mut buffer[..n], &mut self.scratch);
     }
 
     /// Combined forward FFT → accumulate power spectrum into separate buffer, in-place.
@@ -330,7 +343,7 @@ impl Fft {
         n: usize,
     ) {
         let fft = self.planner.plan_fft_forward(n);
-        fft.process(&mut buffer[..n]);
+        Self::run(&*fft, &mut buffer[..n], &mut self.scratch);
 
         for i in 0..n {
             power_acc[i] += Complex::new(buffer[i].norm_sqr(), 0.0);
@@ -340,7 +353,7 @@ impl Fft {
     /// In-place inverse FFT.
     pub fn ifft_inplace(&mut self, buffer: &mut [Complex<f64>], n: usize) {
         let ifft = self.planner.plan_fft_inverse(n);
-        ifft.process(&mut buffer[..n]);
+        Self::run(&*ifft, &mut buffer[..n], &mut self.scratch);
     }
 
     /// Compute normalized autocorrelation (correlation coefficients)

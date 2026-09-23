@@ -14,6 +14,17 @@
 //! - [`Spectrum`] - Single-frame FFT magnitude spectrum
 //! - [`Spectrogram`] - Time-frequency representation
 //!
+//! # Parallelism
+//!
+//! With the `parallel` feature (enabled by the Python bindings and the `pipe`
+//! feature), per-frame work in pitch, harmonicity, formant, FormantPath,
+//! intensity, spectrogram and resampling runs on a crate-owned rayon pool.
+//! Results are bit-identical to the serial build at any thread count. The
+//! pool honours `RAYON_NUM_THREADS`, is rebuilt after `fork()`, and is
+//! bypassed in favour of the caller's pool when called from inside
+//! `rayon::ThreadPool::install`. On `wasm32` the feature is ignored and
+//! everything runs serially.
+//!
 //! # Citing
 //!
 //! If you use this library in published work, please cite:
@@ -42,6 +53,7 @@ pub mod speech_reference;
 pub mod pipe;
 
 pub mod utils;
+mod par;
 
 // Re-export main types at crate root
 pub use sound::Sound;

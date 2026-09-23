@@ -8,6 +8,7 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 - **Exact output parity** with Praat (within floating-point tolerance)
 - **Cross-platform**: Native Rust, Python bindings (PyO3), and WASM
 - **No GUI dependencies** - pure computational library
+- **Multi-threaded, bit-identical**: per-frame work (pitch, HNR, formants, FormantPath, intensity, spectrogram, resampling) is spread across CPU cores in the Python package and pipe CLI, with output bit-for-bit identical to a single-threaded run. WASM runs single-threaded.
 - **Broad audio format support**: WAV, FLAC, MP3, OGG, and NIST SPHERE (including shorten-compressed PCM/µ-law, which Praat itself cannot read)
 
 ### Supported Analysis Types
@@ -68,7 +69,7 @@ The wheels are `abi3` (built against the stable ABI), so one wheel per platform
 covers **Python 3.9 and newer** — pick by platform, not by interpreter version:
 
 ```bash
-V=0.1.10
+V=0.1.11
 BASE=https://github.com/ucpresearch/praatfan-core-rs/releases/download/v$V
 
 # Linux x86_64
@@ -149,8 +150,15 @@ values differ slightly — this crate is the Praat-bit-accurate engine).
 #### Native Rust Library
 
 ```bash
-cargo build --release
+cargo build --release                      # single-threaded
+cargo build --release --features parallel  # multi-threaded frames (rayon)
 ```
+
+The `parallel` feature changes speed only, never results: frames are mapped in
+order with unchanged per-frame arithmetic, so output is bit-identical at any
+thread count. It is enabled for the Python bindings and the pipe CLI, ignored
+on `wasm32`, and the thread count honours `RAYON_NUM_THREADS`. It is fork-safe
+(the crate owns its thread pool and rebuilds it in a forked child).
 
 #### Pipe CLI
 
@@ -380,6 +388,20 @@ node scripts/verify_wasm.mjs [audio_file]
 ```
 
 This compares Pitch, Formant, Intensity, Spectrum, and Harmonicity outputs between WASM and native Rust, expecting 100% match.
+
+### Parallel vs serial
+
+Multi-threaded output must be bit-identical to single-threaded output.
+`examples/bitdump.rs` dumps the exact f64 bits of every analysis:
+
+```bash
+cargo build --release --example bitdump && cp target/release/examples/bitdump /tmp/bitdump-serial
+cargo build --release --example bitdump --features parallel
+/tmp/bitdump-serial audio.wav serial.txt
+for t in 1 2 8; do RAYON_NUM_THREADS=$t target/release/examples/bitdump audio.wav par$t.txt; cmp serial.txt par$t.txt; done
+cargo test --features parallel --test test_parallel_bit_identity
+python python/tests/test_fork_safety.py   # forked children must not deadlock
+```
 
 ## Accuracy
 

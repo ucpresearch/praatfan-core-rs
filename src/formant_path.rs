@@ -634,43 +634,18 @@ fn compute_candidates_with_shared_grid(
     forced_t1: f64,
     forced_num_frames: usize,
 ) -> Vec<Formant> {
-    #[cfg(feature = "parallel")]
-    {
-        use rayon::prelude::*;
-        ceilings
-            .par_iter()
-            .map(|&hz| {
-                Formant::from_sound_burg_with_grid(
-                    sound,
-                    time_step,
-                    max_num_formants,
-                    hz,
-                    window_length,
-                    pre_emphasis_from,
-                    forced_t1,
-                    forced_num_frames,
-                )
-            })
-            .collect()
-    }
-    #[cfg(not(feature = "parallel"))]
-    {
-        ceilings
-            .iter()
-            .map(|&hz| {
-                Formant::from_sound_burg_with_grid(
-                    sound,
-                    time_step,
-                    max_num_formants,
-                    hz,
-                    window_length,
-                    pre_emphasis_from,
-                    forced_t1,
-                    forced_num_frames,
-                )
-            })
-            .collect()
-    }
+    crate::par::map(ceilings, |&hz| {
+        Formant::from_sound_burg_with_grid(
+            sound,
+            time_step,
+            max_num_formants,
+            hz,
+            window_length,
+            pre_emphasis_from,
+            forced_t1,
+            forced_num_frames,
+        )
+    })
 }
 
 fn generate_ceilings(

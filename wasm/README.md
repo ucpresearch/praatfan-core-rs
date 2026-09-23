@@ -18,6 +18,14 @@ wasm-pack build --target web
 wasm-pack build --target bundler
 ```
 
+The WASM build is single-threaded (the core crate's `parallel` feature is
+ignored on `wasm32`) and produces output bit-identical to the native serial
+build.
+
+If loading the module fails with `CompileError: ... Invalid prefixed opcode
+263`, your local `wasm/Cargo.lock` has `pulp` 0.22.2, which emits relaxed-SIMD
+instructions. Run `cargo update -p pulp` in `wasm/` and rebuild.
+
 ## Usage in JavaScript
 
 ### In a Web Application

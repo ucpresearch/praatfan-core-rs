@@ -38,7 +38,7 @@ pub struct LpcResult {
 ///
 /// This implementation matches Praat's VECburg exactly.
 /// Returns coefficients a[1..m] where the LPC polynomial is:
-/// A(z) = 1 + a[1]*z^-1 + a[2]*z^-2 + ... + a[m]*z^-m
+/// `A(z) = 1 + a[1]*z^-1 + a[2]*z^-2 + ... + a[m]*z^-m`
 ///
 /// # Arguments
 /// * `samples` - Input signal samples (1-indexed internally to match Praat)

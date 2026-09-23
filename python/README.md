@@ -225,6 +225,22 @@ harmonicity.min(), harmonicity.max(), harmonicity.mean()
 - **Interpolation**: `"nearest"`, `"linear"`, `"cubic"`
 - **Window shapes**: `"gaussian"`, `"hanning"`, `"hamming"`, `"rectangular"`
 
+## Threading
+
+Pitch, harmonicity, intensity, formant (including FormantPath), spectrogram
+and resampling spread their frames across all CPU cores. Results are
+bit-identical to a single-threaded run, whatever the thread count. Every
+analysis releases the GIL while it runs, so other Python threads keep going.
+
+- **Thread count:** each call uses every core unless you set
+  `RAYON_NUM_THREADS` (e.g. `RAYON_NUM_THREADS=1`) before importing the
+  package. If you already run files in parallel across processes
+  (`multiprocessing`, joblib, a job array), set it to avoid oversubscribing:
+  N processes × all cores each is slower than either alone.
+- **fork():** safe. A child forked after the parent has run an analysis
+  (Python `multiprocessing`'s default on Linux) builds a fresh thread pool
+  on its first call instead of deadlocking on the parent's.
+
 ## Comparison with parselmouth
 
 praatfan-gpl aims for bit-accurate compatibility with Praat/parselmouth:

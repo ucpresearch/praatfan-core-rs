@@ -109,7 +109,7 @@ impl Sound {
 
     /// Load a Sound from an audio file, keeping channels separate
     ///
-    /// Returns a Vec<Sound> with one Sound per channel. This is useful for
+    /// Returns a `Vec<Sound>` with one Sound per channel. This is useful for
     /// analysis algorithms that need to process channels separately and then
     /// average results (like Praat's spectrogram for stereo files).
     ///
@@ -631,7 +631,7 @@ impl Sound {
     /// # Arguments
     /// * `from_frequency` - The frequency (Hz) above which to boost (typically 50 Hz)
     ///
-    /// The filter is: y[n] = x[n] - alpha * x[n-1]
+    /// The filter is: `y[n] = x[n] - alpha * x[n-1]`
     /// where alpha = exp(-2 * pi * from_frequency / sample_rate)
     pub fn pre_emphasis(&self, from_frequency: f64) -> Sound {
         if self.samples.is_empty() {
@@ -834,23 +834,30 @@ impl Sound {
         let x1_orig = xmin + 0.5 * dx_orig;
         let x1_new = 0.5 * (xmin + xmax - (new_num_samples - 1) as f64 * dx_new);
 
-        let mut new_samples = vec![0.0; new_num_samples];
-
         // Sinc interpolation precision (Praat default is 50)
         let precision: isize = 50;
 
-        for i in 0..new_num_samples {
-            // Time of new sample i (0-based, but Praat formula uses 1-based)
-            // Praat: x = Sampled_indexToX(thee, i) = x1 + (i - 1) * dx (1-based)
-            // For 0-based: x = x1_new + i * dx_new
-            let x = x1_new + i as f64 * dx_new;
+        // Each output sample is independent, so interpolate in chunks (in
+        // parallel when enabled). The FFT low-pass above stays serial.
+        const CHUNK: usize = 16384;
+        let num_chunks = new_num_samples.div_ceil(CHUNK);
+        let chunks: Vec<Vec<f64>> = crate::par::map_init(num_chunks, || (), |_, c| {
+            (c * CHUNK..((c + 1) * CHUNK).min(new_num_samples))
+                .map(|i| {
+                    // Time of new sample i (0-based, but Praat formula uses 1-based)
+                    // Praat: x = Sampled_indexToX(thee, i) = x1 + (i - 1) * dx (1-based)
+                    // For 0-based: x = x1_new + i * dx_new
+                    let x = x1_new + i as f64 * dx_new;
 
-            // Index in original (1-based for sinc_interpolate_1based)
-            // Praat: index = Sampled_xToIndex(me, x) = (x - x1) / dx + 1.0
-            let index = (x - x1_orig) / dx_orig + 1.0;
+                    // Index in original (1-based for sinc_interpolate_1based)
+                    // Praat: index = Sampled_xToIndex(me, x) = (x - x1) / dx + 1.0
+                    let index = (x - x1_orig) / dx_orig + 1.0;
 
-            new_samples[i] = sinc_interpolate_1based(&filtered_samples, index, precision);
-        }
+                    sinc_interpolate_1based(&filtered_samples, index, precision)
+                })
+                .collect()
+        });
+        let new_samples = chunks.concat();
 
         Sound {
             samples: new_samples,
