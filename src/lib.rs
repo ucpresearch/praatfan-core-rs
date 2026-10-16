@@ -49,7 +49,7 @@ pub mod harmonicity;
 pub mod spectrogram;
 pub mod speech_reference;
 
-#[cfg(feature = "pipe")]
+#[cfg(feature = "pipe-core")]
 pub mod pipe;
 
 pub mod utils;
@@ -76,7 +76,7 @@ pub enum PraatError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[cfg(feature = "file-io")]
+    #[cfg(feature = "decode")]
     #[error("WAV decoding error: {0}")]
     WavDecode(#[from] hound::Error),
 

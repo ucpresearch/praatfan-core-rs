@@ -275,3 +275,49 @@ jobs:
         if: github.event_name == 'release'
         with:
           files: praatfan-gpl.zip
+
+  # Embedded-V8 WASM bundle (R's V8 package / mini-racer): no-modules glue,
+  # pipe entry points only, no SIMD. Smoke-tested in a bare node:vm context
+  # and against the native pipe.
+  wasm-v8:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack and wabt
+        run: |
+          cargo install wasm-pack
+          sudo apt-get update && sudo apt-get install -y wabt
+      - name: Build native pipe (reference for the smoke test)
+        run: cargo build --release --features pipe --bin praatfan-gpl-pipe
+      - name: Build, check and smoke-test the bundle
+        run: wasm/v8/build.sh target/release/praatfan-gpl-pipe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wasm-v8
+          path: praatfan-gpl-wasm-v8.zip
+      - uses: softprops/action-gh-release@v3
+        if: github.event_name == 'release'
+        with:
+          files: praatfan-gpl-wasm-v8.zip
+
+  # One SHA256SUMS (sha256sum format) over every release asset, so downloaders
+  # (the R package's pf_setup) can verify each file.
+  checksums:
+    if: github.event_name == 'release'
+    needs: [python-linux-x64, python-linux-arm64, python-macos-x64, python-macos-arm64, python-windows-x64, python-windows-arm64, pipe, wasm, wasm-v8]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checksum release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir assets && cd assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --skip-existing
+          rm -f SHA256SUMS
+          sha256sum -- * > ../SHA256SUMS
+          cat ../SHA256SUMS
+          cd .. && gh release upload "$TAG" SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"

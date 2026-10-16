@@ -42,3 +42,6 @@ BUG-speech-reference-normalization.md
 .venv
 praatfan-gpl.zip
 scripts/accuracy_histogram.png
+wasm/pkg-v8
+wasm/pkg-v8/
+praatfan-gpl-wasm-v8.zip

@@ -10,6 +10,10 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["console_error_panic_hook"]
+# JSON pipe entry points (version, pipe_request_bytes, pipe_request_samples)
+# for the embedded-V8 bundle. Build that bundle without default features so
+# nothing touches `console`.
+pipe = ["praatfan-core-rs/pipe-core"]
 
 [dependencies]
 wasm-bindgen = "0.2"

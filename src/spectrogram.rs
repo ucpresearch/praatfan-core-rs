@@ -95,10 +95,6 @@ impl Spectrogram {
             max_frequency
         };
 
-        if physical_analysis_width > physical_duration {
-            return Self::empty(sound.start_time(), time_step, 0.0, max_frequency, freq_step);
-        }
-
         // Compute window samples
         let approximate_nsamp_window = (physical_analysis_width / dx).floor() as i64;
         let halfnsamp_window = approximate_nsamp_window / 2 - 1;
@@ -106,11 +102,6 @@ impl Spectrogram {
             return Self::empty(sound.start_time(), time_step, 0.0, max_frequency, freq_step);
         }
         let nsamp_window = (halfnsamp_window * 2) as usize;
-
-        // Compute number of time frames
-        let number_of_times = 1 + ((physical_duration - physical_analysis_width) / time_step).floor() as usize;
-        let t1 = sound.start_time() + 0.5 * dx
-            + 0.5 * ((nx as f64 - 1.0) * dx - (number_of_times as f64 - 1.0) * time_step);
 
         // Compute FFT size and frequency sampling
         let mut number_of_freqs = (max_frequency / freq_step).floor() as usize;
@@ -136,6 +127,21 @@ impl Spectrogram {
 
         // First frequency (center of first bin)
         let first_freq = 0.5 * (freq_step - bin_width_hertz);
+
+        // A sound shorter than the window yields no frames, but the frequency
+        // grid (which does not depend on the duration) is still reported.
+        if physical_analysis_width > physical_duration {
+            let mut empty = Self::empty(sound.start_time(), time_step, 0.0, max_frequency, freq_step);
+            empty.data = vec![Vec::new(); number_of_freqs];
+            empty.num_freq_bins = number_of_freqs;
+            empty.first_freq = first_freq;
+            return empty;
+        }
+
+        // Compute number of time frames
+        let number_of_times = 1 + ((physical_duration - physical_analysis_width) / time_step).floor() as usize;
+        let t1 = sound.start_time() + 0.5 * dx
+            + 0.5 * ((nx as f64 - 1.0) * dx - (number_of_times as f64 - 1.0) * time_step);
 
         // Generate window
         let samples = sound.samples();

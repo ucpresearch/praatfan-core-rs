@@ -9,17 +9,17 @@ use std::fs::File;
 #[cfg(feature = "file-io")]
 use std::path::Path;
 
-#[cfg(feature = "file-io")]
+#[cfg(feature = "decode")]
 use symphonia::core::audio::SampleBuffer;
-#[cfg(feature = "file-io")]
+#[cfg(feature = "decode")]
 use symphonia::core::codecs::DecoderOptions;
-#[cfg(feature = "file-io")]
+#[cfg(feature = "decode")]
 use symphonia::core::formats::FormatOptions;
-#[cfg(feature = "file-io")]
+#[cfg(feature = "decode")]
 use symphonia::core::io::MediaSourceStream;
-#[cfg(feature = "file-io")]
+#[cfg(feature = "decode")]
 use symphonia::core::meta::MetadataOptions;
-#[cfg(feature = "file-io")]
+#[cfg(feature = "decode")]
 use symphonia::core::probe::Hint;
 
 use crate::window::WindowShape;
@@ -336,7 +336,12 @@ impl Sound {
         if let Some(ext) = path.extension() {
             hint.with_extension(&ext.to_string_lossy());
         }
+        Self::symphonia_channels(mss, hint)
+    }
 
+    /// Decode per-channel Sounds from any symphonia media stream (file or memory).
+    #[cfg(feature = "decode")]
+    fn symphonia_channels(mss: MediaSourceStream, hint: Hint) -> Result<Vec<Self>> {
         let format_opts = FormatOptions::default();
         let metadata_opts = MetadataOptions::default();
         let probed = symphonia::default::get_probe()
@@ -420,6 +425,39 @@ impl Sound {
         Ok(sounds)
     }
 
+    /// Decode an in-memory audio file, keeping channels separate.
+    ///
+    /// Same decoder chain as [`Sound::from_file_channels`] (symphonia, then
+    /// hound for WAV, then desphere for NIST SPHERE), without touching the
+    /// filesystem. `extension` (e.g. `"flac"`) is only a format hint.
+    #[cfg(feature = "decode")]
+    pub fn from_bytes_channels(bytes: &[u8], extension: Option<&str>) -> Result<Vec<Self>> {
+        let make_hint = || {
+            let mut hint = Hint::new();
+            if let Some(ext) = extension {
+                hint.with_extension(ext);
+            }
+            hint
+        };
+        let cursor = std::io::Cursor::new(bytes.to_vec());
+        let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+        let symphonia_err = match Self::symphonia_channels(mss, make_hint()) {
+            Ok(sounds) => return Ok(sounds),
+            Err(e) => e,
+        };
+        if let Ok(reader) = hound::WavReader::new(std::io::Cursor::new(bytes)) {
+            if let Ok(sounds) = Self::from_wav_reader_channels(reader) {
+                return Ok(sounds);
+            }
+        }
+        if let Ok(wav) = desphere::transcode(bytes) {
+            if let Ok(reader) = hound::WavReader::new(std::io::Cursor::new(wav)) {
+                return Self::from_wav_reader_channels(reader);
+            }
+        }
+        Err(symphonia_err)
+    }
+
     /// Load channels separately from WAV using hound
     #[cfg(feature = "file-io")]
     fn from_file_wav_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
@@ -427,7 +465,7 @@ impl Sound {
     }
 
     /// Load per-channel Sounds from any hound WAV reader (file or in-memory bytes).
-    #[cfg(feature = "file-io")]
+    #[cfg(feature = "decode")]
     fn from_wav_reader_channels<R: std::io::Read>(reader: hound::WavReader<R>) -> Result<Vec<Self>> {
         let spec = reader.spec();
         let sample_rate = spec.sample_rate as f64;

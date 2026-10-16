@@ -25,6 +25,10 @@
 //! Unknown analysis types and unknown parameter keys are hard errors — a
 //! typo'd knob must not silently run with defaults.
 //!
+//! The same request text can also be run against in-memory audio
+//! ([`handle_request_bytes`], [`handle_request_samples`]); the WASM bundle
+//! exposes those. Responses may carry `"warnings": [...]`, omitted when empty.
+//!
 //! The wire protocol matches `praatfan-open-pipe` (praatfan-core-clean); the
 //! one semantic divergence is `pitch_cc`, which here runs the FCC_ACCURATE
 //! cross-correlation method (this crate's only CC pitch method).
@@ -34,6 +38,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::pitch::{Pitch, PitchMethod};
+use crate::spectrogram::Spectrogram;
 use crate::sound::Sound;
 use crate::spectrum::Spectrum;
 use crate::window::WindowShape;
@@ -46,7 +51,11 @@ const MAX_CANDIDATES: usize = 15;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PipeRequest {
-    pub wav_path: String,
+    /// Audio file to analyse. Required by [`handle_request`]; an optional
+    /// format hint for [`handle_request_bytes`]; refused by
+    /// [`handle_request_samples`].
+    #[serde(default)]
+    pub wav_path: Option<String>,
     /// Channel to read from a multi-channel file (0-based). Omit for mono.
     #[serde(default)]
     pub channel: Option<usize>,
@@ -141,6 +150,29 @@ struct BandEnergyParams {
     f_max: f64,
 }
 
+/// Defaults are Praat's "Sound: To Spectrogram" defaults.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SpectrogramParams {
+    #[serde(default = "d_0_005")]
+    window_length: f64,
+    #[serde(default = "d_5000")]
+    max_frequency: f64,
+    #[serde(default = "d_0_002")]
+    time_step: f64,
+    #[serde(default = "d_20")]
+    frequency_step: f64,
+    #[serde(default = "d_gaussian")]
+    window_shape: String,
+    #[serde(default = "d_f64le")]
+    dtype: String,
+    /// Restrict the returned frames (not the grid) to this time range.
+    #[serde(default)]
+    start_time: Option<f64>,
+    #[serde(default)]
+    end_time: Option<f64>,
+}
+
 fn d_75() -> f64 { 75.0 }
 fn d_100() -> f64 { 100.0 }
 fn d_600() -> f64 { 600.0 }
@@ -156,6 +188,12 @@ fn d_0_01_step() -> f64 { 0.01 }
 fn d_0_1() -> f64 { 0.1 }
 fn d_2() -> f64 { 2.0 }
 fn d_5usize() -> usize { 5 }
+fn d_0_005() -> f64 { 0.005 }
+fn d_5000() -> f64 { 5000.0 }
+fn d_0_002() -> f64 { 0.002 }
+fn d_20() -> f64 { 20.0 }
+fn d_gaussian() -> String { "gaussian".to_string() }
+fn d_f64le() -> String { "f64le".to_string() }
 
 // ── Response ─────────────────────────────────────────────────────────
 
@@ -171,6 +209,9 @@ pub struct PipeResponse {
     pub sample_rate: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub results: Option<Vec<serde_json::Value>>,
+    /// Messages that would otherwise only reach stderr; omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -201,6 +242,23 @@ struct ContourResult {
 }
 
 #[derive(Serialize)]
+struct SpectrogramResult {
+    r#type: &'static str,
+    n_times: usize,
+    n_freqs: usize,
+    /// Steps actually used (Praat may raise the requested ones).
+    time_step: f64,
+    frequency_step: f64,
+    times: Vec<f64>,
+    freqs: Vec<f64>,
+    layout: &'static str,
+    dtype: &'static str,
+    /// Base64 of `n_times * n_freqs` little-endian values, element
+    /// `t * n_freqs + f`; linear power (Pa²/Hz).
+    power_b64: String,
+}
+
+#[derive(Serialize)]
 struct SpectralMomentsResult {
     r#type: &'static str,
     times: Vec<f64>,
@@ -212,8 +270,76 @@ struct SpectralMomentsResult {
 
 // ── Handler ──────────────────────────────────────────────────────────
 
+/// Run a request against the file named by its `wav_path`.
+#[cfg(feature = "file-io")]
 pub fn handle_request(input: &str) -> String {
-    let outcome = std::panic::catch_unwind(|| handle_inner(input));
+    respond(input, |req| {
+        let path = req
+            .wav_path
+            .as_deref()
+            .ok_or_else(|| "request must have a string 'wav_path'".to_string())?;
+        let channels = Sound::from_file_channels(path)
+            .map_err(|e| format!("failed to load {}: {}", path, e))?;
+        select_channel(channels, req.channel, path)
+    })
+}
+
+/// Run a request against an in-memory audio file. `wav_path`, if given, is
+/// used only as a format hint (its extension) and in error messages.
+pub fn handle_request_bytes(bytes: &[u8], input: &str) -> String {
+    respond(input, |req| {
+        let name = req.wav_path.as_deref().unwrap_or("<bytes>");
+        let ext = req
+            .wav_path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).extension())
+            .and_then(|e| e.to_str());
+        let channels = Sound::from_bytes_channels(bytes, ext)
+            .map_err(|e| format!("failed to decode {}: {}", name, e))?;
+        select_channel(channels, req.channel, name)
+    })
+}
+
+/// Run a request against mono samples. `wav_path` and `channel` are refused.
+pub fn handle_request_samples(samples: &[f64], sample_rate: f64, input: &str) -> String {
+    respond(input, |req| {
+        if req.wav_path.is_some() {
+            return Err("'wav_path' is not accepted with in-memory samples".to_string());
+        }
+        if req.channel.is_some() {
+            return Err("'channel' is not accepted with in-memory samples".to_string());
+        }
+        if !(sample_rate.is_finite() && sample_rate > 0.0) {
+            return Err(format!("sample_rate must be > 0, got {}", sample_rate));
+        }
+        Ok(Sound::from_samples(samples, sample_rate))
+    })
+}
+
+/// Mirror praatfan-open-pipe: an omitted `channel` on a multi-channel file
+/// is an error (not a silent mixdown), so callers can swap the two pipe
+/// binaries without a behavior change.
+fn select_channel(channels: Vec<Sound>, channel: Option<usize>, name: &str) -> Result<Sound, String> {
+    let n = channels.len();
+    match channel {
+        Some(ch) => channels.into_iter().nth(ch).ok_or_else(|| {
+            format!("channel {} out of range: {} has {} channel(s)", ch, name, n)
+        }),
+        None => {
+            if n != 1 {
+                return Err(format!(
+                    "{} has {} channels; specify 'channel' (0-based) to select one",
+                    name, n
+                ));
+            }
+            Ok(channels.into_iter().next().unwrap())
+        }
+    }
+}
+
+fn respond(input: &str, load: impl FnOnce(&PipeRequest) -> Result<Sound, String>) -> String {
+    let outcome =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle_inner(input, load)));
     let result = match outcome {
         Ok(r) => r,
         Err(panic) => {
@@ -235,6 +361,7 @@ pub fn handle_request(input: &str) -> String {
                 duration: None,
                 sample_rate: None,
                 results: None,
+                warnings: Vec::new(),
             };
             serde_json::to_string(&resp)
                 .unwrap_or_else(|_| r#"{"ok":false,"error":"serialization failed"}"#.to_string())
@@ -242,34 +369,15 @@ pub fn handle_request(input: &str) -> String {
     }
 }
 
-fn handle_inner(input: &str) -> Result<String, String> {
+fn handle_inner(
+    input: &str,
+    load: impl FnOnce(&PipeRequest) -> Result<Sound, String>,
+) -> Result<String, String> {
     let req: PipeRequest =
         serde_json::from_str(input).map_err(|e| format!("invalid JSON request: {}", e))?;
+    let sound = load(&req)?;
 
-    // Mirror praatfan-open-pipe: an omitted `channel` on a multi-channel
-    // file is an error (not a silent mixdown), so callers can swap the two
-    // pipe binaries without a behavior change.
-    let channels = Sound::from_file_channels(&req.wav_path)
-        .map_err(|e| format!("failed to load {}: {}", req.wav_path, e))?;
-    let n = channels.len();
-    let sound = match req.channel {
-        Some(ch) => channels.into_iter().nth(ch).ok_or_else(|| {
-            format!(
-                "channel {} out of range: {} has {} channel(s)",
-                ch, req.wav_path, n
-            )
-        })?,
-        None => {
-            if n != 1 {
-                return Err(format!(
-                    "{} has {} channels; specify 'channel' (0-based) to select one",
-                    req.wav_path, n
-                ));
-            }
-            channels.into_iter().next().unwrap()
-        }
-    };
-
+    let warnings = Vec::new();
     let mut results = Vec::with_capacity(req.analyses.len());
     for (i, spec) in req.analyses.iter().enumerate() {
         results.push(run_analysis(&sound, spec, i)?);
@@ -282,6 +390,7 @@ fn handle_inner(input: &str) -> Result<String, String> {
         duration: Some(sound.duration()),
         sample_rate: Some(sound.sample_rate()),
         results: Some(results),
+        warnings,
     };
     serde_json::to_string(&resp).map_err(|e| format!("serialization failed: {}", e))
 }
@@ -314,9 +423,10 @@ fn run_analysis(
         "harmonicity_cc" => harmonicity_analysis(sound, params, false),
         "spectral_moments" => spectral_moments_analysis(sound, params),
         "band_energy" => band_energy_analysis(sound, params),
+        "spectrogram" => spectrogram_analysis(sound, params),
         other => Err(format!(
             "unknown type {:?} (expected pitch_ac, pitch_cc, formant_burg, intensity, \
-             harmonicity_ac, harmonicity_cc, spectral_moments, band_energy)",
+             harmonicity_ac, harmonicity_cc, spectral_moments, band_energy, spectrogram)",
             other
         )),
     };
@@ -528,9 +638,115 @@ fn band_energy_analysis(
     })
 }
 
+fn spectrogram_analysis(
+    sound: &Sound,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let p: SpectrogramParams = parse(params)?;
+    for (name, v) in [
+        ("window_length", p.window_length),
+        ("time_step", p.time_step),
+        ("frequency_step", p.frequency_step),
+    ] {
+        if !(v.is_finite() && v > 0.0) {
+            return Err(format!("requires {} > 0, got {}", name, v));
+        }
+    }
+    if !p.max_frequency.is_finite() {
+        return Err(format!("max_frequency must be finite, got {}", p.max_frequency));
+    }
+    let shape = match p.window_shape.as_str() {
+        "gaussian" => WindowShape::Gaussian,
+        "hanning" => WindowShape::Hanning,
+        other => {
+            return Err(format!(
+                "unknown window_shape {:?} (expected gaussian, hanning)",
+                other
+            ))
+        }
+    };
+    let (dtype, f32_out) = match p.dtype.as_str() {
+        "f64le" => ("f64le", false),
+        "f32le" => ("f32le", true),
+        other => return Err(format!("unknown dtype {:?} (expected f64le, f32le)", other)),
+    };
+    for (name, v) in [("start_time", p.start_time), ("end_time", p.end_time)] {
+        if matches!(v, Some(t) if !t.is_finite()) {
+            return Err(format!("{} must be finite", name));
+        }
+    }
+    if let (Some(a), Some(b)) = (p.start_time, p.end_time) {
+        if a > b {
+            return Err(format!("requires start_time <= end_time, got {} > {}", a, b));
+        }
+    }
+
+    // Praat's max_frequency <= 0 or above Nyquist means Nyquist; the
+    // Spectrogram constructor clamps both.
+    let spec = Spectrogram::from_sound(
+        sound,
+        p.window_length,
+        p.max_frequency,
+        p.time_step,
+        p.frequency_step,
+        shape,
+    );
+    let n_freqs = spec.num_freq_bins();
+    let freqs: Vec<f64> = (0..n_freqs).map(|f| spec.get_frequency_from_bin(f)).collect();
+    let frames: Vec<usize> = (0..spec.num_frames())
+        .filter(|&i| {
+            let t = spec.get_time_from_frame(i);
+            p.start_time.map_or(true, |a| t >= a) && p.end_time.map_or(true, |b| t <= b)
+        })
+        .collect();
+    let times: Vec<f64> = frames.iter().map(|&i| spec.get_time_from_frame(i)).collect();
+
+    let data = spec.values();
+    let width = if f32_out { 4 } else { 8 };
+    let mut bytes = Vec::with_capacity(frames.len() * n_freqs * width);
+    for &t in &frames {
+        for row in data.iter().take(n_freqs) {
+            if f32_out {
+                bytes.extend_from_slice(&(row[t] as f32).to_le_bytes());
+            } else {
+                bytes.extend_from_slice(&row[t].to_le_bytes());
+            }
+        }
+    }
+
+    to_value(&SpectrogramResult {
+        r#type: "spectrogram",
+        n_times: times.len(),
+        n_freqs,
+        time_step: spec.time_step(),
+        frequency_step: spec.freq_step(),
+        times,
+        freqs,
+        layout: "time-major",
+        dtype,
+        power_b64: base64_encode(&bytes),
+    })
+}
+
+/// Standard-alphabet, padded base64 with no line breaks.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        out.push(ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, feature = "file-io"))]
 mod tests {
     use super::*;
 
@@ -684,5 +900,151 @@ mod tests {
         let resp = request(r#"[{"type": "spectral_moments", "times": [0.0, 0.001]}]"#);
         assert_eq!(resp["ok"], true, "{}", resp);
         assert_eq!(arr_len(&resp["results"][0], "center_of_gravity"), 2);
+    }
+
+    fn b64_decode(s: &str) -> Vec<u8> {
+        let val = |c: u8| match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => panic!("bad base64 byte {}", c),
+        } as u32;
+        let mut out = Vec::new();
+        for q in s.as_bytes().chunks(4) {
+            let pad = q.iter().filter(|&&c| c == b'=').count();
+            let n = q.iter().take(4 - pad).enumerate()
+                .fold(0u32, |n, (i, &c)| n | val(c) << (18 - 6 * i));
+            out.extend_from_slice(&n.to_be_bytes()[1..4 - pad]);
+        }
+        out
+    }
+
+    fn f64s(result: &serde_json::Value) -> Vec<f64> {
+        b64_decode(result["power_b64"].as_str().unwrap())
+            .chunks(8)
+            .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn base64_matches_known_vectors() {
+        for (raw, enc) in [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foobar", "Zm9vYmFy")] {
+            assert_eq!(base64_encode(raw.as_bytes()), enc);
+            assert_eq!(b64_decode(enc), raw.as_bytes());
+        }
+    }
+
+    #[test]
+    fn spectrogram_matches_library_time_major() {
+        let resp = request(r#"[{"type": "spectrogram"}]"#);
+        assert_eq!(resp["ok"], true, "{}", resp);
+        assert!(resp.get("warnings").is_none(), "warnings omitted when empty");
+        let r = &resp["results"][0];
+        assert_eq!(r["layout"], "time-major");
+        assert_eq!(r["dtype"], "f64le");
+        let (nt, nf) = (r["n_times"].as_u64().unwrap() as usize, r["n_freqs"].as_u64().unwrap() as usize);
+        assert_eq!(arr_len(r, "times"), nt);
+        assert_eq!(arr_len(r, "freqs"), nf);
+
+        let sound = Sound::from_file(FIXTURE).unwrap();
+        let spec = sound.to_spectrogram(0.002, 5000.0, 0.005, 20.0, WindowShape::Gaussian);
+        assert_eq!((nt, nf), (spec.num_frames(), spec.num_freq_bins()));
+        assert_eq!(r["time_step"].as_f64().unwrap(), spec.time_step());
+        assert_eq!(r["frequency_step"].as_f64().unwrap(), spec.freq_step());
+        let power = f64s(r);
+        assert_eq!(power.len(), nt * nf);
+        for t in [0, nt / 2, nt - 1] {
+            for f in [0, nf / 3, nf - 1] {
+                assert_eq!(power[t * nf + f].to_bits(), spec.values()[f][t].to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn spectrogram_time_range_and_f32() {
+        let full = request(r#"[{"type": "spectrogram"}]"#);
+        let full = &full["results"][0];
+        let part = request(r#"[{"type": "spectrogram", "start_time": 0.5, "end_time": 0.6, "dtype": "f32le"}]"#);
+        assert_eq!(part["ok"], true, "{}", part);
+        let part = &part["results"][0];
+        assert_eq!(part["dtype"], "f32le");
+        let nf = full["n_freqs"].as_u64().unwrap() as usize;
+        let full_times: Vec<f64> = full["times"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        let first = full_times.iter().position(|&t| t >= 0.5).unwrap();
+        let expected: Vec<f64> = full_times.iter().copied().filter(|&t| (0.5..=0.6).contains(&t)).collect();
+        let got: Vec<f64> = part["times"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        assert_eq!(got, expected, "times are the full grid's frames");
+        let fullp = f64s(full);
+        let partp: Vec<f32> = b64_decode(part["power_b64"].as_str().unwrap())
+            .chunks(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        assert_eq!(partp.len(), got.len() * nf);
+        for (i, &v) in partp.iter().enumerate() {
+            assert_eq!(v, fullp[first * nf + i] as f32);
+        }
+    }
+
+    #[test]
+    fn spectrogram_too_short_is_empty_with_freqs() {
+        let input = r#"{"analyses": [{"type": "spectrogram", "window_length": 0.025}]}"#;
+        let resp: serde_json::Value =
+            serde_json::from_str(&handle_request_samples(&[0.0; 100], 16000.0, input)).unwrap();
+        assert_eq!(resp["ok"], true, "{}", resp);
+        let r = &resp["results"][0];
+        assert_eq!(r["n_times"], 0);
+        assert_eq!(arr_len(r, "times"), 0);
+        assert_eq!(r["power_b64"], "");
+        assert!(r["n_freqs"].as_u64().unwrap() > 0);
+        assert_eq!(arr_len(r, "freqs"), r["n_freqs"].as_u64().unwrap() as usize);
+    }
+
+    #[test]
+    fn spectrogram_param_errors() {
+        for (bad, needle) in [
+            (r#"{"window_shape": "hamming"}"#, "window_shape"),
+            (r#"{"dtype": "f16"}"#, "dtype"),
+            (r#"{"frequency_stp": 20}"#, "frequency_stp"),
+            (r#"{"time_step": 0}"#, "time_step"),
+            (r#"{"start_time": 1.0, "end_time": 0.5}"#, "start_time"),
+        ] {
+            let analysis = format!(r#"[{{"type": "spectrogram", {}}}]"#, &bad[1..bad.len() - 1]);
+            let resp = request(&analysis);
+            assert_eq!(resp["ok"], false, "{} should fail", bad);
+            assert!(resp["error"].as_str().unwrap().contains(needle), "{}", resp["error"]);
+        }
+        // Hanning, explicit nulls and an above-Nyquist ceiling are accepted.
+        let resp = request(r#"[{"type": "spectrogram", "window_shape": "hanning", "start_time": null, "max_frequency": 1e9}]"#);
+        assert_eq!(resp["ok"], true, "{}", resp);
+    }
+
+    #[test]
+    fn in_memory_transports_match_file() {
+        let analyses = r#"[{"type": "intensity"}, {"type": "spectrogram", "dtype": "f32le"}]"#;
+        let from_file = handle_request(&format!(r#"{{"wav_path": {:?}, "analyses": {}}}"#, FIXTURE, analyses));
+        let bytes = std::fs::read(FIXTURE).unwrap();
+        let from_bytes = handle_request_bytes(&bytes, &format!(r#"{{"analyses": {}}}"#, analyses));
+        assert_eq!(from_bytes, from_file);
+        let hinted = handle_request_bytes(&bytes, &format!(r#"{{"wav_path": "x.wav", "analyses": {}}}"#, analyses));
+        assert_eq!(hinted, from_file);
+
+        let sound = Sound::from_file(FIXTURE).unwrap();
+        let from_samples = handle_request_samples(
+            sound.samples(), sound.sample_rate(), &format!(r#"{{"analyses": {}}}"#, analyses));
+        assert_eq!(from_samples, from_file);
+
+        for bad in [r#"{"wav_path": "a.wav", "analyses": []}"#, r#"{"channel": 0, "analyses": []}"#] {
+            let resp: serde_json::Value =
+                serde_json::from_str(&handle_request_samples(&[0.0; 10], 16000.0, bad)).unwrap();
+            assert_eq!(resp["ok"], false);
+        }
+        let resp: serde_json::Value =
+            serde_json::from_str(&handle_request_samples(&[0.0; 10], 0.0, r#"{"analyses": []}"#)).unwrap();
+        assert_eq!(resp["ok"], false);
+        let resp: serde_json::Value =
+            serde_json::from_str(&handle_request_bytes(b"not audio", r#"{"analyses": []}"#)).unwrap();
+        assert_eq!(resp["ok"], false);
     }
 }

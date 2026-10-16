@@ -116,6 +116,17 @@ curl -L -O https://github.com/ucpresearch/praatfan-core-rs/releases/latest/downl
 
 Extract, and copy the `pkg/` directory to your web project.
 
+### WASM for embedded V8 (R, mini-racer)
+
+`praatfan-gpl-wasm-v8.zip` is a `--target no-modules` build of the JSON pipe
+(`version()`, `pipe_request_bytes(bytes, json)`, `pipe_request_samples(samples,
+sample_rate, json)`, each returning the same JSON as `praatfan-gpl-pipe`) for
+hosts with a bare V8 and no ES modules. The host evaluates a shim supplying
+`TextEncoder`/`TextDecoder` (praatfan-core-clean's `rust/wasm-v8/shim.js`),
+then `praatfan_gpl.js`, then `wasm_bindgen.initSync({module: wasmBytes})`.
+Every release also carries a `SHA256SUMS` file covering all assets. Build
+locally with `wasm/v8/build.sh`.
+
 ### WASM (from CDN)
 
 The WASM module is also available via GitHub Pages:

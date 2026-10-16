@@ -11,14 +11,19 @@ categories = ["multimedia::audio", "science"]
 [features]
 default = ["file-io"]
 # File I/O support - disable for WASM builds
-file-io = ["dep:hound", "dep:symphonia", "dep:desphere"]
+# In-memory audio decoding (WAV/FLAC/MP3/OGG/SPHERE); no filesystem access,
+# so it also builds for wasm32.
+decode = ["dep:hound", "dep:symphonia", "dep:desphere"]
+file-io = ["decode"]
 # Multi-threaded frame computation (bit-identical to serial). Ignored on
 # wasm32, which always runs the serial fallback. Thread count honours
 # RAYON_NUM_THREADS.
 parallel = ["dep:rayon"]
 # JSON stdin → JSON stdout interface for R / shell / other languages.
 # Build with: cargo build --release --features pipe --bin praatfan-gpl-pipe
-pipe = ["dep:serde", "dep:serde_json", "file-io", "parallel"]
+# Pipe request handling without the filesystem (for the WASM bundle).
+pipe-core = ["dep:serde", "dep:serde_json", "decode"]
+pipe = ["pipe-core", "file-io", "parallel"]
 
 [dependencies]
 ndarray = "0.15"

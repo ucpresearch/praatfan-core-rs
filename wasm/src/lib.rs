@@ -18,6 +18,28 @@ pub fn main() {
     console_error_panic_hook::set_once();
 }
 
+/// Crate version string.
+#[cfg(feature = "pipe")]
+#[wasm_bindgen]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Run a pipe request (same JSON as `praatfan-gpl-pipe`) against in-memory
+/// file bytes. `wav_path` is optional and only a format hint.
+#[cfg(feature = "pipe")]
+#[wasm_bindgen]
+pub fn pipe_request_bytes(file_bytes: &[u8], json: &str) -> String {
+    praatfan_core::pipe::handle_request_bytes(file_bytes, json)
+}
+
+/// Run a pipe request against mono samples; `wav_path` and `channel` are refused.
+#[cfg(feature = "pipe")]
+#[wasm_bindgen]
+pub fn pipe_request_samples(samples: &[f64], sample_rate: f64, json: &str) -> String {
+    praatfan_core::pipe::handle_request_samples(samples, sample_rate, json)
+}
+
 /// Sound type for audio data - WASM wrapper
 #[wasm_bindgen]
 pub struct Sound {
