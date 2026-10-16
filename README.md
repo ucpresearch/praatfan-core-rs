@@ -124,7 +124,9 @@ sample_rate, json)`, each returning the same JSON as `praatfan-gpl-pipe`) for
 hosts with a bare V8 and no ES modules. The host evaluates a shim supplying
 `TextEncoder`/`TextDecoder` (praatfan-core-clean's `rust/wasm-v8/shim.js`),
 then `praatfan_gpl.js`, then `wasm_bindgen.initSync({module: wasmBytes})`.
-Every release also carries a `SHA256SUMS` file covering all assets. Build
+Requires V8 9.6 or newer (Node 17+); on older hosts use the native
+`praatfan-gpl-pipe` binary. Every release also carries a `SHA256SUMS` file
+covering all assets. Build
 locally with `wasm/v8/build.sh`.
 
 ### WASM (from CDN)

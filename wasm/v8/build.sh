@@ -7,7 +7,8 @@
 # wasm-bindgen `--target no-modules` (global `wasm_bindgen`, loaded with
 # `wasm_bindgen.initSync({module: bytes})`), built without default features so
 # nothing touches `console`, with only the `pipe` exports added. Default wasm32
-# target features: no simd128 / relaxed SIMD (older system V8s reject them).
+# target features; relaxed SIMD is rejected (older V8s, e.g. Node 18, refuse
+# it). Requires V8 >= 9.6.
 # The host supplies TextEncoder/TextDecoder via praatfan-core-clean's shim.js.
 #
 # If a native praatfan-gpl-pipe is given, the smoke test also checks that the
@@ -43,10 +44,22 @@ for f in "$OUT/praatfan_gpl_bg.wasm" "$OUT/praatfan_gpl.js"; do
 done
 
 if command -v wasm-objdump >/dev/null; then
-  if wasm-objdump -d "$OUT/praatfan_gpl_bg.wasm" | grep -q -E '\b(v128|[if](8|16|32|64)x[0-9]+)\.'; then
-    echo "error: the .wasm uses SIMD instructions" >&2
+  # Dump to a file first: `objdump | grep -q` under pipefail fails silently
+  # (grep exits on the first match, objdump dies of SIGPIPE).
+  DIS="$(mktemp)"
+  wasm-objdump -d "$OUT/praatfan_gpl_bg.wasm" > "$DIS"
+  NSIMD="$(grep -c -E '\b(v128|[if](8|16|32|64)x[0-9]+)\.' "$DIS" || true)"
+  NRELAXED="$(grep -c 'relaxed' "$DIS" || true)"
+  rm -f "$DIS"
+  if [[ "$NRELAXED" != 0 ]]; then
+    echo "error: the .wasm uses $NRELAXED relaxed-SIMD instructions" >&2
     exit 1
   fi
+  # Plain SIMD128 is accepted: faer's pulp/gemm compile SIMD128 paths in but
+  # leave them switched off at runtime on this target, and the module already
+  # needs V8 >= 9.6 (reference types, multi-value, bulk memory), above
+  # SIMD128's 9.1. Native praatfan-gpl-pipe is the route for older hosts.
+  echo "SIMD128 instructions present (runtime-disabled): $NSIMD; relaxed SIMD: 0"
 else
   echo "warning: wasm-objdump not found; SIMD check skipped" >&2
 fi
