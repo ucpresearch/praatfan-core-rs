@@ -243,7 +243,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: cargo install wasm-pack --version 0.14.0 --locked
       - name: Build WASM (web target)
         run: cd wasm && wasm-pack build --target web
       - name: Smoke-test WASM (load module, run analyses)
@@ -288,7 +288,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Install wasm-pack and wabt
         run: |
-          cargo install wasm-pack
+          cargo install wasm-pack --version 0.14.0 --locked
           sudo apt-get update && sudo apt-get install -y wabt
       - name: Build native pipe (reference for the smoke test)
         run: cargo build --release --features pipe --bin praatfan-gpl-pipe
