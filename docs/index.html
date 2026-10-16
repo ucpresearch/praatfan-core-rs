@@ -259,9 +259,40 @@
             return v.toFixed(decimals);
         }
 
+        // The file's own sample rate, read from a WAV or FLAC header (null if
+        // unknown). Decoding must happen at this rate: decodeAudioData
+        // resamples to its context's rate (the device's, often 48 kHz), and
+        // the browser's resampler is not Praat's.
+        function headerSampleRate(arrayBuffer) {
+            const v = new DataView(arrayBuffer);
+            const tag = (o) => String.fromCharCode(...new Uint8Array(arrayBuffer, o, 4));
+            try {
+                if (tag(0) === 'RIFF' && tag(8) === 'WAVE') {
+                    for (let off = 12; off + 8 <= v.byteLength; ) {
+                        const size = v.getUint32(off + 4, true);
+                        if (tag(off) === 'fmt ') return v.getUint32(off + 12, true);
+                        off += 8 + size + (size & 1);
+                    }
+                } else if (tag(0) === 'fLaC') {
+                    // STREAMINFO is always the first metadata block; its
+                    // sample rate is the 20 bits after min/max block and frame sizes.
+                    return (v.getUint8(18) << 12) | (v.getUint8(19) << 4) | (v.getUint8(20) >> 4);
+                }
+            } catch (e) {
+                // Truncated or malformed header: fall back below.
+            }
+            return null;
+        }
+
         // Decode audio file to samples
         async function decodeAudio(arrayBuffer) {
-            const audioContext = new AudioContext();
+            const rate = headerSampleRate(arrayBuffer);
+            let audioContext;
+            try {
+                audioContext = rate ? new OfflineAudioContext(1, 1, rate) : new AudioContext();
+            } catch (e) {
+                audioContext = new AudioContext(); // rate outside what the browser supports
+            }
             const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
             // Get mono samples as Float64Array
