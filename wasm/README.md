@@ -26,6 +26,15 @@ If loading the module fails with `CompileError: ... Invalid prefixed opcode
 263`, your local `wasm/Cargo.lock` has `pulp` 0.22.2, which emits relaxed-SIMD
 instructions. Run `cargo update -p pulp` in `wasm/` and rebuild.
 
+## Embedded-V8 bundle (R, mini-racer)
+
+Releases also carry `praatfan-gpl-wasm-v8.zip`. It is a `--target
+no-modules` build containing only the JSON pipe (`version()`,
+`pipe_request_bytes(bytes, json)`, `pipe_request_samples(samples,
+sample_rate, json)`), for hosts with a bare V8 and no ES modules. Build it
+with `wasm/v8/build.sh`. The main README covers loading and the V8 ≥ 9.6
+requirement.
+
 ## Usage in JavaScript
 
 ### In a Web Application

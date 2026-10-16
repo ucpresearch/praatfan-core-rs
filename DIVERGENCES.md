@@ -13,7 +13,7 @@ chosen *different* behaviour from Praat. Those clean-room choices are often
 defensible on the merits — but adopting them here would break our contract, so
 they are documented rather than applied.
 
-Last reviewed: 2026-08-26, against praatfan-core-clean at 0.1.10.
+Last reviewed: 2026-10-16 (§7 added); §1–6 against praatfan-core-clean at 0.1.10.
 
 ---
 
@@ -27,6 +27,7 @@ Last reviewed: 2026-08-26, against praatfan-core-clean at 0.1.10.
 | 4 | AC `periods_per_window < 3` | command layer refuses; C function does not | accepted silently | `FutureWarning`, error later | **No** — documented instead |
 | 5 | `Harmonicity: Get value at time` across a marker | interpolates the marker in | holds the defined neighbour | returns the nearest frame | **No** — but see §5, we already diverge |
 | 6 | HNR bandwidth on wideband (48 kHz) input | effectively band-limited | same as Praat | broadband | **No** |
+| 7 | Pipe `spectrogram`: too-short sound, `max_frequency <= 0` | errors | empty result / Nyquist (pipe only) | same as ours (shared spec) | **Yes** — interface choice, values unaffected |
 
 ---
 
@@ -240,6 +241,32 @@ pitch floor/ceiling this analysis implies.
 We take no position on *how* Praat's implementation comes to be band-limited;
 that question belongs to this repo's Praat-source-informed side and not to the
 clean-room record.
+
+---
+
+## 7. Pipe `spectrogram` edge cases
+
+The pipe's `spectrogram` analysis (0.1.12) follows a request/response spec
+shared with `praatfan-open-pipe`. That spec departs from Praat's
+`Sound: To Spectrogram` command in two edge cases. Both concern the
+interface, not the values:
+
+- **Sound shorter than the analysis window.** Praat refuses ("Your sound is
+  too short"). The pipe returns `ok: true` with `n_times: 0`, `times: []`,
+  `power_b64: ""`, and still reports `freqs`/`n_freqs`. The library's
+  `Spectrogram::from_sound` behaves the same way (zero frames, full frequency
+  grid).
+- **`max_frequency <= 0`.** Praat rejects it ("must be greater than 0"). The
+  pipe treats it as Nyquist. Above Nyquist, Praat and the pipe both clamp to
+  Nyquist.
+
+All other requests give Praat's grid exactly and Praat's values to ~1e-15
+relative (`scripts/compare_pipe_spectrogram.py`).
+
+**Not a shared value contract.** The clean engine's spectrogram is a plain
+STFT by design, so its grid and values differ from ours for the same request.
+Only the response shape is common. Anyone who needs Praat's exact
+spectrogram should use this engine.
 
 ---
 

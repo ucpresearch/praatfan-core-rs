@@ -34,6 +34,9 @@ not published to PyPI).
   - praatfan-core-clean's response-shape checker.
 - **`SHA256SUMS`** release asset covering every other asset.
 - `LICENSE` (GPL-3.0) at the repository root.
+- `DIVERGENCES.md` §7: the pipe spectrogram's two interface departures from
+  Praat (a too-short sound gives an empty result, `max_frequency <= 0` means
+  Nyquist).
 
 ### Changed
 

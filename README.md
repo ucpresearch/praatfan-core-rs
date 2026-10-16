@@ -155,8 +155,10 @@ chmod +x praatfan-gpl-pipe-linux-x86_64   # Linux/macOS only
 
 The wire protocol is identical to `praatfan-open-pipe` from the MIT-licensed
 [praatfan-core-clean](https://github.com/ucpresearch/praatfan-core-clean), so
-callers can swap the two binaries without changing their workflow (output
-values differ slightly — this crate is the Praat-bit-accurate engine).
+callers can swap the two binaries without changing their workflow. Output
+values differ slightly, because this crate is the Praat-bit-accurate engine.
+For `spectrogram`, only the response shape is shared. The clean engine is a
+plain STFT, so its grid and values differ by design.
 
 ### Build from Source
 
@@ -360,7 +362,13 @@ echo '{"wav_path":"audio.wav","analyses":[
 ```
 
 Analysis types: `pitch_ac`, `pitch_cc`, `formant_burg`, `intensity`,
-`harmonicity_ac`, `harmonicity_cc`, `spectral_moments`, `band_energy`.
+`harmonicity_ac`, `harmonicity_cc`, `spectral_moments`, `band_energy`,
+`spectrogram`. A `spectrogram` result returns its power matrix as base64
+(`power_b64`; `n_times × n_freqs` little-endian `f64le` or `f32le` values,
+time-major, linear Pa²/Hz) along with the `times` and `freqs` arrays. Use
+`f32le` and/or `start_time`/`end_time` for long files: the default settings
+produce about 1 MB/s of `f64` data. Responses may carry a `"warnings"`
+array, which is omitted when empty.
 Omitted parameters take Praat's command defaults; unknown types or parameter
 keys are hard errors. Multi-channel files require an explicit 0-based
 `"channel"` field. See `praatfan-gpl-pipe --help` for all parameters and
