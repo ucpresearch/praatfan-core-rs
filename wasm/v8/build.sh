@@ -11,6 +11,7 @@
 # it). Requires V8 >= 9.6.
 # The host supplies TextEncoder/TextDecoder via praatfan-core-clean's shim.js.
 #
+# Also runs praatfan-core-clean's response-shape checker (test-shape.mjs).
 # If a native praatfan-gpl-pipe is given, the smoke test also checks that the
 # bundle's output is byte-identical to it.
 set -euo pipefail
@@ -82,6 +83,11 @@ git -C "$ROOT" diff --quiet HEAD -- "$ROOT/src" "$CRATE/src" "$ROOT/Cargo.toml" 
 } > "$OUT/PROVENANCE.txt"
 
 node "$HERE/smoke.mjs" "$OUT" "$ROOT/tests/fixtures/one_two_three_four_five.wav" $NATIVE
+# Cross-engine shape contract (praatfan-core-clean's checker, vendored).
+node "$HERE/test-shape.mjs" "$HERE/test-shim.js" "$OUT/praatfan_gpl.js" "$OUT/praatfan_gpl_bg.wasm" \
+  "$ROOT/tests/fixtures/one_two_three_four_five.wav" > "$OUT.shape.log" \
+  || { cat "$OUT.shape.log" >&2; exit 1; }
+tail -1 "$OUT.shape.log"; rm -f "$OUT.shape.log"
 
 rm -f "$ROOT/praatfan-gpl-wasm-v8.zip"
 (cd "$OUT" && zip -q -X "$ROOT/praatfan-gpl-wasm-v8.zip" praatfan_gpl.js praatfan_gpl_bg.wasm LICENSE PROVENANCE.txt)

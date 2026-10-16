@@ -17,6 +17,8 @@ The project uses GitHub Actions (`.github/workflows/release.yml`) to build Pytho
 
 The `pipe` matrix job builds `praatfan-gpl-pipe` for all six OS/arch targets and attaches them to the release as `praatfan-gpl-pipe-<platform>[.exe]`. Build locally with `cargo build --release --features pipe --bin praatfan-gpl-pipe`.
 
+The `wasm-v8` job builds `praatfan-gpl-wasm-v8.zip` with `wasm/v8/build.sh`. That is the no-modules bundle for embedded V8 hosts such as R, with the pipe entry points only. The script fails on builder paths or relaxed-SIMD opcodes. It smoke-tests the bundle in a bare `node:vm` against the native pipe, then runs praatfan-core-clean's vendored response-shape checker (`wasm/v8/test-shape.mjs`, test-only like `test-shim.js`; refresh both from upstream rather than editing them). The final `checksums` job runs only on a published release, after every other job succeeds. It downloads all release assets and attaches one `SHA256SUMS` (`sha256sum` format, bare file names).
+
 **Linux ARM64 (aarch64):**
 Previously built manually on a Raspberry Pi 5; now built in CI. The manual build process below is kept as a fallback.
 
@@ -79,7 +81,7 @@ gh release upload vX.Y.Z dist/*.whl
 1. Update version in `Cargo.toml`, `python/Cargo.toml`, `python/pyproject.toml`, `wasm/Cargo.toml` (and the `V=` example in `README.md`); date the `CHANGELOG.md` entry
 2. Commit and push to main
 3. Create release: `gh release create vX.Y.Z --target main --title "vX.Y.Z" --notes "Release notes"`
-4. GitHub Actions builds and attaches the wheels for all platforms (including Linux ARM64), the `praatfan-gpl-pipe` binaries and the WASM zip (~4 min)
+4. GitHub Actions builds and attaches the wheels for all platforms (including Linux ARM64), the `praatfan-gpl-pipe` binaries, the WASM zips (`praatfan-gpl.zip`, `praatfan-gpl-wasm-v8.zip`) and finally `SHA256SUMS` (~5 min)
 5. Download the CI wheels (`gh release download vX.Y.Z -p '*.whl' -D dist/`) and upload them to PyPI with `twine upload dist/*` (use the CI `manylinux_2_17` wheels, not a local build)
 
 ---

@@ -3,6 +3,44 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
+## [0.1.12] - 2026-10-16
+
+Pipe and WASM additions for the R package. **No analysis output changes**
+for any existing entry point; the Python API is unchanged (this version is
+not published to PyPI).
+
+### Added
+
+- **Pipe `spectrogram` analysis**: Praat's "Sound: To Spectrogram"
+  defaults, `window_shape` `"gaussian"`/`"hanning"`, `dtype`
+  `"f64le"`/`"f32le"`, optional `start_time`/`end_time` (filter the returned
+  frames of the full-sound grid). The result carries `times`, `freqs`, the
+  steps actually used, and base64 power (time-major, linear Pa²/Hz). Matches
+  parselmouth to ~1e-15 relative with an identical grid.
+  `scripts/compare_pipe_spectrogram.py` checks it. The schema is shared with
+  `praatfan-open-pipe`; only the shape is shared, not values.
+- Pipe response `"warnings"` (omitted when empty).
+- In-memory pipe transports: `pipe::handle_request_bytes` and
+  `pipe::handle_request_samples`, plus `Sound::from_bytes_channels`. New Cargo
+  features: `decode` (decoders without filesystem access) and `pipe-core`
+  (the pipe without file I/O, builds for wasm32).
+- **`praatfan-gpl-wasm-v8.zip`** release asset: a `--target no-modules`
+  bundle exporting `version()`, `pipe_request_bytes`, and
+  `pipe_request_samples`, for embedded V8 hosts (R's V8 package,
+  mini-racer). Needs V8 ≥ 9.6. Built and checked by `wasm/v8/build.sh`:
+  - builder paths stripped;
+  - relaxed SIMD rejected;
+  - bare-`node:vm` smoke test against the native pipe;
+  - praatfan-core-clean's response-shape checker.
+- **`SHA256SUMS`** release asset covering every other asset.
+- `LICENSE` (GPL-3.0) at the repository root.
+
+### Changed
+
+- `Spectrogram::from_sound` on a sound shorter than the window still reports
+  the frequency grid, with zero frames. Previously it reported no bins.
+- CI pins `wasm-pack` 0.14.0 `--locked`; 0.15.0 fails to install.
+
 ## [0.1.11] - 2026-09-23
 
 Multi-threaded frame analysis.  **No analysis output changes**: every value

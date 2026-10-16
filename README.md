@@ -69,7 +69,7 @@ The wheels are `abi3` (built against the stable ABI), so one wheel per platform
 covers **Python 3.9 and newer** — pick by platform, not by interpreter version:
 
 ```bash
-V=0.1.11
+V=0.1.12
 BASE=https://github.com/ucpresearch/praatfan-core-rs/releases/download/v$V
 
 # Linux x86_64
