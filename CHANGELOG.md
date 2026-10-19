@@ -3,6 +3,13 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
+## [0.1.13] - Unreleased
+
+### Changed
+
+- `desphere` (NIST SPHERE fallback decoder) upgraded from v0.1.0 to v0.1.1
+  (decoder robustness fixes). Ordinary formats are unaffected.
+
 ## [0.1.12] - 2026-10-16
 
 Pipe and WASM additions for the R package. **No analysis output changes**
