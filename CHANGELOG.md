@@ -3,7 +3,10 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
-## [0.1.13] - Unreleased
+## [0.1.13] - 2026-10-19
+
+First PyPI release since 0.1.11 (0.1.12 was GitHub-only), so the PyPI wheels
+also pick up everything listed under 0.1.12.
 
 ### Changed
 
