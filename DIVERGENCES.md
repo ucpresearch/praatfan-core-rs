@@ -13,7 +13,8 @@ chosen *different* behaviour from Praat. Those clean-room choices are often
 defensible on the merits — but adopting them here would break our contract, so
 they are documented rather than applied.
 
-Last reviewed: 2026-10-16 (§7 added); §1–6 against praatfan-core-clean at 0.1.10.
+Last reviewed: 2026-11-01 (§1–2 and §4 re-measured after the 0.1.15 AC-HNR
+fix); 2026-10-16 (§7 added); §1–6 against praatfan-core-clean at 0.1.10.
 
 ---
 
@@ -68,13 +69,14 @@ correlations (`Sound_to_Pitch.cpp`: *"High values due to short windows are to
 be reflected around 1"*, `r → 1/r`, applied at all eight of our frame-strength
 sites). Hitting `+150` requires `r ∈ (1 - 1e-15, 1]`. On
 `tests/fixtures/one_two_three_four_five.wav`, AC method, `time_step=0.01`,
-`floor=75`, `silence_threshold=0.1`:
+`floor=75`, `silence_threshold=0.1` (measured with 0.1.15; before 0.1.15 our
+maxima at 1.0 and 3.0 differed, see §4):
 
 | `periods_per_window` | voiced frames | frames `>= 150` | max HNR (ours / parselmouth) |
 |---|---|---|---|
-| 1.0 | 78 | 0 | 33.71 / 39.99 dB |
-| 3.0 | 102 | 0 | 44.34 / 40.25 dB |
-| 4.5 | 104 | 0 | 29.53 / 29.55 dB |
+| 1.0 | 78 | 0 | 39.99 / 39.99 dB |
+| 3.0 | 102 | 0 | 40.25 / 40.25 dB |
+| 4.5 | 104 | 0 | 29.55 / 29.55 dB |
 
 Praat's own boundary constants were never reached. The divergence is therefore
 almost entirely theoretical for speech, and real only for synthetic material
@@ -138,23 +140,34 @@ substitutability that is the point of this package. Our Rust and Python APIs
 take `periods_per_window` as a **required** argument with no default, so we do
 not propagate parselmouth's questionable 1.0 either.
 
-**What callers should know.** Agreement with Praat degrades outside Praat's
-own legal range. A few high-`r` frames differ, and `10*log10(r/(1-r))`
-amplifies small differences in `r` there. The cause is **not** the FFT: since
-0.1.14 the AC autocorrelation uses the same FFTPACK real FFT as Praat's
-`NUMrealft`, and every number below is unchanged from the rustfft build. Where
-in the AC path the difference arises is not yet known. Same fixture and
-settings as above, voiced frames only:
+**What callers should know.** Since 0.1.15 we match parselmouth at every
+`periods_per_window`, including values Praat's command layer refuses. Same
+fixture and settings as above, voiced frames only:
 
-| `periods_per_window` | max abs diff vs parselmouth | Pearson r |
+| `periods_per_window` | max abs diff vs parselmouth, 0.1.15 | before 0.1.15 |
 |---|---|---|
-| 4.5 (Praat's default) | **0.014 dB** | 1.000000 |
-| 3.0 (Praat's minimum) | 5.11 dB | 0.996556 |
-| 1.0 (Praat refuses) | 11.05 dB | 0.988150 |
+| 4.5 (Praat's default) | **6e-11 dB** | 0.014 dB |
+| 3.0 (Praat's minimum) | **6e-9 dB** | 5.11 dB |
+| 1.0 (Praat refuses) | **1e-6 dB** | 11.05 dB |
 
-**Use 4.5 for the AC method.** At Praat's own default we are effectively
-exact; the degradation below it is real but is a property of the parameter,
-not of a bug on either side.
+Pearson r is 1.000000 at all three, and voicing agrees frame for frame. The
+16 kHz, 44.1 kHz, 48 kHz and stereo fixtures are also exact (max 0.0000 dB at
+3.0; they were off by up to 12.4 dB at 16 kHz).
+
+**The earlier gap was our bug, not the parameter.** Praat's second pass hands
+`NUM_interpolate_sinc` / `NUMimproveExtremum` only lags `-brent_ixmax ..
+brent_ixmax` of the correlation (`Sound_to_Pitch.cpp`: `r [offset + 1]`, size
+`2*brent_ixmax + 1`), and the interpolator clips its depth to that slice's
+edges. We passed the whole buffer (lags out to `nsamp_window`), so SINC700 used
+a deeper kernel. That moved `r` by about 1e-4, and near `r = 1`
+`10*log10(r/(1-r))` turned that into several dB. Only AC_GAUSS is affected
+(its `brent_ixmax` is a quarter of the window), and short windows most. Earlier
+versions of this file blamed the FFT; that was wrong (0.1.14 swapped the FFT
+for Praat's FFTPACK and nothing moved).
+
+**Still use 4.5 for the AC method**, for the estimate's sake rather than for
+parity: it is Praat's own default, and shorter windows give noisier HNR in
+Praat and here alike.
 
 ---
 

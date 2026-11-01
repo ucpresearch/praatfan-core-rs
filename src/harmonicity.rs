@@ -44,10 +44,10 @@ impl Harmonicity {
     ///   lives in Praat's command layer, not in `Sound_to_Harmonicity_ac()`,
     ///   which is why parselmouth -- calling the C function directly --
     ///   defaults this to 1.0 and accepts it. 1.0 is the correct default for
-    ///   the **cc** method, not this one. Measured agreement with parselmouth
-    ///   on `one_two_three_four_five.wav` (voiced frames): max abs diff
-    ///   0.014 dB at 4.5, 5.11 dB at 3.0, 11.05 dB at 1.0. See
-    ///   `DIVERGENCES.md` SS4.
+    ///   the **cc** method, not this one. Agreement with parselmouth does not
+    ///   depend on it: on `one_two_three_four_five.wav` (voiced frames) the
+    ///   max abs diff is 6e-11 dB at 4.5, 6e-9 dB at 3.0 and 1e-6 dB at 1.0
+    ///   (before 0.1.15: 0.014 / 5.11 / 11.05 dB). See `DIVERGENCES.md` SS4.
     pub fn from_sound_ac(
         sound: &Sound,
         time_step: f64,

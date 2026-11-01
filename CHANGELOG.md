@@ -3,6 +3,37 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
+## [0.1.15] - unreleased
+
+Bug-fix release: AC harmonicity now matches Praat exactly, and pitch and CC
+harmonicity lose their last residual error. The APIs are unchanged.
+
+### Fixed
+
+- **AC harmonicity (`To Harmonicity (ac)`) differed from Praat by up to
+  5–12 dB on a few frames**, at high HNR (`r` near 1) and short windows:
+  5.11 dB at `periods_per_window = 3` on the 22.05 kHz fixture, 12.4 dB on the
+  16 kHz one, 1.35 dB on stereo, 11.05 dB at `periods_per_window = 1`. Praat
+  refines each pitch candidate on lags `-brent_ixmax..=brent_ixmax` of the
+  correlation only, and its sinc interpolator clips its depth to that slice;
+  we passed the whole buffer, so the AC_GAUSS method's SINC700 used a deeper
+  kernel and moved `r` by ~1e-4. Now max |ΔHNR| vs parselmouth is 6e-11 dB at
+  4.5, 6e-9 dB at 3.0 and 1e-6 dB at 1.0, with identical voicing, and the
+  16 kHz/44.1 kHz/48 kHz/stereo fixtures are exact too. (The same applies to
+  the multichannel path and to the latent AC_HANNING case where a candidate
+  above `0.3/dx` is refined with SINC700.)
+- **Pitch and CC harmonicity used Praat 6.2's sinc window depth**
+  (`maxDepth + 0.5`) instead of 6.1.38's asymmetric depths, which is what
+  parselmouth 0.4.x ships. Pitch max error vs parselmouth 0.0018 -> 0.0000 Hz
+  (mono and stereo); CC HNR max 0.0019 -> 0.0000 dB.
+
+### Documentation
+
+- DIVERGENCES §4: the AC-HNR gap was this bug, not the parameter and not the
+  FFT; table re-measured. §1–2 table re-measured (maxima now identical to
+  parselmouth). DEVELOPMENT.md accuracy summary updated (CC HNR and stereo
+  pitch were also listed below their measured accuracy).
+
 ## [0.1.14] - 2026-11-01
 
 **Last-bit output changes** across most analyses, with parity against
@@ -39,7 +70,7 @@ unchanged.
 
 - DIVERGENCES §4: the AC-HNR differences at low `periods_per_window` are
   **not** caused by the FFT, as previously stated. They are unchanged with
-  FFTPACK, and their cause is still unknown.
+  FFTPACK, and their cause is still unknown. (Found and fixed in 0.1.15.)
 
 ## [0.1.13] - 2026-10-19
 

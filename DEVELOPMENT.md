@@ -678,7 +678,7 @@ autoHarmonicity Sound_to_Harmonicity_ac (Sound me, double dt, double minimumPitc
 | Method | Praat Command | Internal Pitch Method | Status |
 |--------|---------------|----------------------|--------|
 | AC | `To Harmonicity (ac)` | AC_GAUSS (method 1) | **100% accurate** |
-| CC | `To Harmonicity (cc)` | FCC_ACCURATE (method 3) | **95-100% accurate** |
+| CC | `To Harmonicity (cc)` | FCC_ACCURATE (method 3) | **100% accurate** |
 
 ### FCC (Forward Cross-Correlation) Implementation
 
@@ -710,7 +710,7 @@ r[i] = product / sqrt(sumx2 * sumy2);
 # AC method (100% accurate)
 python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav --method ac --verbose
 
-# CC method (95% accurate)
+# CC method (100% accurate)
 python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav --method cc --verbose
 ```
 
@@ -743,9 +743,24 @@ cargo build --release --example <module>_json  # Rust JSON output binary
 | Intensity | 100% | N/A | Kaiser-Bessel window |
 | Spectrum | 100% | N/A | dx scaling, factor of 2 |
 | Spectrogram | 100% | 100% | Power averaging for stereo |
-| Pitch | 100% | 99% | AC_HANNING, Viterbi path finding, AC summing for stereo |
-| Harmonicity (AC) | 100% | 100% | AC_GAUSS method, AC summing for stereo |
-| Harmonicity (CC) | 95% | 100% | FCC_ACCURATE (time-domain cross-correlation) |
+| Pitch | 100% | 100% | AC_HANNING, Viterbi path finding, AC summing for stereo; max 0.0000 Hz |
+| Harmonicity (AC) | 100% | 100% | AC_GAUSS method, AC summing for stereo; max 0.0000 dB at any `periods_per_window` (0.1.15) |
+| Harmonicity (CC) | 100% | 100% | FCC_ACCURATE (time-domain cross-correlation); max 0.0000 dB |
+
+Measured 2026-11-01 (0.1.15) against parselmouth 0.4.7 on the
+`one_two_three_four_five` fixtures (22.05/16/44.1/48 kHz mono, stereo WAV and
+FLAC). Two fixes got pitch and HNR there:
+
+1. **Sinc depth formula of Praat 6.1.38.** `sinc_interpolate` in `pitch.rs`
+   now uses 6.1.38's asymmetric `leftDepth = x - left + 1`,
+   `rightDepth = right - x + 1` (as `Sound::resample` already did), not Praat
+   6.2's `maxDepth + 0.5`. Pitch max error 0.0018 -> 0.0000 Hz, CC HNR
+   0.0019 -> 0.0000 dB.
+2. **Peak refinement on Praat's slice of `r`.** Praat refines each candidate
+   on lags `-brent_ixmax..=brent_ixmax` only, and the sinc depth is clipped to
+   that slice. Passing the full `r` buffer made SINC700 deeper for AC_GAUSS
+   (`brent_ixmax = nsamp_window / 4`), which near `r = 1` cost up to 12 dB of
+   AC HNR at `periods_per_window = 3`. See DIVERGENCES.md §4.
 
 ### Multi-Channel (Stereo) Handling
 
