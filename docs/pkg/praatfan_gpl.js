@@ -47,11 +47,20 @@ export class Formant {
      * @returns {number | undefined}
      */
     get_bandwidth_at_time(formant_number, time, unit, interpolation) {
-        const ptr0 = passStringToWasm0(unit, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(interpolation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.formant_get_bandwidth_at_time(this.__wbg_ptr, formant_number, time, ptr0, len0, ptr1, len1);
+        const val3 = +formant_number;
+        const val4 = +time;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(unit, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(interpolation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.formant_get_bandwidth_at_time(this.__wbg_ptr, val3, val4, ptr0, len0, ptr1, len1);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
@@ -80,11 +89,20 @@ export class Formant {
      * @returns {number | undefined}
      */
     get_value_at_time(formant_number, time, unit, interpolation) {
-        const ptr0 = passStringToWasm0(unit, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(interpolation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.formant_get_value_at_time(this.__wbg_ptr, formant_number, time, ptr0, len0, ptr1, len1);
+        const val3 = +formant_number;
+        const val4 = +time;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(unit, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(interpolation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.formant_get_value_at_time(this.__wbg_ptr, val3, val4, ptr0, len0, ptr1, len1);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
@@ -308,9 +326,10 @@ export class Harmonicity {
      * @returns {number | undefined}
      */
     get_value_at_time(time, interpolation) {
+        const val2 = +time;
         const ptr0 = passStringToWasm0(interpolation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.harmonicity_get_value_at_time(this.__wbg_ptr, time, ptr0, len0);
+        const ret = wasm.harmonicity_get_value_at_time(this.__wbg_ptr, val2, ptr0, len0);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
@@ -404,9 +423,10 @@ export class Intensity {
      * @returns {number | undefined}
      */
     get_value_at_time(time, interpolation) {
+        const val2 = +time;
         const ptr0 = passStringToWasm0(interpolation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.intensity_get_value_at_time(this.__wbg_ptr, time, ptr0, len0);
+        const ret = wasm.intensity_get_value_at_time(this.__wbg_ptr, val2, ptr0, len0);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
@@ -515,11 +535,19 @@ export class Pitch {
      * @returns {number | undefined}
      */
     get_value_at_time(time, unit, interpolation) {
-        const ptr0 = passStringToWasm0(unit, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(interpolation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.pitch_get_value_at_time(this.__wbg_ptr, time, ptr0, len0, ptr1, len1);
+        const val3 = +time;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(unit, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(interpolation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.pitch_get_value_at_time(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
@@ -912,9 +940,13 @@ export class Sound {
      * @returns {Spectrogram}
      */
     to_spectrogram(effective_analysis_width, max_frequency, time_step, frequency_step, window_shape) {
+        const val2 = +effective_analysis_width;
+        const val3 = +max_frequency;
+        const val4 = +time_step;
+        const val5 = +frequency_step;
         const ptr0 = passStringToWasm0(window_shape, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.sound_to_spectrogram(this.__wbg_ptr, effective_analysis_width, max_frequency, time_step, frequency_step, ptr0, len0);
+        const ret = wasm.sound_to_spectrogram(this.__wbg_ptr, val2, val3, val4, val5, ptr0, len0);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -1138,11 +1170,11 @@ export function main() {
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
-        __wbg_Error_30c8987f7c2ed4e2: function(arg0, arg1) {
+        __wbg_Error_208446807d0d1e30: function(arg0, arg1) {
             const ret = Error(getStringFromWasm0(arg0, arg1));
             return ret;
         },
-        __wbg___wbindgen_throw_41e9ee4f547fc59a: function(arg0, arg1) {
+        __wbg___wbindgen_throw_4c88d8bf264fd984: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
         __wbg_error_757e9472f8410341: function(arg0, arg1) {
@@ -1160,55 +1192,54 @@ function __wbg_get_imports() {
             const ret = Formant.__wrap(arg0);
             return ret;
         },
-        __wbg_length_0acba72356589f9c: function(arg0) {
+        __wbg_length_03a2b32a9178fe11: function(arg0) {
             const ret = arg0.length;
             return ret;
         },
-        __wbg_length_b5f0008bbf60cf59: function(arg0) {
+        __wbg_length_5a8bb8abe1e54e15: function(arg0) {
             const ret = arg0.length;
             return ret;
         },
-        __wbg_new_227d7c05414eb861: function() {
-            const ret = new Error();
-            return ret;
-        },
-        __wbg_new_ee2291f50781bf1d: function() {
+        __wbg_new_37eb45aaf5eeb820: function() {
             const ret = new Array();
             return ret;
         },
-        __wbg_new_from_slice_37a3c3a194266cb8: function(arg0, arg1) {
+        __wbg_new_bb74001155cb8ca8: function() {
+            const ret = new Error();
+            return ret;
+        },
+        __wbg_new_from_slice_3512352010266e02: function(arg0, arg1) {
             const ret = new Uint32Array(getArrayU32FromWasm0(arg0, arg1));
             return ret;
         },
-        __wbg_new_from_slice_f545fd22ddc142b8: function(arg0, arg1) {
+        __wbg_new_from_slice_aaf85a9746711968: function(arg0, arg1) {
             const ret = new Float64Array(getArrayF64FromWasm0(arg0, arg1));
             return ret;
         },
-        __wbg_prototypesetcall_13adbfb002dee200: function(arg0, arg1, arg2) {
+        __wbg_prototypesetcall_153eecd0d28a42a5: function(arg0, arg1, arg2) {
             Int32Array.prototype.set.call(getArrayI32FromWasm0(arg0, arg1), arg2);
         },
-        __wbg_prototypesetcall_d49a4fab5ca427bc: function(arg0, arg1, arg2) {
+        __wbg_prototypesetcall_a366c038a3918afa: function(arg0, arg1, arg2) {
             Float64Array.prototype.set.call(getArrayF64FromWasm0(arg0, arg1), arg2);
         },
-        __wbg_push_2baf45db356cf468: function(arg0, arg1) {
+        __wbg_push_c9f4893fc209f768: function(arg0, arg1) {
             const ret = arg0.push(arg1);
             return ret;
         },
-        __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
+        __wbg_stack_575c4e0918581b9c: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
-            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
-            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+            getDataViewMemory0().setInt32((arg0 >>> 0) + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32((arg0 >>> 0) + 4 * 0, ptr1, true);
         },
         __wbindgen_init_externref_table: function() {
             const table = wasm.__wbindgen_externrefs;
-            const offset = table.grow(4);
             table.set(0, undefined);
-            table.set(offset + 0, undefined);
-            table.set(offset + 1, null);
-            table.set(offset + 2, true);
-            table.set(offset + 3, false);
+            table.set(1024, undefined);
+            table.set(1025, null);
+            table.set(1026, true);
+            table.set(1027, false);
         },
     };
     return {
@@ -1282,7 +1313,8 @@ function getInt32ArrayMemory0() {
 }
 
 function getStringFromWasm0(ptr, len) {
-    return decodeText(ptr >>> 0, len);
+    ptr = ptr >>> 0;
+    return decodeText(getUint8ArrayMemory0().subarray(ptr, ptr + len));
 }
 
 let cachedUint32ArrayMemory0 = null;
@@ -1344,18 +1376,18 @@ function takeFromExternrefTable0(idx) {
     return value;
 }
 
-let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
 cachedTextDecoder.decode();
 const MAX_SAFARI_DECODE_BYTES = 2146435072;
 let numBytesDecoded = 0;
-function decodeText(ptr, len) {
-    numBytesDecoded += len;
+function decodeText(bytes) {
+    numBytesDecoded += bytes.length;
     if (numBytesDecoded >= MAX_SAFARI_DECODE_BYTES) {
-        cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+        cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
         cachedTextDecoder.decode();
-        numBytesDecoded = len;
+        numBytesDecoded = bytes.length;
     }
-    return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+    return cachedTextDecoder.decode(bytes);
 }
 
 const cachedTextEncoder = new TextEncoder();
@@ -1446,9 +1478,17 @@ function initSync(module) {
     return __wbg_finalize_init(instance, module);
 }
 
+let __wbg_init_promise;
 async function __wbg_init(module_or_path) {
     if (wasm !== undefined) return wasm;
+    if (__wbg_init_promise === undefined) {
+        __wbg_init_promise = __wbg_init_once(module_or_path);
+        __wbg_init_promise.catch(() => { __wbg_init_promise = undefined; });
+    }
+    return __wbg_init_promise;
+}
 
+async function __wbg_init_once(module_or_path) {
 
     if (module_or_path !== undefined) {
         if (Object.getPrototypeOf(module_or_path) === Object.prototype) {
