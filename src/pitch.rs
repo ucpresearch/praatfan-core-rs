@@ -1352,7 +1352,11 @@ fn compute_pitch_frame(
                 let frequency_of_maximum = 1.0 / dx / (i as f64 + dr / d2r);
 
                 // Sinc interpolation for strength
-                let strength_of_maximum = sinc_interpolate(&r, r_offset, 1.0 / dx / frequency_of_maximum, 30);
+                // Praat passes only lags -brent_ixmax..=brent_ixmax (Sound_to_Pitch.cpp
+                // r[offset+1], size 2*brent_ixmax+1), and NUM_interpolate_sinc clips its
+                // depth to that slice's edges. Passing all of `r` let SINC700 reach
+                // further (AC_GAUSS: brent_ixmax = nsamp_window/4) and moved r by ~1e-4.
+                let strength_of_maximum = sinc_interpolate(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, 1.0 / dx / frequency_of_maximum, 30);
                 let strength_of_maximum = if strength_of_maximum > 1.0 {
                     1.0 / strength_of_maximum
                 } else {
@@ -1402,7 +1406,7 @@ fn compute_pitch_frame(
             // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
             let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
             let (refined_lag, refined_strength) =
-                improve_maximum(&r, r_offset, imax[i] as f64, brent_ixmax, depth);
+                improve_maximum(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, imax[i] as f64, brent_ixmax, depth);
             if refined_lag > 0.0 {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
@@ -1559,7 +1563,11 @@ fn compute_pitch_frame_multichannel(
 
             if d2r > 0.0 {
                 let frequency_of_maximum = 1.0 / dx / (i as f64 + dr / d2r);
-                let strength_of_maximum = sinc_interpolate(&r, r_offset, 1.0 / dx / frequency_of_maximum, 30);
+                // Praat passes only lags -brent_ixmax..=brent_ixmax (Sound_to_Pitch.cpp
+                // r[offset+1], size 2*brent_ixmax+1), and NUM_interpolate_sinc clips its
+                // depth to that slice's edges. Passing all of `r` let SINC700 reach
+                // further (AC_GAUSS: brent_ixmax = nsamp_window/4) and moved r by ~1e-4.
+                let strength_of_maximum = sinc_interpolate(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, 1.0 / dx / frequency_of_maximum, 30);
                 let strength_of_maximum = if strength_of_maximum > 1.0 {
                     1.0 / strength_of_maximum
                 } else {
@@ -1605,7 +1613,7 @@ fn compute_pitch_frame_multichannel(
         if candidates[i].frequency > 0.0 {
             // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
             let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
-            let (refined_lag, refined_strength) = improve_maximum(&r, r_offset, imax[i] as f64, brent_ixmax, depth);
+            let (refined_lag, refined_strength) = improve_maximum(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, imax[i] as f64, brent_ixmax, depth);
             if refined_lag > 0.0 {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
