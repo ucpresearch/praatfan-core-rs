@@ -74,10 +74,10 @@ V=0.1.14
 BASE=https://github.com/ucpresearch/praatfan-core-rs/releases/download/v$V
 
 # Linux x86_64
-pip install $BASE/praatfan_gpl-$V-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+pip install $BASE/praatfan_gpl-$V-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
 
 # Linux ARM64 (e.g. Raspberry Pi 5)
-pip install $BASE/praatfan_gpl-$V-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+pip install $BASE/praatfan_gpl-$V-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
 
 # macOS Apple Silicon (M1/M2/M3)
 pip install $BASE/praatfan_gpl-$V-cp39-abi3-macosx_11_0_arm64.whl
