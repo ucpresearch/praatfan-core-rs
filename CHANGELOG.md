@@ -3,7 +3,7 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
-## [0.1.14] - unreleased
+## [0.1.14] - 2026-11-01
 
 **Last-bit output changes** across most analyses, with parity against
 parselmouth unchanged (formants F1–F3 159/159 within 0.0 Hz, pitch 104/104
