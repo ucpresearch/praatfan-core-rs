@@ -813,6 +813,59 @@ python python/tests/test_fork_safety.py                            # needs the b
 Use a long file (several minutes) as well as the fixtures: chunk and job
 boundaries only appear with many frames.
 
+## Host-Independent Maths (libm)
+
+std's `f64::exp`/`ln`/`powf`/`sin`/`cos`/`atan2`/`hypot`… call the platform C
+libm. glibc chooses a code path at load time from the CPU (FMA/AVX2 ifuncs),
+and those paths don't always round identically, so before 0.1.14 the same
+binary gave different last bits on different machines. On 0.1.13, forcing
+the non-FMA path changed ~60% of formant values and some pitch values.
+
+Rules:
+
+1. **Transcendentals go through the `libm` crate** (pure-Rust musl port,
+   MIT/Apache): `libm::exp(x)`, `libm::log(x)` (= `f64::ln`),
+   `libm::pow(x, y)` (= `powf`), `libm::atan2(y, x)`, …
+   `num_complex::Complex::norm`/`arg`/`exp`/`ln`/`from_polar` call std
+   internally: write `libm::hypot(z.re, z.im)` etc. `sqrt` (IEEE-exact) and
+   `powi` (multiplication) are fine.
+2. **`clippy.toml` enforces it** with `disallowed-methods`. Check with
+   `cargo clippy --release --features pipe,parallel --lib`. (`--all-targets`
+   currently stops early on pre-existing deny-level lints; add
+   `-- -A clippy::approx_constant` to get further. `examples/` debug scripts
+   still use std and are not checked.)
+3. **FFTs whose bits matter use the vendored FFTPACK** (`src/utils/fft_fftpack/`,
+   libm twiddles): the resampling low-pass and the AC pitch/HNR circular
+   autocorrelation. rustfft computes its twiddles with the host `sincos`. It
+   drifted AC pitch on 44.1k/16k input, but measured, it does not drift for
+   CC pitch, spectrum or spectrogram. The FFTPACK copy carries two fixes to the
+   c2rust translation's general-radix code (`dradfg_l102` loop start,
+   `dradbg` twiddle recurrence); `test_all_lengths_against_direct_dft`
+   checks every length 1..=700.
+4. **Third-party crates are left stock** (rustfft, faer, nalgebra's SVD,
+   symphonia). rustfft's runtime SIMD choice (AVX/SSE/NEON, scalar on wasm32)
+   remains an accepted difference between CPU families. It is why WASM vs
+   native is ~1e-11 relative on spectrogram power, not bit-identical.
+
+**Verification:**
+
+```bash
+cargo build --release --example bitdump
+nm -D target/release/examples/bitdump | grep -E ' U (exp|log|pow|sin|cos|hypot|atan2)@'  # only third-party callers left
+for hw in none -FMA -AVX2 -AVX2,-FMA -AVX,-AVX2,-FMA; do
+  if [ $hw = none ]; then target/release/examples/bitdump audio.wav $hw.txt
+  else GLIBC_TUNABLES=glibc.cpu.hwcaps=$hw target/release/examples/bitdump audio.wav $hw.txt; fi
+done
+md5sum *.txt   # all identical
+```
+
+`glibc.cpu.hwcaps=-X` is the glibc 2.43 spelling; the older `*_Usable` names
+are silently ignored. Test several sample rates: on 0.1.13's rustfft AC path
+only the 44.1k and 16k fixtures drifted. As of 0.1.14 the output is
+byte-identical at 8, 11.025, 16, 22.05, 32, 44.1 and 48 kHz under all five
+settings. Cost of the FFTPACK AC path on a 623 s file: AC pitch +17–21%, AC
+HNR +7–9% (at 20 threads, +0.06 s and +0.16 s).
+
 ### WASM: stale `pulp` in a local `wasm/Cargo.lock`
 
 `wasm/Cargo.lock` is gitignored, so a local checkout can hold older

@@ -9,6 +9,7 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 - **Cross-platform**: Native Rust, Python bindings (PyO3), and WASM
 - **No GUI dependencies** - pure computational library
 - **Multi-threaded, bit-identical**: per-frame work (pitch, HNR, formants, FormantPath, intensity, spectrogram, resampling) is spread across CPU cores in the Python package and pipe CLI, with output bit-for-bit identical to a single-threaded run. WASM runs single-threaded.
+- **Host-independent results**: all transcendental maths (exp, log, pow, sin, cos, …) goes through the pure-Rust [`libm`](https://crates.io/crates/libm) crate instead of the platform C library, so a given build gives byte-identical output whatever CPU features glibc detects (FMA/AVX2) and on any glibc version.
 - **Broad audio format support**: WAV, FLAC, MP3, OGG, and NIST SPHERE (including shorten-compressed PCM/µ-law, which Praat itself cannot read)
 
 ### Supported Analysis Types
@@ -69,7 +70,7 @@ The wheels are `abi3` (built against the stable ABI), so one wheel per platform
 covers **Python 3.9 and newer** — pick by platform, not by interpreter version:
 
 ```bash
-V=0.1.12
+V=0.1.14
 BASE=https://github.com/ucpresearch/praatfan-core-rs/releases/download/v$V
 
 # Linux x86_64

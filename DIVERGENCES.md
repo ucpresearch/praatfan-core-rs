@@ -139,10 +139,12 @@ take `periods_per_window` as a **required** argument with no default, so we do
 not propagate parselmouth's questionable 1.0 either.
 
 **What callers should know.** Agreement with Praat degrades outside Praat's
-own legal range, and the mechanism is the known AC FFT-precision limit
-(rustfft vs Praat's FFTPACK-derived `NUMrealft`, Δ`r` ≈ 1e-4, amplified by
-`10*log10(r/(1-r))` at high `r`). Same fixture and settings as above, voiced
-frames only:
+own legal range. A few high-`r` frames differ, and `10*log10(r/(1-r))`
+amplifies small differences in `r` there. The cause is **not** the FFT: since
+0.1.14 the AC autocorrelation uses the same FFTPACK real FFT as Praat's
+`NUMrealft`, and every number below is unchanged from the rustfft build. Where
+in the AC path the difference arises is not yet known. Same fixture and
+settings as above, voiced frames only:
 
 | `periods_per_window` | max abs diff vs parselmouth | Pearson r |
 |---|---|---|

@@ -3,6 +3,44 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
+## [0.1.14] - unreleased
+
+**Last-bit output changes** across most analyses, with parity against
+parselmouth unchanged (formants F1–F3 159/159 within 0.0 Hz, pitch 104/104
+within 0.0018 Hz, intensity/spectrum/spectrogram exact, AC/CC HNR as before,
+h95 FormantPath 1609/1609 rows unchanged). The Python and pipe APIs are
+unchanged.
+
+### Changed
+
+- **Host-independent output.** All transcendental maths goes through the
+  pure-Rust `libm` crate instead of the platform C library. Previously the
+  last bits depended on which code path glibc picked for the CPU (FMA/AVX2),
+  so the same wheel or binary could give slightly different numbers on
+  different machines. Output is now byte-identical across those paths at
+  every tested sample rate (8–48 kHz). A `clippy.toml` keeps std
+  transcendentals out of the library.
+- AC pitch and AC HNR compute their autocorrelation with the vendored
+  FFTPACK real FFT (as Praat does) instead of rustfft, whose twiddle tables
+  depend on the host libm. AC pitch is ~17–21% slower and AC HNR ~7–9%
+  slower (on a 10-minute file at 20 threads: +0.06 s and +0.16 s).
+- WASM and native results are now closer, about 1e-12 relative for pitch
+  (was ~1e-9). They are still not bit-identical (spectrogram power ~1e-11).
+
+### Fixed
+
+- Two general-radix bugs in the vendored FFTPACK (from the c2rust
+  translation): the forward transform panicked at lengths such as 9, 18 and
+  27, and the inverse was wrong for any length with an odd factor. Every
+  current caller uses power-of-two lengths, so no output was affected. A new
+  test checks every length from 1 to 700 against a direct DFT.
+
+### Documentation
+
+- DIVERGENCES §4: the AC-HNR differences at low `periods_per_window` are
+  **not** caused by the FFT, as previously stated. They are unchanged with
+  FFTPACK, and their cause is still unknown.
+
 ## [0.1.13] - 2026-10-19
 
 First PyPI release since 0.1.11 (0.1.12 was GitHub-only), so the PyPI wheels
