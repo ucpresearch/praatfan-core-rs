@@ -173,6 +173,58 @@ mod tests {
         }
     }
 
+    /// Every length 1..=700, not just powers of two: odd and prime factors
+    /// take the general-radix paths (dradfg/dradbg), which had two c2rust
+    /// translation bugs (forward panic at n = 9, 18, 27, ...; inverse wrong
+    /// for any odd factor).
+    #[test]
+    fn test_all_lengths_against_direct_dft() {
+        for n in 1..=700usize {
+            let x: Vec<f64> = (0..n)
+                .map(|i| libm::sin(0.37 * i as f64) + 0.5 * libm::cos(1.3 * i as f64 + 0.2))
+                .collect();
+            let mut data = x.clone();
+            let mut plan = RealFftPlan::new(n);
+            plan.forward(&mut data);
+
+            // Direct DFT in drftf1's packed layout [DC, Re1, Im1, ..., (Nyquist)].
+            let mut expected = vec![0.0; n];
+            for k in 0..=n / 2 {
+                let (mut re, mut im) = (0.0, 0.0);
+                for (j, &v) in x.iter().enumerate() {
+                    let a = -2.0 * std::f64::consts::PI * ((k * j) % n) as f64 / n as f64;
+                    re += v * libm::cos(a);
+                    im += v * libm::sin(a);
+                }
+                if k == 0 {
+                    expected[0] = re;
+                } else if 2 * k == n {
+                    expected[n - 1] = re;
+                } else {
+                    expected[2 * k - 1] = re;
+                    expected[2 * k] = im;
+                }
+            }
+            let scale = expected.iter().fold(1.0_f64, |m, v| m.max(v.abs()));
+            for i in 0..n {
+                assert!(
+                    (data[i] - expected[i]).abs() <= 1e-10 * scale,
+                    "forward n={} bin {}: got {}, expected {}",
+                    n, i, data[i], expected[i]
+                );
+            }
+
+            plan.backward(&mut data);
+            for i in 0..n {
+                assert!(
+                    (data[i] / n as f64 - x[i]).abs() <= 1e-10,
+                    "roundtrip n={} sample {}: got {}, expected {}",
+                    n, i, data[i] / n as f64, x[i]
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_dc_component() {
         let n = 16;

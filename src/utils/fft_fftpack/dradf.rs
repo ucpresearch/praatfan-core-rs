@@ -212,7 +212,8 @@ fn dradfg_l102(
             }
         }
     } else {
-        for _ in 0..ip {
+        // C: for (j = 1; j < ip; j++) — the c2rust port had 0..ip.
+        for _ in 1..ip {
             is += ido;
             let mut idij = is - 1;
             t1 += t0;

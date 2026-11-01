@@ -527,8 +527,10 @@ pub(crate) fn dradbg(
 
     dradbg_l102(ido, nbd, ipp2, ipph, l1, t0, t10, cc, ch);
 
-    let ar1: f64 = 1.0;
-    let ai1: f64 = 0.0;
+    // The twiddle recurrences carry across iterations (C: plain assignment);
+    // the c2rust port re-declared them with `let`, so they never advanced.
+    let mut ar1: f64 = 1.0;
+    let mut ai1: f64 = 0.0;
     let mut t1 = 0;
     let mut t2 = ipp2 * idl1;
     let t9 = t2;
@@ -538,8 +540,8 @@ pub(crate) fn dradbg(
         t1 += idl1;
         t2 -= idl1;
         let ar1h = dcp * ar1 - dsp * ai1;
-        let ai1 = dcp * ai1 + dsp * ar1;
-        let ar1 = ar1h;
+        ai1 = dcp * ai1 + dsp * ar1;
+        ar1 = ar1h;
         let mut t4 = t1;
         let mut t5 = t2;
         let mut t7 = idl1;
@@ -561,8 +563,8 @@ pub(crate) fn dradbg(
         }
         let dcc = ar1;
         let ds2 = ai1;
-        let ar2 = ar1;
-        let ai2 = ai1;
+        let mut ar2 = ar1;
+        let mut ai2 = ai1;
         let mut t6 = idl1;
         let mut t7 = t9 - idl1;
 
@@ -570,8 +572,8 @@ pub(crate) fn dradbg(
             t6 += idl1;
             t7 -= idl1;
             let ar2h = dcc * ar2 - ds2 * ai2;
-            let ai2 = dcc * ai2 + ds2 * ar2;
-            let ar2 = ar2h;
+            ai2 = dcc * ai2 + ds2 * ar2;
+            ar2 = ar2h;
             let mut t4 = t1;
             let mut t5 = t2;
             let mut t11 = t6;
