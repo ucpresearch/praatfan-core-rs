@@ -50,6 +50,9 @@ pub struct RealFftPlan {
     /// Full 3n buffer: [0..n] is `ch` scratch, [n..3n] is the `wa` twiddle factors
     /// populated by `fdrffti`. Matches speexdsp-rs's `DrftLookup::trigcache` layout.
     trigcache: Vec<f64>,
+    /// Copy of `trigcache[n..]` taken once, so the kernels can read twiddles
+    /// while `trigcache[..n]` serves as their `ch` scratch.
+    wa: Vec<f64>,
     splitcache: Vec<i32>,
 }
 
@@ -58,10 +61,16 @@ impl RealFftPlan {
         let mut plan = Self {
             n,
             trigcache: vec![0.0_f64; 3 * n.max(1)],
+            wa: Vec::new(),
             splitcache: vec![0_i32; 32],
         };
         smallft::fdrffti(n, &mut plan.trigcache, &mut plan.splitcache);
+        plan.wa = plan.trigcache[n.min(plan.trigcache.len())..].to_vec();
         plan
+    }
+
+    pub fn len(&self) -> usize {
+        self.n
     }
 
     /// Forward real FFT, in place, on `data` of length `n`. Output follows
@@ -74,14 +83,13 @@ impl RealFftPlan {
             return;
         }
         // `ch` must be a separate scratch of length ≥ n. drftf1 passes data
-        // around via both c and ch, so we clone the twiddle slice to avoid
-        // aliasing the scratch region.
-        let mut wa = self.trigcache[self.n..].to_vec();
+        // around via both c and ch, so the twiddles live in their own copy
+        // (`wa`) to avoid aliasing the scratch region.
         smallft::drftf1(
             self.n as i32,
             data,
             &mut self.trigcache,
-            &mut wa,
+            &mut self.wa,
             &mut self.splitcache,
         );
     }
@@ -93,12 +101,11 @@ impl RealFftPlan {
         if self.n <= 1 {
             return;
         }
-        let mut wa = self.trigcache[self.n..].to_vec();
         smallft::drftb1(
             self.n as i32,
             data,
             &mut self.trigcache,
-            &mut wa,
+            &mut self.wa,
             &mut self.splitcache,
         );
     }

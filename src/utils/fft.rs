@@ -6,6 +6,8 @@
 use num_complex::Complex;
 use rustfft::FftPlanner;
 
+use super::fft_fftpack::RealFftPlan;
+
 /// FFT direction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FftDirection {
@@ -18,6 +20,10 @@ pub struct Fft {
     planner: FftPlanner<f64>,
     /// Reused rustfft scratch (`process()` would allocate on every call).
     scratch: Vec<Complex<f64>>,
+    /// FFTPACK plan for the circular autocorrelations (one size per analysis).
+    real_plan: Option<RealFftPlan>,
+    real_buf: Vec<f64>,
+    power: Vec<f64>,
 }
 
 impl Fft {
@@ -26,6 +32,49 @@ impl Fft {
         Self {
             planner: FftPlanner::new(),
             scratch: Vec::new(),
+            real_plan: None,
+            real_buf: Vec::new(),
+            power: Vec::new(),
+        }
+    }
+
+    /// Circular autocorrelation via Praat's FFTPACK real FFT, summing power
+    /// spectra over `inputs` (zero-padded to `n`); writes `n` lags, scaled by
+    /// 1/n. Like Praat's Sound_to_Pitch, which squares the packed spectrum
+    /// and transforms back. FFTPACK twiddles come from libm, so unlike
+    /// rustfft's they do not depend on the host C libm.
+    fn fftpack_autocorrelation(&mut self, inputs: &[&[f64]], n: usize, output: &mut [f64]) {
+        if self.real_plan.as_ref().is_none_or(|p| p.len() != n) {
+            self.real_plan = Some(RealFftPlan::new(n));
+        }
+        let plan = self.real_plan.as_mut().unwrap();
+        self.real_buf.resize(n, 0.0);
+        self.power.clear();
+        self.power.resize(n, 0.0);
+        let buf = &mut self.real_buf[..];
+        let power = &mut self.power[..];
+
+        for input in inputs {
+            let m = input.len().min(n);
+            buf[..m].copy_from_slice(&input[..m]);
+            buf[m..].fill(0.0);
+            // Packed layout: [DC, Re1, Im1, ..., Nyquist (even n)].
+            plan.forward(buf);
+            power[0] += buf[0] * buf[0];
+            let mut i = 1;
+            while i + 1 < n {
+                power[i] += buf[i] * buf[i] + buf[i + 1] * buf[i + 1];
+                i += 2;
+            }
+            if n.is_multiple_of(2) && n > 1 {
+                power[n - 1] += buf[n - 1] * buf[n - 1];
+            }
+        }
+
+        plan.backward(power);
+        let scale = 1.0 / n as f64;
+        for i in 0..n {
+            output[i] = power[i] * scale;
         }
     }
 
@@ -161,50 +210,23 @@ impl Fft {
     /// Autocorrelation values for lags 0 to n-1
     pub fn autocorrelation_circular(&mut self, input: &[f64]) -> Vec<f64> {
         let n = input.len();
-        if n == 0 {
-            return Vec::new();
+        let mut out = vec![0.0; n];
+        if n > 0 {
+            self.fftpack_autocorrelation(&[input], n, &mut out);
         }
-
-        // Use the input size directly (no extra zero-padding)
-        let spectrum = self.real_fft(input, n);
-
-        // Compute power spectrum
-        let power: Vec<Complex<f64>> = spectrum.iter().map(|c| Complex::new(c.norm_sqr(), 0.0)).collect();
-
-        // Inverse FFT to get autocorrelation
-        let autocorr = self.inverse_fft(&power);
-
-        // Return all n values (real parts)
-        autocorr[..n].iter().map(|c| c.re).collect()
+        out
     }
 
     /// Compute circular autocorrelation from multiple channels, summing power spectra.
     ///
     /// Same as `autocorrelation_circular` but for multi-channel data.
     pub fn autocorrelation_circular_multichannel(&mut self, inputs: &[&[f64]]) -> Vec<f64> {
-        if inputs.is_empty() {
-            return Vec::new();
-        }
-
         let n = inputs.iter().map(|s| s.len()).max().unwrap_or(0);
-        if n == 0 {
-            return Vec::new();
+        let mut out = vec![0.0; n];
+        if n > 0 {
+            self.fftpack_autocorrelation(inputs, n, &mut out);
         }
-
-        // Sum power spectra from all channels (no extra zero-padding)
-        let mut total_power = vec![Complex::new(0.0, 0.0); n];
-
-        for input in inputs {
-            let spectrum = self.real_fft(input, n);
-            for (i, c) in spectrum.iter().enumerate() {
-                total_power[i] += Complex::new(c.norm_sqr(), 0.0);
-            }
-        }
-
-        // Inverse FFT to get autocorrelation
-        let autocorr = self.inverse_fft(&total_power);
-
-        autocorr[..n].iter().map(|c| c.re).collect()
+        out
     }
 
     /// Compute circular autocorrelation in-place using pre-allocated buffers.
@@ -221,33 +243,10 @@ impl Fft {
         buffer: &mut [Complex<f64>],
         output: &mut [f64],
     ) {
+        let _ = buffer;
         let n = input.len();
-        if n == 0 {
-            return;
-        }
-
-        // Fill buffer with real-valued input
-        for i in 0..n {
-            buffer[i] = Complex::new(input[i], 0.0);
-        }
-
-        // Forward FFT
-        let fft = self.planner.plan_fft_forward(n);
-        Self::run(&*fft, &mut buffer[..n], &mut self.scratch);
-
-        // Power spectrum in-place
-        for i in 0..n {
-            buffer[i] = Complex::new(buffer[i].norm_sqr(), 0.0);
-        }
-
-        // Inverse FFT
-        let ifft = self.planner.plan_fft_inverse(n);
-        Self::run(&*ifft, &mut buffer[..n], &mut self.scratch);
-
-        // Extract and normalize
-        let scale = 1.0 / n as f64;
-        for i in 0..n {
-            output[i] = buffer[i].re * scale;
+        if n > 0 {
+            self.fftpack_autocorrelation(&[input], n, output);
         }
     }
 
@@ -267,44 +266,10 @@ impl Fft {
         power_buffer: &mut [Complex<f64>],
         output: &mut [f64],
     ) {
+        let _ = (buffer, power_buffer);
         let n = inputs.iter().map(|s| s.len()).max().unwrap_or(0);
-        if n == 0 {
-            return;
-        }
-
-        // Clear power buffer
-        for p in power_buffer.iter_mut().take(n) {
-            *p = Complex::new(0.0, 0.0);
-        }
-
-        let fft = self.planner.plan_fft_forward(n);
-
-        for input in inputs {
-            // Fill buffer
-            for i in 0..n {
-                buffer[i] = if i < input.len() {
-                    Complex::new(input[i], 0.0)
-                } else {
-                    Complex::new(0.0, 0.0)
-                };
-            }
-
-            Self::run(&*fft, &mut buffer[..n], &mut self.scratch);
-
-            // Accumulate power spectrum
-            for i in 0..n {
-                power_buffer[i] += Complex::new(buffer[i].norm_sqr(), 0.0);
-            }
-        }
-
-        // Inverse FFT on accumulated power
-        let ifft = self.planner.plan_fft_inverse(n);
-        Self::run(&*ifft, &mut power_buffer[..n], &mut self.scratch);
-
-        // Extract and normalize
-        let scale = 1.0 / n as f64;
-        for i in 0..n {
-            output[i] = power_buffer[i].re * scale;
+        if n > 0 {
+            self.fftpack_autocorrelation(inputs, n, output);
         }
     }
 
