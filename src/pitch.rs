@@ -2233,12 +2233,10 @@ pub fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64
     let right = idx_midleft + max_depth;  // rightmost sample index
 
     let mut result = 0.0;
-    let depth_float = max_depth as f64 + 0.5;  // Praat uses maxDepth + 0.5
-
-    // Hoist common sin/cos step computation (shared by both halves)
-    let window_phase_step = PI / depth_float;
-    let sin_window_phase_step = libm::sin(window_phase_step);
-    let cos_window_phase_step = libm::cos(window_phase_step);
+    // Praat 6.1.38 (what parselmouth 0.4.x ships): asymmetric, boundary-aware
+    // depths, as in Sound::resample. (Praat >= 6.2 uses maxDepth + 0.5.)
+    let left_depth = x - (midright - max_depth) as f64 + 1.0;
+    let right_depth = (midleft + max_depth) as f64 - x + 1.0;
 
     // Left half: from midleft down to left
     // Note: left_phase can never be 0 in the loop because the early return at
@@ -2249,7 +2247,10 @@ pub fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64
         let mut left_phase = left_phase_initial;
         let mut half_sin_left_phase = 0.5 * libm::sin(left_phase_initial);
 
-        let window_phase_initial = left_phase_initial / depth_float;
+        let window_phase_step = PI / left_depth;
+        let sin_window_phase_step = libm::sin(window_phase_step);
+        let cos_window_phase_step = libm::cos(window_phase_step);
+        let window_phase_initial = left_phase_initial / left_depth;
         let mut sin_window_phase = libm::sin(window_phase_initial);
         let mut cos_window_phase = libm::cos(window_phase_initial);
 
@@ -2277,7 +2278,10 @@ pub fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64
         let mut right_phase = right_phase_initial;
         let mut half_sin_right_phase = 0.5 * libm::sin(right_phase_initial);
 
-        let window_phase_initial = right_phase_initial / depth_float;
+        let window_phase_step = PI / right_depth;
+        let sin_window_phase_step = libm::sin(window_phase_step);
+        let cos_window_phase_step = libm::cos(window_phase_step);
+        let window_phase_initial = right_phase_initial / right_depth;
         let mut sin_window_phase = libm::sin(window_phase_initial);
         let mut cos_window_phase = libm::cos(window_phase_initial);
 
