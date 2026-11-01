@@ -379,19 +379,19 @@ impl Pitch {
                 // Gaussian window (Praat's formula from Sound_to_Pitch.cpp line 407-411)
                 // exp(-48.0 * (i - imid)^2 / (nsamp_window + 1)^2) with edge subtraction
                 let imid = 0.5 * (nsamp_window + 1) as f64;
-                let edge = (-12.0_f64).exp();
+                let edge = libm::exp(-12.0_f64);
                 for i in 0..nsamp_window {
                     let i1 = (i + 1) as f64; // 1-based
                     let exponent = -48.0 * (i1 - imid).powi(2)
                         / ((nsamp_window + 1) as f64).powi(2);
-                    window[i] = (exponent.exp() - edge) / (1.0 - edge);
+                    window[i] = (libm::exp(exponent) - edge) / (1.0 - edge);
                 }
             }
             PitchMethod::AcHanning => {
                 // Hanning window (Praat's formula)
                 for i in 0..nsamp_window {
                     let i1 = i + 1; // 1-based
-                    window[i] = 0.5 - 0.5 * (2.0 * PI * i1 as f64 / (nsamp_window + 1) as f64).cos();
+                    window[i] = 0.5 - 0.5 * libm::cos(2.0 * PI * i1 as f64 / (nsamp_window + 1) as f64);
                 }
             }
             PitchMethod::FccAccurate => {
@@ -641,17 +641,17 @@ impl Pitch {
         match method {
             PitchMethod::AcGauss => {
                 let imid = 0.5 * (nsamp_window + 1) as f64;
-                let edge = (-12.0_f64).exp();
+                let edge = libm::exp(-12.0_f64);
                 for i in 0..nsamp_window {
                     let i1 = (i + 1) as f64;
                     let exponent = -48.0 * (i1 - imid).powi(2) / ((nsamp_window + 1) as f64).powi(2);
-                    window[i] = (exponent.exp() - edge) / (1.0 - edge);
+                    window[i] = (libm::exp(exponent) - edge) / (1.0 - edge);
                 }
             }
             PitchMethod::AcHanning => {
                 for i in 0..nsamp_window {
                     let i1 = i + 1;
-                    window[i] = 0.5 - 0.5 * (2.0 * PI * i1 as f64 / (nsamp_window + 1) as f64).cos();
+                    window[i] = 0.5 - 0.5 * libm::cos(2.0 * PI * i1 as f64 / (nsamp_window + 1) as f64);
                 }
             }
             PitchMethod::FccAccurate => unreachable!(),
@@ -1372,14 +1372,14 @@ fn compute_pitch_frame(
                     let mut weakest = 2.0;
                     for iweak in 1..candidates.len() {
                         let local_strength = candidates[iweak].strength
-                            - octave_cost * (pitch_floor / candidates[iweak].frequency).log2();
+                            - octave_cost * libm::log2(pitch_floor / candidates[iweak].frequency);
                         if local_strength < weakest {
                             weakest = local_strength;
                             place = iweak;
                         }
                     }
                     // Check if new candidate is stronger
-                    if strength_of_maximum - octave_cost * (pitch_floor / frequency_of_maximum).log2()
+                    if strength_of_maximum - octave_cost * libm::log2(pitch_floor / frequency_of_maximum)
                         <= weakest
                     {
                         place = 0;
@@ -1577,13 +1577,13 @@ fn compute_pitch_frame_multichannel(
                     let mut weakest = 2.0;
                     for iweak in 1..candidates.len() {
                         let local_strength = candidates[iweak].strength
-                            - octave_cost * (pitch_floor / candidates[iweak].frequency).log2();
+                            - octave_cost * libm::log2(pitch_floor / candidates[iweak].frequency);
                         if local_strength < weakest {
                             weakest = local_strength;
                             place = iweak;
                         }
                     }
-                    if strength_of_maximum - octave_cost * (pitch_floor / frequency_of_maximum).log2()
+                    if strength_of_maximum - octave_cost * libm::log2(pitch_floor / frequency_of_maximum)
                         <= weakest
                     {
                         place = 0;
@@ -1835,13 +1835,13 @@ fn compute_pitch_frame_fcc_multichannel(
                     let mut weakest = 2.0;
                     for iweak in 1..candidates.len() {
                         let local_strength = candidates[iweak].strength
-                            - octave_cost * (pitch_floor / candidates[iweak].frequency).log2();
+                            - octave_cost * libm::log2(pitch_floor / candidates[iweak].frequency);
                         if local_strength < weakest {
                             weakest = local_strength;
                             place = iweak;
                         }
                     }
-                    if strength_of_maximum - octave_cost * (pitch_floor / frequency_of_maximum).log2() <= weakest {
+                    if strength_of_maximum - octave_cost * libm::log2(pitch_floor / frequency_of_maximum) <= weakest {
                         place = 0;
                     }
                 }
@@ -2115,7 +2115,7 @@ fn compute_pitch_frame_fcc(
                     let mut weakest = 2.0;
                     for iweak in 1..candidates.len() {
                         let local_strength = candidates[iweak].strength
-                            - octave_cost * (pitch_floor / candidates[iweak].frequency).log2();
+                            - octave_cost * libm::log2(pitch_floor / candidates[iweak].frequency);
                         if local_strength < weakest {
                             weakest = local_strength;
                             place = iweak;
@@ -2123,7 +2123,7 @@ fn compute_pitch_frame_fcc(
                     }
                     // Check if new candidate is stronger
                     if strength_of_maximum
-                        - octave_cost * (pitch_floor / frequency_of_maximum).log2()
+                        - octave_cost * libm::log2(pitch_floor / frequency_of_maximum)
                         <= weakest
                     {
                         place = 0;
@@ -2237,8 +2237,8 @@ pub fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64
 
     // Hoist common sin/cos step computation (shared by both halves)
     let window_phase_step = PI / depth_float;
-    let sin_window_phase_step = window_phase_step.sin();
-    let cos_window_phase_step = window_phase_step.cos();
+    let sin_window_phase_step = libm::sin(window_phase_step);
+    let cos_window_phase_step = libm::cos(window_phase_step);
 
     // Left half: from midleft down to left
     // Note: left_phase can never be 0 in the loop because the early return at
@@ -2247,11 +2247,11 @@ pub fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64
     {
         let left_phase_initial = PI * (x - midleft as f64);
         let mut left_phase = left_phase_initial;
-        let mut half_sin_left_phase = 0.5 * left_phase_initial.sin();
+        let mut half_sin_left_phase = 0.5 * libm::sin(left_phase_initial);
 
         let window_phase_initial = left_phase_initial / depth_float;
-        let mut sin_window_phase = window_phase_initial.sin();
-        let mut cos_window_phase = window_phase_initial.cos();
+        let mut sin_window_phase = libm::sin(window_phase_initial);
+        let mut cos_window_phase = libm::cos(window_phase_initial);
 
         let mut ix = idx_midleft;
         while ix >= left {
@@ -2275,11 +2275,11 @@ pub fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64
     {
         let right_phase_initial = PI * (midright as f64 - x);
         let mut right_phase = right_phase_initial;
-        let mut half_sin_right_phase = 0.5 * right_phase_initial.sin();
+        let mut half_sin_right_phase = 0.5 * libm::sin(right_phase_initial);
 
         let window_phase_initial = right_phase_initial / depth_float;
-        let mut sin_window_phase = window_phase_initial.sin();
-        let mut cos_window_phase = window_phase_initial.cos();
+        let mut sin_window_phase = libm::sin(window_phase_initial);
+        let mut cos_window_phase = libm::cos(window_phase_initial);
 
         let mut ix = idx_midright;
         while ix <= right {
@@ -2522,7 +2522,7 @@ fn pitch_path_finder(
             delta[iframe][icand] = if voiceless {
                 unvoiced_strength
             } else {
-                cand.strength - octave_cost * (ceiling / cand.frequency).log2()
+                cand.strength - octave_cost * libm::log2(ceiling / cand.frequency)
             };
         }
     }
@@ -2553,7 +2553,7 @@ fn pitch_path_finder(
                     voiced_unvoiced_cost // unvoiced-to-voiced
                 } else {
                     // both voiced: octave jump cost
-                    octave_jump_cost * (f1 / f2).log2().abs()
+                    octave_jump_cost * libm::log2(f1 / f2).abs()
                 };
 
                 let value = delta[iframe - 1][icand1] - transition_cost + delta[iframe][icand2];

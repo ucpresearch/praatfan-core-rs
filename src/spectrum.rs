@@ -137,7 +137,7 @@ impl Spectrum {
     /// Get the phase at a frequency bin (in radians)
     pub fn get_phase(&self, bin: usize) -> Option<f64> {
         if bin < self.real.len() {
-            Some(self.imag[bin].atan2(self.real[bin]))
+            Some(libm::atan2(self.imag[bin], self.real[bin]))
         } else {
             None
         }
@@ -209,7 +209,7 @@ impl Spectrum {
     pub fn get_band_energy_db(&self, freq_min: f64, freq_max: f64) -> f64 {
         let energy = self.get_band_energy(freq_min, freq_max);
         if energy > 0.0 {
-            10.0 * energy.log10()
+            10.0 * libm::log10(energy)
         } else {
             f64::NEG_INFINITY
         }
@@ -231,7 +231,7 @@ impl Spectrum {
             let r = self.real[bin];
             let i = self.imag[bin];
             let magnitude = (r * r + i * i).sqrt();
-            let weight = magnitude.powf(power);
+            let weight = libm::pow(magnitude, power);
 
             weighted_sum += freq * weight;
             weight_sum += weight;
@@ -261,7 +261,7 @@ impl Spectrum {
             let r = self.real[bin];
             let i = self.imag[bin];
             let magnitude = (r * r + i * i).sqrt();
-            let weight = magnitude.powf(power);
+            let weight = libm::pow(magnitude, power);
 
             let deviation = freq - cog;
             weighted_var_sum += deviation * deviation * weight;
@@ -295,7 +295,7 @@ impl Spectrum {
             let r = self.real[bin];
             let i = self.imag[bin];
             let magnitude = (r * r + i * i).sqrt();
-            let weight = magnitude.powf(power);
+            let weight = libm::pow(magnitude, power);
 
             let z = (freq - cog) / std_dev;
             weighted_sum += z.powi(3) * weight;
@@ -329,7 +329,7 @@ impl Spectrum {
             let r = self.real[bin];
             let i = self.imag[bin];
             let magnitude = (r * r + i * i).sqrt();
-            let weight = magnitude.powf(power);
+            let weight = libm::pow(magnitude, power);
 
             let z = (freq - cog) / std_dev;
             weighted_sum += z.powi(4) * weight;

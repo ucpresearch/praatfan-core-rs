@@ -153,7 +153,7 @@ pub fn estimate_speech_reference(
         let mean_sq: f64 = f.iter().map(|&x| x * x).sum::<f64>() / frame as f64;
         let r = (mean_sq + EPS).sqrt();
         rms.push(r);
-        log_rms_db.push(20.0 * (r + EPS).log10());
+        log_rms_db.push(20.0 * libm::log10(r + EPS));
         frame_times.push((start as f64 + frame as f64 / 2.0) / sample_rate);
     }
 
@@ -287,7 +287,7 @@ mod tests {
         // percentile of per-frame peaks is ≈ amplitude.
         let sr = 16000.0;
         let samples: Vec<f64> = (0..16000 * 2)
-            .map(|i| 0.1 * (2.0 * std::f64::consts::PI * 120.0 * i as f64 / sr).sin())
+            .map(|i| 0.1 * libm::sin(2.0 * std::f64::consts::PI * 120.0 * i as f64 / sr))
             .collect();
         let r = estimate_speech_reference_default(&samples, sr);
         // per-frame peak of a 120 Hz tone over a 50 ms window ≈ amplitude
@@ -303,7 +303,7 @@ mod tests {
         let sr = 16000usize;
         let n = sr * 60;
         let speech: Vec<f64> = (0..n)
-            .map(|i| 0.02 * (2.0 * std::f64::consts::PI * 120.0 * i as f64 / sr as f64).sin())
+            .map(|i| 0.02 * libm::sin(2.0 * std::f64::consts::PI * 120.0 * i as f64 / sr as f64))
             .collect();
         let mut burst = speech.clone();
         for s in &mut burst[sr * 30..sr * 30 + sr / 2] {

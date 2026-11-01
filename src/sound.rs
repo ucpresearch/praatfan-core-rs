@@ -676,7 +676,7 @@ impl Sound {
             return self.clone();
         }
 
-        let alpha = (-2.0 * std::f64::consts::PI * from_frequency / self.sample_rate).exp();
+        let alpha = libm::exp(-2.0 * std::f64::consts::PI * from_frequency / self.sample_rate);
 
         let mut filtered = Vec::with_capacity(self.samples.len());
         filtered.push(self.samples[0]);
@@ -701,7 +701,7 @@ impl Sound {
             return self.clone();
         }
 
-        let alpha = (-2.0 * std::f64::consts::PI * from_frequency / self.sample_rate).exp();
+        let alpha = libm::exp(-2.0 * std::f64::consts::PI * from_frequency / self.sample_rate);
 
         let mut filtered = Vec::with_capacity(self.samples.len());
         filtered.push(self.samples[0]);
@@ -773,7 +773,7 @@ impl Sound {
         let omega = 2.0 * std::f64::consts::PI * frequency / sample_rate;
 
         let samples: Vec<f64> = (0..n_samples)
-            .map(|i| amplitude * (omega * i as f64 + phase).sin())
+            .map(|i| amplitude * libm::sin(omega * i as f64 + phase))
             .collect();
 
         Sound {
@@ -1036,15 +1036,15 @@ fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize) -> f64 {
     {
         let left_depth = x - left as f64 + 1.0;
         let window_phase_step = std::f64::consts::PI / left_depth;
-        let sin_window_phase_step = window_phase_step.sin();
-        let cos_window_phase_step = window_phase_step.cos();
+        let sin_window_phase_step = libm::sin(window_phase_step);
+        let cos_window_phase_step = libm::cos(window_phase_step);
 
         let mut left_phase = std::f64::consts::PI * (x - midleft as f64);
-        let mut half_sin_left_phase = 0.5 * left_phase.sin();
+        let mut half_sin_left_phase = 0.5 * libm::sin(left_phase);
 
         let window_phase = left_phase / left_depth;
-        let mut sin_window_phase = window_phase.sin();
-        let mut cos_window_phase = window_phase.cos();
+        let mut sin_window_phase = libm::sin(window_phase);
+        let mut cos_window_phase = libm::cos(window_phase);
 
         for ix in (left..=midleft).rev() {
             let sinc_times_window = half_sin_left_phase / left_phase * (1.0 + cos_window_phase);
@@ -1064,15 +1064,15 @@ fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize) -> f64 {
     {
         let right_depth = right as f64 - x + 1.0;
         let window_phase_step = std::f64::consts::PI / right_depth;
-        let sin_window_phase_step = window_phase_step.sin();
-        let cos_window_phase_step = window_phase_step.cos();
+        let sin_window_phase_step = libm::sin(window_phase_step);
+        let cos_window_phase_step = libm::cos(window_phase_step);
 
         let mut right_phase = std::f64::consts::PI * (midright as f64 - x);
-        let mut half_sin_right_phase = 0.5 * right_phase.sin();
+        let mut half_sin_right_phase = 0.5 * libm::sin(right_phase);
 
         let window_phase = right_phase / right_depth;
-        let mut sin_window_phase = window_phase.sin();
-        let mut cos_window_phase = window_phase.cos();
+        let mut sin_window_phase = libm::sin(window_phase);
+        let mut cos_window_phase = libm::cos(window_phase);
 
         for ix in midright..=right {
             let sinc_times_window = half_sin_right_phase / right_phase * (1.0 + cos_window_phase);
@@ -1137,7 +1137,7 @@ mod tests {
     #[test]
     fn test_pre_emphasis() {
         // Create a simple test signal
-        let samples: Vec<f64> = (0..100).map(|i| (i as f64 * 0.1).sin()).collect();
+        let samples: Vec<f64> = (0..100).map(|i| libm::sin(i as f64 * 0.1)).collect();
         let sound = Sound::from_samples(&samples, 1000.0);
 
         let emphasized = sound.pre_emphasis(50.0);

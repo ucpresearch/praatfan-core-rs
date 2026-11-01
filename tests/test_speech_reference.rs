@@ -21,7 +21,7 @@ const NEAR_HI: f64 = 300.5 + 2.0;
 
 fn speech_samples() -> Vec<f64> {
     (0..N)
-        .map(|i| 0.02 * (2.0 * std::f64::consts::PI * 120.0 * i as f64 / SR).sin())
+        .map(|i| 0.02 * libm::sin(2.0 * std::f64::consts::PI * 120.0 * i as f64 / SR))
         .collect()
 }
 
@@ -173,7 +173,7 @@ fn harmonicity_referenced_smoke() {
     // legacy call and the referenced call with the legacy peak handed in
     // explicitly (the signal has no mean offset, so global_peak == max|x|).
     let samples: Vec<f64> = (0..32000)
-        .map(|i| 0.1 * (2.0 * std::f64::consts::PI * 120.0 * i as f64 / SR).sin())
+        .map(|i| 0.1 * libm::sin(2.0 * std::f64::consts::PI * 120.0 * i as f64 / SR))
         .collect();
     let global_peak = samples.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
     let sound = Sound::from_samples_owned(samples, SR);

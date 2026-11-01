@@ -273,12 +273,12 @@ fn sinc_interpolate(samples: &[f64], position: f64, num_terms: usize) -> f64 {
             1.0
         } else {
             let pi_x = std::f64::consts::PI * x;
-            pi_x.sin() / pi_x
+            libm::sin(pi_x) / pi_x
         };
 
         // Apply a windowing function (Hanning) to reduce ringing
         let window_pos = (i - start) as f64 / (end - start - 1).max(1) as f64;
-        let window = 0.5 * (1.0 - (2.0 * std::f64::consts::PI * window_pos).cos());
+        let window = 0.5 * (1.0 - libm::cos(2.0 * std::f64::consts::PI * window_pos));
 
         let weight = sinc * window;
         sum += samples[i as usize] * weight;

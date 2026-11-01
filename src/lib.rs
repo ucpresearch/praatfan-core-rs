@@ -167,44 +167,44 @@ impl FrequencyUnit {
 
 /// Convert Hz to Mel scale (Praat formula)
 fn hz_to_mel(hz: f64) -> f64 {
-    550.0 * (1.0 + hz / 550.0).ln()
+    550.0 * libm::log(1.0 + hz / 550.0)
 }
 
 /// Convert Mel to Hz
 fn mel_to_hz(mel: f64) -> f64 {
-    550.0 * ((mel / 550.0).exp() - 1.0)
+    550.0 * (libm::exp(mel / 550.0) - 1.0)
 }
 
 /// Convert Hz to semitones relative to a reference frequency
 fn hz_to_semitones(hz: f64, reference: f64) -> f64 {
-    12.0 * (hz / reference).log2()
+    12.0 * libm::log2(hz / reference)
 }
 
 /// Convert semitones to Hz
 fn semitones_to_hz(semitones: f64, reference: f64) -> f64 {
-    reference * 2.0_f64.powf(semitones / 12.0)
+    reference * libm::pow(2.0, semitones / 12.0)
 }
 
 /// Convert Hz to ERB (Equivalent Rectangular Bandwidth) rate
 /// Using Glasberg & Moore (1990) formula as used in Praat
 fn hz_to_erb(hz: f64) -> f64 {
-    21.4 * (0.00437 * hz + 1.0).log10()
+    21.4 * libm::log10(0.00437 * hz + 1.0)
 }
 
 /// Convert ERB rate to Hz
 fn erb_to_hz(erb: f64) -> f64 {
-    (10.0_f64.powf(erb / 21.4) - 1.0) / 0.00437
+    (libm::pow(10.0, erb / 21.4) - 1.0) / 0.00437
 }
 
 /// Convert Hz to Bark scale (Traunmüller formula as in Praat)
 fn hz_to_bark(hz: f64) -> f64 {
     let hz_over_600 = hz / 600.0;
-    7.0 * (hz_over_600 + (hz_over_600 * hz_over_600 + 1.0).sqrt()).ln()
+    7.0 * libm::log(hz_over_600 + (hz_over_600 * hz_over_600 + 1.0).sqrt())
 }
 
 /// Convert Bark to Hz
 fn bark_to_hz(bark: f64) -> f64 {
-    600.0 * (bark / 7.0).sinh()
+    600.0 * libm::sinh(bark / 7.0)
 }
 
 #[cfg(test)]

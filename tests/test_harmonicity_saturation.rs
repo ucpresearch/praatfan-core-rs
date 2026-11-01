@@ -48,7 +48,7 @@ fn pseudo_noise(n: usize, amplitude: f64) -> Vec<f64> {
 
 fn tone(n: usize, f0: f64, amplitude: f64) -> Vec<f64> {
     (0..n)
-        .map(|i| amplitude * (2.0 * std::f64::consts::PI * f0 * i as f64 / SR).sin())
+        .map(|i| amplitude * libm::sin(2.0 * std::f64::consts::PI * f0 * i as f64 / SR))
         .collect()
 }
 
@@ -138,7 +138,7 @@ fn mixed_signal_does_not_cluster_on_one_high_value() {
     let mut samples = tone(n, 130.0, 0.15);
     let noise = pseudo_noise(n, 0.02);
     for (i, s) in samples.iter_mut().enumerate() {
-        let envelope = 0.3 + 0.7 * ((i as f64 / SR) * 3.0).sin().abs();
+        let envelope = 0.3 + 0.7 * libm::sin((i as f64 / SR) * 3.0).abs();
         *s = *s * envelope + noise[i];
     }
     let sound = Sound::from_samples(&samples, SR);

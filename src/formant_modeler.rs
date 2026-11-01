@@ -183,7 +183,7 @@ impl FormantModeler {
             return f64::NAN;
         }
         let ratio = var / num_free as f64;
-        let ratio_pow = ratio.powf(power);
+        let ratio_pow = libm::pow(ratio, power);
         let term = ratio_pow * (chisq / ndf);
         if term < 0.0 {
             f64::NAN

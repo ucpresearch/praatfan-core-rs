@@ -261,7 +261,7 @@ impl FormantPath {
         }
         let has_intensity_difference = i_max > i_min;
         let db_mid = if has_intensity_difference && i_min > 0.0 {
-            0.5 * 10.0 * (i_max * i_min).log10()
+            0.5 * 10.0 * libm::log10(i_max * i_min)
         } else {
             0.0
         };
@@ -303,7 +303,7 @@ impl FormantPath {
             if has_intensity_difference && intensity_modulation_step_size > 0.0 {
                 let intensity = frame.intensity();
                 if intensity > 0.0 {
-                    let dbi = 10.0 * (intensity / 2e-5).log10();
+                    let dbi = 10.0 * libm::log10(intensity / 2e-5);
                     w_intensity = num_sigmoid((dbi - db_mid) / intensity_modulation_step_size);
                 } else {
                     w_intensity = 0.0;
@@ -658,8 +658,8 @@ fn generate_ceilings(
     let mid = number_of_steps_up_down;
     out[mid] = middle_ceiling;
     for istep in 1..=number_of_steps_up_down {
-        out[mid + istep] = middle_ceiling * (step_size * istep as f64).exp();
-        out[mid - istep] = middle_ceiling * (-step_size * istep as f64).exp();
+        out[mid + istep] = middle_ceiling * libm::exp(step_size * istep as f64);
+        out[mid - istep] = middle_ceiling * libm::exp(-step_size * istep as f64);
     }
     out
 }
@@ -674,7 +674,7 @@ fn resolve_track_range(from_formant: usize, to_formant: usize, n_params: usize) 
 }
 
 fn num_sigmoid(x: f64) -> f64 {
-    1.0 / (1.0 + (-x).exp())
+    1.0 / (1.0 + libm::exp(-x))
 }
 
 impl Sound {
@@ -726,8 +726,8 @@ mod tests {
         }
         // Geometric
         for i in 1..=4 {
-            assert!((c[4 + i] - 5500.0 * (0.05 * i as f64).exp()).abs() < 1e-9);
-            assert!((c[4 - i] - 5500.0 * (-0.05 * i as f64).exp()).abs() < 1e-9);
+            assert!((c[4 + i] - 5500.0 * libm::exp(0.05 * i as f64)).abs() < 1e-9);
+            assert!((c[4 - i] - 5500.0 * libm::exp(-0.05 * i as f64)).abs() < 1e-9);
         }
     }
 

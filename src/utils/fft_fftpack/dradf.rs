@@ -384,8 +384,8 @@ pub(crate) fn dradfg(
     wa: &[f64],
 ) {
     let arg = std::f64::consts::TAU / ip as f64;
-    let dcp = f64::cos(arg);
-    let dsp = f64::sin(arg);
+    let dcp = libm::cos(arg);
+    let dsp = libm::sin(arg);
     let ipph = (ip + 1) >> 1;
     let ipp2 = ip;
     let idp2 = ido;

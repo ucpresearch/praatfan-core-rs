@@ -30,6 +30,10 @@ ndarray = "0.15"
 rustfft = "6.1"
 num-complex = "0.4"
 thiserror = "1.0"
+# Pure-Rust transcendentals (exp/log/pow/sin/cos/...): host-independent
+# results.  std's f64 methods call the platform C libm, whose code path glibc
+# picks per CPU (FMA/AVX2), so last bits differed between machines.
+libm = "0.2"
 nalgebra = "0.33"
 # High-precision Hessenberg + Francis QR eigendecomposition (pure Rust,
 # WASM-compatible). We disable default features (rayon, sparse-linalg, rand,

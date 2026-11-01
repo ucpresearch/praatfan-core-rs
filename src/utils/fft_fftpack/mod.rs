@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn test_fft_roundtrip() {
         let n = 32;
-        let original: Vec<f64> = (0..n).map(|i| (i as f64 * 0.1).sin()).collect();
+        let original: Vec<f64> = (0..n).map(|i| libm::sin(i as f64 * 0.1)).collect();
         let mut data = original.clone();
         let mut plan = RealFftPlan::new(n);
         plan.forward(&mut data);
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_praat_rotation_roundtrip() {
         let n = 32;
-        let original: Vec<f64> = (0..n).map(|i| (i as f64 * 0.2).cos()).collect();
+        let original: Vec<f64> = (0..n).map(|i| libm::cos(i as f64 * 0.2)).collect();
         let mut data = original.clone();
         let mut plan = RealFftPlan::new(n);
         realft_forward_praat(&mut plan, &mut data);

@@ -51,19 +51,19 @@ impl WindowShape {
 
             WindowShape::Hanning => {
                 // Praat's Hanning: 0.5 + 0.5 * cos(2 * pi * position)
-                0.5 + 0.5 * (2.0 * PI * position).cos()
+                0.5 + 0.5 * libm::cos(2.0 * PI * position)
             }
 
             WindowShape::Hamming => {
                 // Praat's Hamming: 0.54 + 0.46 * cos(2 * pi * position)
-                0.54 + 0.46 * (2.0 * PI * position).cos()
+                0.54 + 0.46 * libm::cos(2.0 * PI * position)
             }
 
             WindowShape::Gaussian => {
                 // Gaussian window: exp(-0.5 * (position / sigma)^2)
                 // Default sigma for Praat's Gaussian spectrogram is ~0.4
                 let sigma = parameter.unwrap_or(0.4);
-                (-0.5 * (position / sigma).powi(2)).exp()
+                libm::exp(-0.5 * (position / sigma).powi(2))
             }
 
             WindowShape::Kaiser => {
@@ -137,7 +137,7 @@ fn bessel_i0(x: f64) -> f64 {
     } else {
         // Asymptotic expansion for large arguments
         let y = 3.75 / ax;
-        (ax.exp() / ax.sqrt())
+        (libm::exp(ax) / ax.sqrt())
             * (0.39894228
                 + y * (0.01328592
                     + y * (0.00225319
@@ -161,14 +161,14 @@ pub fn praat_formant_window(size: usize) -> Vec<f64> {
         return Vec::new();
     }
 
-    let edge = (-12.0_f64).exp();
+    let edge = libm::exp(-12.0_f64);
     let imid = (size as f64 - 1.0) / 2.0;
     let denom = (size + 1) as f64;
 
     (0..size)
         .map(|i| {
             let diff = i as f64 - imid;
-            let gaussian = (-48.0 * diff * diff / (denom * denom)).exp();
+            let gaussian = libm::exp(-48.0 * diff * diff / (denom * denom));
             (gaussian - edge) / (1.0 - edge)
         })
         .collect()

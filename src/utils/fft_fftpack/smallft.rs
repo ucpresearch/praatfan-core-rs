@@ -74,10 +74,10 @@ pub(crate) fn drfti1(wa: &mut [f64], ifac: &mut [i32]) {
                 let arg = fi * argld;
                 let fresh0 = i;
                 i += 1;
-                wa[fresh0] = f64::cos(arg);
+                wa[fresh0] = libm::cos(arg);
                 let fresh1 = i;
                 i += 1;
-                wa[fresh1] = f64::sin(arg);
+                wa[fresh1] = libm::sin(arg);
                 ii += 2i32
             }
             is += ido as usize;

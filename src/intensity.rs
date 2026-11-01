@@ -41,7 +41,7 @@ fn bessel_i0(x: f64) -> f64 {
     } else {
         // Formula 9.8.2 from Abramowitz & Stegun. Accuracy 1.9e-7.
         let t = 3.75 / x;
-        (x.exp() / x.sqrt()) * (0.39894228 + t * (0.01328592
+        (libm::exp(x) / x.sqrt()) * (0.39894228 + t * (0.01328592
             + t * (0.00225319 + t * (-0.00157565 + t * (0.00916281
             + t * (-0.02057706 + t * (0.02635537 + t * (-0.01647633
             + t * 0.00392377))))))))
@@ -202,7 +202,7 @@ impl Intensity {
             if intensity_re_threshold < 1.0e-30 {
                 -300.0
             } else {
-                10.0 * intensity_re_threshold.log10()
+                10.0 * libm::log10(intensity_re_threshold)
             }
         });
 
@@ -329,7 +329,7 @@ impl Intensity {
             if intensity_re_threshold < 1.0e-30 {
                 -300.0
             } else {
-                10.0 * intensity_re_threshold.log10()
+                10.0 * libm::log10(intensity_re_threshold)
             }
         });
 

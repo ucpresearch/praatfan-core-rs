@@ -30,7 +30,7 @@ const FIXTURE: &str = "tests/fixtures/tone_mono_shorten.sph";
 fn expected_normalized() -> Vec<f64> {
     (0..N)
         .map(|i| {
-            let s = (AMP * 32767.0 * (2.0 * std::f64::consts::PI * FREQ * i as f64 / SR).sin())
+            let s = (AMP * 32767.0 * libm::sin(2.0 * std::f64::consts::PI * FREQ * i as f64 / SR))
                 .round() as i32;
             s as f64 / 32768.0
         })

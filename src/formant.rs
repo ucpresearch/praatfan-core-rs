@@ -766,10 +766,10 @@ mod tests {
         for i in 0..n_samples {
             let t = i as f64 / sample_rate;
             // Fundamental + harmonics (simulating a voiced sound)
-            samples[i] = 0.5 * (2.0 * std::f64::consts::PI * 150.0 * t).sin()
-                + 0.3 * (2.0 * std::f64::consts::PI * 300.0 * t).sin()
-                + 0.2 * (2.0 * std::f64::consts::PI * 450.0 * t).sin()
-                + 0.1 * (2.0 * std::f64::consts::PI * 600.0 * t).sin();
+            samples[i] = 0.5 * libm::sin(2.0 * std::f64::consts::PI * 150.0 * t)
+                + 0.3 * libm::sin(2.0 * std::f64::consts::PI * 300.0 * t)
+                + 0.2 * libm::sin(2.0 * std::f64::consts::PI * 450.0 * t)
+                + 0.1 * libm::sin(2.0 * std::f64::consts::PI * 600.0 * t);
         }
 
         let sound = Sound::from_samples(&samples, sample_rate);
