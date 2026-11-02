@@ -30,6 +30,12 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
   Praat's `x1` (exposed as `Sound.x1` in Python), computed with Praat's exact
   arithmetic. This also fixed the real-stereo FLAC fixture's one 2.2 Hz
   formant frame.
+- **Extracted parts keep Praat's time domain**: `extract_part` returns a
+  Sound whose `end_time` is the requested end (Praat's `xmax`), not
+  `start + n / fs`, and resampling keeps the source's domain. Before, a part
+  cut at times that are not on the sample grid resampled onto a grid shifted
+  by a fraction of a sample, so FormantPath/Formant frames on such parts
+  were slightly off (reported by fwr on Hillenbrand m01*, up to 3.6 Hz).
 - **FormantPath candidate framing** now follows `Sound_into_LPC` exactly
   (frame start from the window *duration*, `round(duration x fs)` samples,
   ties-up rounding), and the shared frame grid uses Praat's

@@ -40,6 +40,10 @@ pub struct Sound {
     /// `xmin`/`xmax` and centres the new samples:
     /// `x1 = (xmin + xmax - (n - 1) / fs) / 2`.
     x1_override: Option<f64>,
+    /// Praat's `xmax` (end of the time domain) when it is not
+    /// `start_time + n / fs`: an extracted part keeps the requested end time,
+    /// and a resampled sound keeps its source's domain.
+    xmax_override: Option<f64>,
 }
 
 impl Sound {
@@ -63,6 +67,7 @@ impl Sound {
             sample_rate,
             start_time: 0.0,
             x1_override: None,
+            xmax_override: None,
         }
     }
 
@@ -73,6 +78,7 @@ impl Sound {
             sample_rate,
             start_time: 0.0,
             x1_override: None,
+            xmax_override: None,
         }
     }
 
@@ -250,6 +256,7 @@ impl Sound {
             sample_rate,
             start_time: 0.0,
             x1_override: None,
+            xmax_override: None,
         })
     }
 
@@ -332,6 +339,7 @@ impl Sound {
             sample_rate,
             start_time: 0.0,
             x1_override: None,
+            xmax_override: None,
         })
     }
 
@@ -430,6 +438,7 @@ impl Sound {
                 sample_rate,
                 start_time: 0.0,
                 x1_override: None,
+                xmax_override: None,
             })
             .collect();
 
@@ -513,6 +522,7 @@ impl Sound {
                 sample_rate,
                 start_time: 0.0,
                 x1_override: None,
+                xmax_override: None,
             })
             .collect();
 
@@ -546,7 +556,7 @@ impl Sound {
 
     /// Get the end time (time just after last sample)
     pub fn end_time(&self) -> f64 {
-        self.start_time + self.duration()
+        self.xmax_override.unwrap_or(self.start_time + self.duration())
     }
 
     /// Get the sample period (time step between samples)
@@ -663,8 +673,10 @@ impl Sound {
 
         let mut new_x1 = x1 + (itmin - 1) as f64 * dx;
         let mut new_xmin = tmin;
+        let mut new_xmax = tmax;
         if !preserve_times {
             new_xmin = 0.0;
+            new_xmax -= tmin;
             new_x1 -= tmin;
         }
         Ok(Sound {
@@ -672,6 +684,7 @@ impl Sound {
             sample_rate: self.sample_rate,
             start_time: new_xmin,
             x1_override: Some(new_x1),
+            xmax_override: Some(new_xmax),
         })
     }
 
@@ -704,6 +717,7 @@ impl Sound {
             sample_rate: self.sample_rate,
             start_time: self.start_time,
             x1_override: self.x1_override,
+            xmax_override: self.xmax_override,
         }
     }
 
@@ -730,6 +744,7 @@ impl Sound {
             sample_rate: self.sample_rate,
             start_time: self.start_time,
             x1_override: self.x1_override,
+            xmax_override: self.xmax_override,
         }
     }
 
@@ -752,6 +767,7 @@ impl Sound {
             sample_rate: self.sample_rate,
             start_time: self.start_time,
             x1_override: self.x1_override,
+            xmax_override: self.xmax_override,
         }
     }
 
@@ -781,6 +797,7 @@ impl Sound {
             sample_rate: self.sample_rate,
             start_time: self.start_time.min(other.start_time),
             x1_override: None,
+            xmax_override: None,
         })
     }
 
@@ -811,6 +828,7 @@ impl Sound {
             sample_rate,
             start_time: 0.0,
             x1_override: None,
+            xmax_override: None,
         }
     }
 
@@ -822,6 +840,7 @@ impl Sound {
             sample_rate,
             start_time: 0.0,
             x1_override: None,
+            xmax_override: None,
         }
     }
 
@@ -882,7 +901,7 @@ impl Sound {
 
         // Praat: numberOfSamples = round((xmax - xmin) * samplingFrequency)
         let xmin = self.start_time;
-        let xmax = self.start_time + self.duration();
+        let xmax = self.end_time(); // Praat: my xmax
         let new_num_samples = ((xmax - xmin) * new_sample_rate).round() as usize;
 
         if new_num_samples == 0 {
@@ -891,6 +910,7 @@ impl Sound {
                 sample_rate: new_sample_rate,
                 start_time: self.start_time,
                 x1_override: self.x1_override,
+                xmax_override: self.xmax_override,
             };
         }
 
@@ -941,6 +961,7 @@ impl Sound {
             sample_rate: new_sample_rate,
             start_time: self.start_time,
             x1_override: Some(x1_new),
+            xmax_override: Some(self.end_time()),
         }
     }
 
@@ -995,6 +1016,7 @@ impl Sound {
             start_time: self.start_time,
             // Praat: new x1 = old x1 - 0.5 * (old dx - new dx)
             x1_override: Some(self.x1() - 0.5 * (self.dx() - 0.5 * self.dx())),
+            xmax_override: Some(self.end_time()),
         }
     }
 

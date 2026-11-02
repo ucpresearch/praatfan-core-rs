@@ -414,6 +414,14 @@ def run_sound(res, x, sr, c, tol):
             cmp_grid(res, "grid", p.n_samples, p.x1, p.dx, o.num_samples, o.x1, 1 / o.sample_rate)
             if p.n_samples == o.num_samples:
                 cmp_arrays(res, "samples", p.values[0], o.samples(), 1e-14)
+            cmp_arrays(res, "xmax", [p.xmax], [o.end_time], 1e-15)
+            # analyses of the extracted part must sit on Praat's grid too
+            pr, orr = p.resample(11000, 50), o.resample(11000.0)
+            cmp_grid(res, "resampled part", pr.n_samples, pr.x1, pr.dx, orr.num_samples, orr.x1, 1 / orr.sample_rate)
+            if p.n_samples >= 500:
+                pf_ = call(p, "To Formant (burg)", 0.005, 5, 5500, 0.025, 50)
+                of_ = o.to_formant_burg(0.005, 5, 5500, 0.025, 50)
+                cmp_grid(res, "formant on part", pf_.n_frames, pf_.x1, pf_.dx, of_.num_frames, of_.start_time, of_.time_step)
 
 
 def all_cases():
