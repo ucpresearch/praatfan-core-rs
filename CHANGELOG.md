@@ -136,6 +136,17 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
 
 ### Added
 
+- **Voice quality** (Rust `point_process` module; Python): glottal pulses
+  (`Sound.to_point_process_periodic_cc(floor, ceiling)`,
+  `Sound.to_point_process_cc(pitch)`, `PointProcess`), jitter (local,
+  local absolute, rap, ppq5, ddp), shimmer (local, local dB, apq3, apq5,
+  apq11, dda), period statistics, and Praat's **Voice report**
+  (`voice_report(sound, pitch, pulses, ...)` -> dict). Ports of Praat's
+  `Sound_Pitch_to_PointProcess_cc`, VoiceAnalysis and AmplitudeTier code.
+  Against parselmouth: pulse times bit-identical on every sweep signal,
+  jitter/shimmer within 2e-13 relative over time ranges and period /
+  amplitude factors, and every voice-report field equal to Praat's printed
+  value (AC and CC pitch).
 - **Pitch summaries** (Rust and Python), Praat's commands with time ranges
   and units: `get_mean`, `get_standard_deviation`, `get_quantile`,
   `get_minimum` / `get_maximum` / `get_time_of_minimum` /

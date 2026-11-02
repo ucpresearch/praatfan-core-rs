@@ -424,6 +424,36 @@ def run_sound(res, x, sr, c, tol):
                 cmp_grid(res, "formant on part", pf_.n_frames, pf_.x1, pf_.dx, of_.num_frames, of_.start_time, of_.time_step)
 
 
+def run_voice(res, x, sr, c, tol):
+    ps, os_ = parselmouth.Sound(x, sr), pf.Sound(x, sr)
+    r = both(res, lambda: call(ps, "To PointProcess (periodic, cc)", c["floor"], c["ceil"]),
+             lambda: os_.to_point_process_periodic_cc(c["floor"], c["ceil"]))
+    if not r:
+        return
+    pp, op = r
+    npts = call(pp, "Get number of points")
+    pt = [call(pp, "Get time from index", i + 1) for i in range(npts)]
+    if npts != op.num_points:
+        res.add(f"pulses praat={npts} ours={op.num_points}")
+        return
+    cmp_arrays(res, "pulse times", pt, op.times(), 1e-12)
+    d = ps.xmax - ps.xmin
+    for (a0, a1) in [(0, 0), (ps.xmin + 0.2 * d, ps.xmin + 0.8 * d)]:
+        for (pmin, pmax, mpf, maf) in [(0.0001, 0.02, 1.3, 1.6), (0.002, 0.01, 1.1, 1.3), (0.0, 0.0, 1.3, 1.6)]:
+            tag = f"{a0:.2f},{pmin},{pmax},{mpf}"
+            checks = [("periods", call(pp, "Get number of periods", a0, a1, pmin, pmax, mpf), op.get_number_of_periods(a0, a1, pmin, pmax, mpf)),
+                      ("meanP", call(pp, "Get mean period", a0, a1, pmin, pmax, mpf), op.get_mean_period(a0, a1, pmin, pmax, mpf)),
+                      ("sdP", call(pp, "Get stdev period", a0, a1, pmin, pmax, mpf), op.get_stdev_period(a0, a1, pmin, pmax, mpf))]
+            for jp, jo in (("local", "local"), ("local, absolute", "local_absolute"), ("rap", "rap"), ("ppq5", "ppq5"), ("ddp", "ddp")):
+                checks.append((f"jitter {jo}", call(pp, f"Get jitter ({jp})", a0, a1, pmin, pmax, mpf), getattr(op, "get_jitter_" + jo)(a0, a1, pmin, pmax, mpf)))
+            sh = op.get_shimmer(os_, a0, a1, pmin, pmax, mpf, maf)
+            for spn, so in (("local", "local"), ("local_dB", "local_db"), ("apq3", "apq3"), ("apq5", "apq5"), ("apq11", "apq11"), ("dda", "dda")):
+                checks.append((f"shimmer {so}", call([ps, pp], f"Get shimmer ({spn})", a0, a1, pmin, pmax, mpf, maf), sh[so]))
+            for name, a, b in checks:
+                a = np.nan if a is None else float(a)
+                cmp_arrays(res, f"{name}[{tag}]", [a], [np.nan if b is None else float(b)], 1e-9, rel=True)
+
+
 def all_cases():
     for m, c in pitch_cases():
         yield "pitch", f"{m} {c}", lambda res, x, sr, m=m, c=c, tol=1e-6: run_pitch(res, x, sr, m, c, tol)
@@ -452,6 +482,9 @@ def all_cases():
         yield "sound", f"pre {f}", lambda res, x, sr, c=dict(op="pre", f=f): run_sound(res, x, sr, c, 0)
         yield "sound", f"de {f}", lambda res, x, sr, c=dict(op="de", f=f): run_sound(res, x, sr, c, 0)
     yield "sound", "stats", lambda res, x, sr: run_sound(res, x, sr, dict(op="stats"), 0)
+    for floor, ceil in [(75, 600), (60, 300), (100, 500)]:
+        c = dict(floor=floor, ceil=ceil)
+        yield "voice", str(c), lambda res, x, sr, c=c: run_voice(res, x, sr, c, 0)
     for shape in ("rectangular", "hanning", "hamming", "gaussian", "triangular"):
         for keep in (True, False):
             c = dict(op="extract", shape=shape, rw=1.0, keep=keep)

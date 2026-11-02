@@ -35,6 +35,12 @@ Example usage:
     # Compute harmonicity (HNR)
     hnr = sound.to_harmonicity_ac(0.01, 75.0, 0.1, 1.0)
     hnr_db = hnr.get_value_at_time(0.5, "linear")
+
+    # Voice quality: pulses, jitter, shimmer, voice report
+    pulses = sound.to_point_process_periodic_cc(75.0, 600.0)
+    jitter = pulses.get_jitter_local()             # Praat's dialog defaults
+    shimmer = pulses.get_shimmer(sound)["local"]
+    report = praatfan_gpl.voice_report(sound, sound.to_pitch(0.0, 75.0, 600.0), pulses)
 """
 
 # Import the Rust extension module
@@ -49,6 +55,8 @@ from .praatfan_gpl import (
     Harmonicity,
     SpeechReference,
     estimate_speech_reference,
+    PointProcess,
+    voice_report,
 )
 
 # Compatibility layer for parselmouth API
@@ -65,6 +73,8 @@ __all__ = [
     "Harmonicity",
     "SpeechReference",
     "estimate_speech_reference",
+    "PointProcess",
+    "voice_report",
     "compat",
 ]
 

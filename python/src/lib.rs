@@ -719,6 +719,20 @@ impl PySound {
             inner: RustSound::create_silence(duration, sample_rate),
         }
     }
+
+    /// Praat's "To PointProcess (periodic, cc)": a default pitch analysis
+    /// followed by cross-correlation pulse extraction.
+    #[pyo3(signature = (pitch_floor = 75.0, pitch_ceiling = 600.0))]
+    fn to_point_process_periodic_cc(&self, py: Python<'_>, pitch_floor: f64, pitch_ceiling: f64) -> PyPointProcess {
+        let inner = py.allow_threads(|| self.inner.to_point_process_periodic_cc(pitch_floor, pitch_ceiling));
+        PyPointProcess { inner }
+    }
+
+    /// Praat's "Sound & Pitch: To PointProcess (cc)".
+    fn to_point_process_cc(&self, py: Python<'_>, pitch: &PyPitch) -> PyPointProcess {
+        let inner = py.allow_threads(|| ::praatfan_core::PointProcess::from_sound_pitch_cc(&self.inner, &pitch.inner));
+        PyPointProcess { inner }
+    }
 }
 
 /// Python wrapper for Pitch
@@ -1815,6 +1829,195 @@ fn estimate_speech_reference(
 /// - Spectrum: Single-frame FFT magnitude spectrum
 /// - Spectrogram: Time-frequency representation
 /// - Harmonicity: HNR (harmonics-to-noise ratio) contour
+
+// ---------------------------------------------------------------------------
+// PointProcess, jitter, shimmer, voice report
+// ---------------------------------------------------------------------------
+
+/// Glottal pulses (Praat's PointProcess), with jitter and shimmer queries.
+///
+/// Period arguments follow Praat's dialogs: ``period_floor`` (s, default
+/// 0.0001), ``period_ceiling`` (s, default 0.02), ``max_period_factor``
+/// (default 1.3), ``max_amplitude_factor`` (shimmer, default 1.6);
+/// ``from_time == to_time`` means the whole pulse train.
+#[pyclass(name = "PointProcess")]
+pub struct PyPointProcess {
+    inner: ::praatfan_core::PointProcess,
+}
+
+fn shimmer_dict<'py>(py: Python<'py>, sh: &::praatfan_core::Shimmer) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+    let d = pyo3::types::PyDict::new_bound(py);
+    d.set_item("local", sh.local)?;
+    d.set_item("local_db", sh.local_db)?;
+    d.set_item("apq3", sh.apq3)?;
+    d.set_item("apq5", sh.apq5)?;
+    d.set_item("apq11", sh.apq11)?;
+    d.set_item("dda", sh.dda)?;
+    Ok(d)
+}
+
+#[pymethods]
+impl PyPointProcess {
+    /// Build from pulse times on the domain [xmin, xmax].
+    #[new]
+    fn new(times: Vec<f64>, xmin: f64, xmax: f64) -> Self {
+        Self { inner: ::praatfan_core::PointProcess::from_times(xmin, xmax, &times) }
+    }
+
+    /// Pulse times (s) as a numpy array
+    fn times<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.inner.times().to_vec().into_pyarray_bound(py)
+    }
+
+    #[getter]
+    fn num_points(&self) -> usize {
+        self.inner.num_points()
+    }
+
+    #[getter]
+    fn xmin(&self) -> f64 {
+        self.inner.xmin()
+    }
+
+    #[getter]
+    fn xmax(&self) -> f64 {
+        self.inner.xmax()
+    }
+
+    /// Praat's "Get number of periods...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3))]
+    fn get_number_of_periods(&self, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64) -> usize {
+        self.inner.get_number_of_periods(from_time, to_time, period_floor, period_ceiling, max_period_factor)
+    }
+
+    /// Praat's "Get mean period...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3))]
+    fn get_mean_period(&self, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64) -> Option<f64> {
+        self.inner.get_mean_period(from_time, to_time, period_floor, period_ceiling, max_period_factor)
+    }
+
+    /// Praat's "Get stdev period...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3))]
+    fn get_stdev_period(&self, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64) -> Option<f64> {
+        self.inner.get_stdev_period(from_time, to_time, period_floor, period_ceiling, max_period_factor)
+    }
+
+    /// Praat's "Get jitter (local)..." (a fraction; Praat prints it as %).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3))]
+    fn get_jitter_local(&self, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64) -> Option<f64> {
+        self.inner.get_jitter_local(from_time, to_time, period_floor, period_ceiling, max_period_factor)
+    }
+
+    /// Praat's "Get jitter (local, absolute)..." (seconds).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3))]
+    fn get_jitter_local_absolute(&self, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64) -> Option<f64> {
+        self.inner.get_jitter_local_absolute(from_time, to_time, period_floor, period_ceiling, max_period_factor)
+    }
+
+    /// Praat's "Get jitter (rap)...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3))]
+    fn get_jitter_rap(&self, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64) -> Option<f64> {
+        self.inner.get_jitter_rap(from_time, to_time, period_floor, period_ceiling, max_period_factor)
+    }
+
+    /// Praat's "Get jitter (ppq5)...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3))]
+    fn get_jitter_ppq5(&self, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64) -> Option<f64> {
+        self.inner.get_jitter_ppq5(from_time, to_time, period_floor, period_ceiling, max_period_factor)
+    }
+
+    /// Praat's "Get jitter (ddp)...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3))]
+    fn get_jitter_ddp(&self, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64) -> Option<f64> {
+        self.inner.get_jitter_ddp(from_time, to_time, period_floor, period_ceiling, max_period_factor)
+    }
+
+    /// All six of Praat's shimmer measures (Sound & PointProcess "Get shimmer
+    /// (...)"): dict with keys local, local_db, apq3, apq5, apq11, dda.
+    #[pyo3(signature = (sound, from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3, max_amplitude_factor = 1.6))]
+    fn get_shimmer<'py>(&self, py: Python<'py>, sound: &PySound, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64, max_amplitude_factor: f64) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        let sh = self.inner.get_shimmer(&sound.inner, from_time, to_time, period_floor, period_ceiling, max_period_factor, max_amplitude_factor);
+        shimmer_dict(py, &sh)
+    }
+
+    /// Praat's "Get shimmer (local)..." (a fraction).
+    #[pyo3(signature = (sound, from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3, max_amplitude_factor = 1.6))]
+    fn get_shimmer_local(&self, sound: &PySound, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64, max_amplitude_factor: f64) -> Option<f64> {
+        self.inner.get_shimmer(&sound.inner, from_time, to_time, period_floor, period_ceiling, max_period_factor, max_amplitude_factor).local
+    }
+
+    /// Praat's "Get shimmer (local_dB)..." (dB).
+    #[pyo3(signature = (sound, from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3, max_amplitude_factor = 1.6))]
+    fn get_shimmer_local_db(&self, sound: &PySound, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64, max_amplitude_factor: f64) -> Option<f64> {
+        self.inner.get_shimmer(&sound.inner, from_time, to_time, period_floor, period_ceiling, max_period_factor, max_amplitude_factor).local_db
+    }
+
+    /// Praat's "Get shimmer (apq3)...".
+    #[pyo3(signature = (sound, from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3, max_amplitude_factor = 1.6))]
+    fn get_shimmer_apq3(&self, sound: &PySound, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64, max_amplitude_factor: f64) -> Option<f64> {
+        self.inner.get_shimmer(&sound.inner, from_time, to_time, period_floor, period_ceiling, max_period_factor, max_amplitude_factor).apq3
+    }
+
+    /// Praat's "Get shimmer (apq5)...".
+    #[pyo3(signature = (sound, from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3, max_amplitude_factor = 1.6))]
+    fn get_shimmer_apq5(&self, sound: &PySound, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64, max_amplitude_factor: f64) -> Option<f64> {
+        self.inner.get_shimmer(&sound.inner, from_time, to_time, period_floor, period_ceiling, max_period_factor, max_amplitude_factor).apq5
+    }
+
+    /// Praat's "Get shimmer (apq11)...".
+    #[pyo3(signature = (sound, from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3, max_amplitude_factor = 1.6))]
+    fn get_shimmer_apq11(&self, sound: &PySound, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64, max_amplitude_factor: f64) -> Option<f64> {
+        self.inner.get_shimmer(&sound.inner, from_time, to_time, period_floor, period_ceiling, max_period_factor, max_amplitude_factor).apq11
+    }
+
+    /// Praat's "Get shimmer (dda)...".
+    #[pyo3(signature = (sound, from_time = 0.0, to_time = 0.0, period_floor = 0.0001, period_ceiling = 0.02, max_period_factor = 1.3, max_amplitude_factor = 1.6))]
+    fn get_shimmer_dda(&self, sound: &PySound, from_time: f64, to_time: f64, period_floor: f64, period_ceiling: f64, max_period_factor: f64, max_amplitude_factor: f64) -> Option<f64> {
+        self.inner.get_shimmer(&sound.inner, from_time, to_time, period_floor, period_ceiling, max_period_factor, max_amplitude_factor).dda
+    }
+}
+
+/// Praat's "Voice report" for Sound + Pitch + PointProcess, as a dict of the
+/// numbers Praat prints (fractions, not percentages; seconds for periods).
+#[pyfunction]
+#[pyo3(signature = (sound, pitch, pulses, from_time = 0.0, to_time = 0.0, pitch_floor = 75.0, pitch_ceiling = 600.0, max_period_factor = 1.3, max_amplitude_factor = 1.6, silence_threshold = 0.03, voicing_threshold = 0.45))]
+fn voice_report<'py>(
+    py: Python<'py>, sound: &PySound, pitch: &PyPitch, pulses: &PyPointProcess,
+    from_time: f64, to_time: f64, pitch_floor: f64, pitch_ceiling: f64,
+    max_period_factor: f64, max_amplitude_factor: f64, silence_threshold: f64, voicing_threshold: f64,
+) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+    let r = ::praatfan_core::voice_report(&sound.inner, &pitch.inner, &pulses.inner, from_time, to_time,
+        pitch_floor, pitch_ceiling, max_period_factor, max_amplitude_factor, silence_threshold, voicing_threshold);
+    let d = pyo3::types::PyDict::new_bound(py);
+    d.set_item("from_time", r.from_time)?;
+    d.set_item("to_time", r.to_time)?;
+    d.set_item("median_pitch", r.median_pitch)?;
+    d.set_item("mean_pitch", r.mean_pitch)?;
+    d.set_item("stdev_pitch", r.stdev_pitch)?;
+    d.set_item("minimum_pitch", r.minimum_pitch)?;
+    d.set_item("maximum_pitch", r.maximum_pitch)?;
+    d.set_item("number_of_pulses", r.number_of_pulses)?;
+    d.set_item("number_of_periods", r.number_of_periods)?;
+    d.set_item("mean_period", r.mean_period)?;
+    d.set_item("stdev_period", r.stdev_period)?;
+    d.set_item("unvoiced_frames", r.unvoiced_frames)?;
+    d.set_item("total_frames", r.total_frames)?;
+    d.set_item("fraction_of_locally_unvoiced_frames", r.fraction_of_locally_unvoiced_frames)?;
+    d.set_item("number_of_voice_breaks", r.number_of_voice_breaks)?;
+    d.set_item("voice_breaks_duration", r.voice_breaks_duration)?;
+    d.set_item("degree_of_voice_breaks", r.degree_of_voice_breaks)?;
+    d.set_item("jitter_local", r.jitter_local)?;
+    d.set_item("jitter_local_absolute", r.jitter_local_absolute)?;
+    d.set_item("jitter_rap", r.jitter_rap)?;
+    d.set_item("jitter_ppq5", r.jitter_ppq5)?;
+    d.set_item("jitter_ddp", r.jitter_ddp)?;
+    d.set_item("shimmer", shimmer_dict(py, &r.shimmer)?)?;
+    d.set_item("mean_autocorrelation", r.mean_autocorrelation)?;
+    d.set_item("mean_noise_to_harmonics_ratio", r.mean_noise_to_harmonics_ratio)?;
+    d.set_item("mean_harmonics_to_noise_ratio", r.mean_harmonics_to_noise_ratio)?;
+    Ok(d)
+}
+
 #[pymodule]
 fn praatfan_gpl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySound>()?;
@@ -1826,6 +2029,8 @@ fn praatfan_gpl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySpectrogram>()?;
     m.add_class::<PyHarmonicity>()?;
     m.add_class::<PySpeechReference>()?;
+    m.add_class::<PyPointProcess>()?;
+    m.add_function(wrap_pyfunction!(voice_report, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_speech_reference, m)?)?;
     Ok(())
 }

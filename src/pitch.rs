@@ -39,6 +39,17 @@ pub struct PitchCandidate {
     pub strength: f64,
 }
 
+/// Units for [`Pitch::get_mean_strength`] (Praat's strength units).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrengthUnit {
+    /// The autocorrelation (or cross-correlation) value r
+    Autocorrelation,
+    /// Noise-to-harmonics ratio (1 - r) / r
+    NoiseToHarmonicsRatio,
+    /// Harmonics-to-noise ratio 10 log10 (r / (1 - r)) dB
+    HarmonicsToNoiseDb,
+}
+
 /// A single frame of pitch analysis
 #[derive(Debug, Clone)]
 pub struct PitchFrame {
@@ -1222,6 +1233,51 @@ impl Pitch {
     /// Praat's `Pitch: Get time of maximum...`.
     pub fn get_time_of_maximum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool) -> Option<f64> {
         self.extremum(from_time, to_time, unit, interpolate, true).map(|x| x.1)
+    }
+
+    /// Praat's `Pitch_getMeanStrength`: interpolated mean, over the voiced
+    /// frames of the range, of the winner's strength in `unit`.
+    pub fn get_mean_strength(&self, from_time: f64, to_time: f64, unit: StrengthUnit) -> Option<f64> {
+        sampled_mean_interpolated(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, |i| {
+                let f = &self.frames[(i - 1) as usize];
+                if self.frame_frequency(f).is_none() {
+                    return f64::NAN;
+                }
+                let r = f.candidates[0].strength;
+                match unit {
+                    StrengthUnit::Autocorrelation => r,
+                    StrengthUnit::NoiseToHarmonicsRatio => {
+                        if r <= 1e-15 { 1e15 } else if r > 1.0 - 1e-15 { 1e-15 } else { (1.0 - r) / r }
+                    }
+                    StrengthUnit::HarmonicsToNoiseDb => {
+                        if r <= 1e-15 { -150.0 } else if r > 1.0 - 1e-15 { 150.0 } else { 10.0 * libm::log10(r / (1.0 - r)) }
+                    }
+                }
+            })
+    }
+
+    /// Praat's `Pitch_getFractionOfLocallyUnvoicedFrames`: of the frames in
+    /// the range, how many have no candidate with 0 < f < `ceiling` and
+    /// strength >= `voicing_threshold` while their intensity is >=
+    /// `silence_threshold`. Returns `(unvoiced, total)`.
+    pub fn fraction_of_locally_unvoiced_frames(
+        &self, from_time: f64, to_time: f64, ceiling: f64, silence_threshold: f64, voicing_threshold: f64,
+    ) -> (usize, usize) {
+        let (imin, imax) = crate::interpolation::sampled_window_samples(
+            self.frames.len(), self.start_time, self.time_step, from_time, to_time);
+        if imin > imax {
+            return (0, 0);
+        }
+        let total = (imax - imin + 1) as usize;
+        let voiced = (imin..=imax)
+            .filter(|&i| {
+                let f = &self.frames[(i - 1) as usize];
+                f.intensity >= silence_threshold
+                    && f.candidates.iter().any(|c| c.frequency > 0.0 && c.frequency < ceiling && c.strength >= voicing_threshold)
+            })
+            .count();
+        (total - voiced, total)
     }
 
     /// Praat's `Pitch: Count voiced frames` (whole domain).

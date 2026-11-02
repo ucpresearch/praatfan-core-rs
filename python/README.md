@@ -222,6 +222,12 @@ spectrogram.time_step, spectrogram.freq_step
 
 ```python
 harmonicity.get_value_at_time(time, interp)  # Query HNR (dB)
+
+# Voice quality (Praat's dialog defaults)
+pulses = sound.to_point_process_periodic_cc(75.0, 600.0)   # or sound.to_point_process_cc(pitch)
+pulses.get_jitter_local(), pulses.get_jitter_rap(), pulses.get_jitter_ppq5()
+pulses.get_shimmer(sound)            # dict: local, local_db, apq3, apq5, apq11, dda
+praatfan_gpl.voice_report(sound, pitch, pulses)   # dict of the Voice report numbers
 harmonicity.values()                          # All values
 harmonicity.times()                           # Frame times
 harmonicity.min(), harmonicity.max(), harmonicity.mean()  # Praat semantics (mean skips -200)
