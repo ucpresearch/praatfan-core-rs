@@ -161,7 +161,7 @@ impl FormantModeler {
             ndf_total += df;
             number_of_defined += 1;
         }
-        if number_of_defined == expected && ndf_total > 0.0 {
+        if number_of_defined == expected {
             (chisq_accum / ndf_total, ndf_total)
         } else {
             (f64::NAN, ndf_total)
@@ -179,7 +179,8 @@ impl FormantModeler {
     pub fn stress(&self, from_track: usize, to_track: usize, power: f64) -> f64 {
         let (var, num_free) = self.variance_of_parameters(from_track, to_track);
         let (chisq, ndf) = self.chi_squared(from_track, to_track);
-        if var.is_nan() || chisq.is_nan() || num_free == 0 || ndf < 0.0 {
+        // Praat's isdefined() rejects NaN and +-inf.
+        if !var.is_finite() || !chisq.is_finite() || num_free == 0 || ndf < 0.0 {
             return f64::NAN;
         }
         let ratio = var / num_free as f64;
@@ -239,7 +240,10 @@ fn fit_track(
     let x1 = formant.start_time();
     let mut xs = Vec::with_capacity(num_data_points);
     let mut ys = Vec::with_capacity(num_data_points);
-    let mut sigmas = Vec::with_capacity(num_data_points);
+    // Praat (DataModeler_getDataPointsWeights, ONE_OVER_SIGMA): weight
+    // 1/sigma, or 1 when sigma is undefined or not positive; the point stays
+    // valid either way.
+    let mut ws = Vec::with_capacity(num_data_points);
     for iframe in ifmin..=ifmax {
         let frame: &FormantFrame = match formant.frame(iframe) {
             Some(f) => f,
@@ -256,25 +260,31 @@ fn fit_track(
             continue;
         }
         let sigma = fp.bandwidth;
-        if !sigma.is_finite() || sigma <= 0.0 {
-            // Praat requires defined sigma for ONE_OVER_SIGMA; skip if unusable.
-            continue;
-        }
+        let w = if sigma.is_finite() && sigma > 0.0 { 1.0 / sigma } else { 1.0 };
         let x = x1 + iframe as f64 * ts;
         xs.push(x);
         ys.push(fp.frequency);
-        sigmas.push(sigma);
+        ws.push(w);
     }
 
     let n_valid = xs.len();
-    if n_valid == 0 || n_valid < num_params {
+    if n_valid < num_params {
+        // Praat's DataModeler_fit returns early here, leaving the zero-
+        // initialised parameters and covariances; the track still counts.
+        // Its z-scores are against the zero model, y * w, and its degrees of
+        // freedom n_valid - num_params are negative.
+        let mut chisq = 0.0;
+        for i in 0..n_valid {
+            let z = ys[i] * ws[i];
+            chisq += z * z;
+        }
         return TrackFit {
             _parameters: vec![0.0; num_params],
             cov_diag: vec![0.0; num_params],
-            chisq: 0.0,
-            dof: 0.0,
+            chisq,
+            dof: n_valid as f64 - num_params as f64,
             num_free_params: num_params,
-            fitted: false,
+            fitted: true,
         };
     }
 
@@ -291,7 +301,7 @@ fn fit_track(
             0.0
         };
         legendre_basis(xs_scaled, num_params, &mut basis);
-        let w = 1.0 / sigmas[i];
+        let w = ws[i];
         for k in 0..num_params {
             design[(i, k)] = basis[k] * w;
         }
@@ -377,12 +387,12 @@ fn fit_track(
         for k in 0..num_params {
             model += solution[k] * basis[k];
         }
-        let z = (ys[i] - model) / sigmas[i];
+        let z = (ys[i] - model) * ws[i];
         chisq += z * z;
     }
 
     let num_free_params = num_params;
-    let dof = (n_valid as f64 - num_free_params as f64).max(0.0);
+    let dof = n_valid as f64 - num_free_params as f64;
 
     let mut params = vec![0.0_f64; num_params];
     for k in 0..num_params {

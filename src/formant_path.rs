@@ -131,16 +131,22 @@ impl FormantPath {
         // The throwaway standalone computation is cheap (one ceiling) and the
         // double work avoids a second grid-derivation formula here.
         let middle = number_of_steps_up_down;
+        // Praat (Sound_to_FormantPath_any): the shared grid is
+        // Sampled_shortTermAnalysis (midCeiling, windowDuration, timeStep),
+        // midCeiling = the sound resampled to 2 x middle ceiling, and
+        // windowDuration = 2 x analysisWidth clipped to the *original*
+        // sound's duration. Computed with Praat's exact expression: the
+        // algebraically equal standalone-Formant t1 can differ by an ulp,
+        // which moves frames whose centre falls on a sample tie.
         let (start_time, time_step_actual, num_frames) = {
-            let tmp = Formant::from_sound_burg(
-                sound,
-                time_step,
-                max_num_formants,
-                middle_formant_ceiling,
-                window_length,
-                pre_emphasis_from,
-            );
-            (tmp.start_time(), tmp.time_step(), tmp.num_frames())
+            let mid = sound.resample(2.0 * middle_formant_ceiling);
+            let window_duration = (2.0 * window_length).min(sound.dx() * sound.num_samples() as f64);
+            let my_duration = mid.dx() * mid.num_samples() as f64;
+            let n = libm::floor((my_duration - window_duration) / time_step) as i64 + 1;
+            let n = n.max(0) as usize;
+            let our_mid_time = mid.x1() - 0.5 * mid.dx() + 0.5 * my_duration;
+            let thy_duration = n as f64 * time_step;
+            (our_mid_time - 0.5 * thy_duration + 0.5 * time_step, time_step, n)
         };
 
         let candidates: Vec<Formant> = compute_candidates_with_shared_grid(
@@ -259,12 +265,11 @@ impl FormantPath {
                 }
             }
         }
-        let has_intensity_difference = i_max > i_min;
-        let db_mid = if has_intensity_difference && i_min > 0.0 {
-            0.5 * 10.0 * libm::log10(i_max * i_min)
-        } else {
-            0.0
-        };
+        let has_intensity_difference = i_max - i_min > 0.0;
+        // Praat computes this unconditionally; with a zero-intensity frame in
+        // the middle candidate it is -inf, which makes every positive-intensity
+        // frame's weight sigmoid(+inf) = 1.
+        let db_mid = 0.5 * 10.0 * libm::log10(i_max * i_min);
 
         // Pre-compute Q-sums (num_tracks_fit defaulting to max_num_formants when
         // parameters is empty — mirrors Praat's `numberOfTracks` fallback).
@@ -314,13 +319,13 @@ impl FormantPath {
                 if let Some(ref s) = stresses {
                     let v = s[iformant][itime];
                     if v.is_finite() {
-                        costs += stress_weight * (v / STRESS_CUTOFF).min(1.0);
+                        costs += stress_weight * praat_min(v / STRESS_CUTOFF, 1.0);
                     }
                 }
             }
             if q_weight > 0.0 {
                 if let Some(ref q) = qsums {
-                    costs -= q_weight * (q[iformant][itime] / Q_CUTOFF).min(1.0);
+                    costs -= q_weight * praat_min(q[iformant][itime] / Q_CUTOFF, 1.0);
                 }
             }
             w_intensity * costs
@@ -360,11 +365,11 @@ impl FormantPath {
             for iformant in 0..n_cand {
                 let fi = frames_i[iformant];
                 let num_tracks_i = match fi {
-                    Some(f) => cap_tracks.min(f.num_formants()),
+                    Some(f) => cap_tracks.min(f.num_defined_formants()),
                     None => 0,
                 };
 
-                let mut deltamin = f64::INFINITY;
+                let mut deltamin = 1e100; // Praat's initial value
                 let mut minpos = 0usize;
 
                 for jformant in 0..n_cand {
@@ -372,27 +377,27 @@ impl FormantPath {
                     let mut transition_costs = delta[jformant][itime - 1];
                     if frequency_change_weight > 0.0 {
                         if let (Some(ffi), Some(ffj)) = (fi, fj) {
-                            let ntracks =
-                                ffj.num_formants().min(num_tracks_i).min(cap_tracks);
-                            if ntracks > 0 {
-                                let mut fcost = 0.0;
-                                for itrack in 1..=ntracks {
-                                    let pi = ffi.get_formant(itrack).copied().unwrap_or_default();
-                                    let pj = ffj.get_formant(itrack).copied().unwrap_or_default();
-                                    let dif = (pi.frequency - pj.frequency).abs();
-                                    let sum = pi.frequency + pj.frequency;
-                                    if sum > 0.0 {
-                                        let bw = (pi.bandwidth * pj.bandwidth).max(0.0).sqrt();
-                                        fcost += bw * dif / sum;
-                                    }
-                                }
-                                fcost /= ntracks as f64;
-                                transition_costs += frequency_change_weight
-                                    * (fcost / TRANSITION_COST_CUTOFF).min(1.0);
+                            // Praat: ntracks = min(ffj->numberOfFormants,
+                            // numberOfTracks_i), real formant counts (not the
+                            // NaN-padded frame length).
+                            let ntracks = ffj.num_defined_formants().min(num_tracks_i);
+                            let mut fcost = 0.0;
+                            for itrack in 1..=ntracks {
+                                let pi = ffi.get_formant(itrack).copied().unwrap_or_default();
+                                let pj = ffj.get_formant(itrack).copied().unwrap_or_default();
+                                let dif = (pi.frequency - pj.frequency).abs();
+                                let sum = pi.frequency + pj.frequency;
+                                let bw = libm::sqrt(pi.bandwidth * pj.bandwidth);
+                                fcost += bw * dif / sum;
                             }
+                            // ntracks == 0 gives 0/0 = NaN, as in Praat: such a
+                            // predecessor is never chosen (NaN < x is false).
+                            fcost /= ntracks as f64;
+                            transition_costs += frequency_change_weight
+                                * praat_min(fcost / TRANSITION_COST_CUTOFF, 1.0);
                         }
                     }
-                    if ceiling_change_weight > 0.0 && ceilings_range > 0.0 {
+                    if ceiling_change_weight > 0.0 {
                         let ceiling_change_cost =
                             (self.ceilings[iformant] - self.ceilings[jformant]).abs()
                                 / ceilings_range;
@@ -412,13 +417,13 @@ impl FormantPath {
                     if let Some(ref s) = stresses {
                         let v = s[iformant][itime];
                         if v.is_finite() {
-                            deltamin += stress_weight * (v / STRESS_CUTOFF).min(1.0);
+                            deltamin += stress_weight * praat_min(v / STRESS_CUTOFF, 1.0);
                         }
                     }
                 }
                 if q_weight > 0.0 {
                     if let Some(ref q) = qsums {
-                        deltamin -= q_weight * (q[iformant][itime] / Q_CUTOFF).min(1.0);
+                        deltamin -= q_weight * praat_min(q[iformant][itime] / Q_CUTOFF, 1.0);
                     }
                 }
 
@@ -561,16 +566,15 @@ impl FormantPath {
                     Some(f) => f,
                     None => continue,
                 };
-                let current_n = num_tracks.min(frame.num_formants());
+                // Praat: real formant count, q = f / b with no filtering.
+                let current_n = num_tracks.min(frame.num_defined_formants());
                 if current_n == 0 {
                     continue;
                 }
                 let mut qsum = 0.0;
                 for itrack in 1..=current_n {
                     if let Some(p) = frame.get_formant(itrack) {
-                        if p.frequency.is_finite() && p.bandwidth.is_finite() && p.bandwidth > 0.0 {
-                            qsum += p.frequency / p.bandwidth;
-                        }
+                        qsum += p.frequency / p.bandwidth;
                     }
                 }
                 out[c][t] = qsum / current_n as f64;
@@ -771,4 +775,11 @@ mod tests {
             assert!(c < fp.num_candidates());
         }
     }
+}
+
+/// C++ `std::min (a, b)`: `b < a ? b : a` (returns `a` if either is NaN-ish
+/// in the way Praat's comparisons do).
+#[inline]
+fn praat_min(a: f64, b: f64) -> f64 {
+    if b < a { b } else { a }
 }

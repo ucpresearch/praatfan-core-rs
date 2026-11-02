@@ -58,8 +58,8 @@ mod par;
 // Re-export main types at crate root
 pub use sound::Sound;
 pub use window::{praat_formant_window, WindowShape};
-pub use interpolation::Interpolation;
-pub use intensity::{Intensity, intensity_from_channels};
+pub use interpolation::{Interpolation, PeakInterpolation};
+pub use intensity::{Intensity, IntensityAveraging, intensity_from_channels};
 pub use spectrum::Spectrum;
 pub use pitch::{Pitch, PitchMethod, pitch_from_channels, sinc_interpolate, improve_maximum, BRENT_TOTAL_ITERS, BRENT_TOTAL_CALLS};
 pub use formant::Formant;
@@ -163,48 +163,58 @@ impl FrequencyUnit {
     }
 }
 
-// Frequency scale conversions (matching Praat's formulas)
+// Frequency scale conversions: Praat 6.1.38's exact formulas
+// (melder/NUMear.cpp; semitones from fon/Pitch.cpp). Negative inputs, which
+// Praat maps to `undefined`, give NaN.
 
-/// Convert Hz to Mel scale (Praat formula)
+const SEMITONE_FACTOR: f64 = 12.0 / std::f64::consts::LN_2;
+
+/// `NUMhertzToMel`: 550 ln(1 + f/550)
 fn hz_to_mel(hz: f64) -> f64 {
-    550.0 * libm::log(1.0 + hz / 550.0)
+    if hz < 0.0 { f64::NAN } else { 550.0 * libm::log(1.0 + hz / 550.0) }
 }
 
-/// Convert Mel to Hz
+/// `NUMmelToHertz`
 fn mel_to_hz(mel: f64) -> f64 {
-    550.0 * (libm::exp(mel / 550.0) - 1.0)
+    if mel < 0.0 { f64::NAN } else { 550.0 * (libm::exp(mel / 550.0) - 1.0) }
 }
 
-/// Convert Hz to semitones relative to a reference frequency
+/// Praat's Pitch semitones: (12 / ln 2) ln(f / ref); undefined for f <= 0
 fn hz_to_semitones(hz: f64, reference: f64) -> f64 {
-    12.0 * libm::log2(hz / reference)
+    if hz <= 0.0 { f64::NAN } else { SEMITONE_FACTOR * libm::log(hz / reference) }
 }
 
-/// Convert semitones to Hz
+/// ref * exp(st * ln 2 / 12)
 fn semitones_to_hz(semitones: f64, reference: f64) -> f64 {
-    reference * libm::pow(2.0, semitones / 12.0)
+    reference * libm::exp(semitones * (std::f64::consts::LN_2 / 12.0))
 }
 
-/// Convert Hz to ERB (Equivalent Rectangular Bandwidth) rate
-/// Using Glasberg & Moore (1990) formula as used in Praat
+/// `NUMhertzToErb`: 11.17 ln((f + 312) / (f + 14680)) + 43
 fn hz_to_erb(hz: f64) -> f64 {
-    21.4 * libm::log10(0.00437 * hz + 1.0)
+    if hz < 0.0 { f64::NAN } else { 11.17 * libm::log((hz + 312.0) / (hz + 14680.0)) + 43.0 }
 }
 
-/// Convert ERB rate to Hz
+/// `NUMerbToHertz`
 fn erb_to_hz(erb: f64) -> f64 {
-    (libm::pow(10.0, erb / 21.4) - 1.0) / 0.00437
+    if erb < 0.0 {
+        return f64::NAN;
+    }
+    let dum = libm::exp((erb - 43.0) / 11.17);
+    (14680.0 * dum - 312.0) / (1.0 - dum)
 }
 
-/// Convert Hz to Bark scale (Traunmüller formula as in Praat)
+/// `NUMhertzToBark`: 7 asinh(f / 650), written as Praat writes it
 fn hz_to_bark(hz: f64) -> f64 {
-    let hz_over_600 = hz / 600.0;
-    7.0 * libm::log(hz_over_600 + (hz_over_600 * hz_over_600 + 1.0).sqrt())
+    if hz < 0.0 {
+        return f64::NAN;
+    }
+    let r = hz / 650.0;
+    7.0 * libm::log(r + libm::sqrt(1.0 + r * r))
 }
 
-/// Convert Bark to Hz
+/// `NUMbarkToHertz`
 fn bark_to_hz(bark: f64) -> f64 {
-    600.0 * libm::sinh(bark / 7.0)
+    if bark < 0.0 { f64::NAN } else { 650.0 * libm::sinh(bark / 7.0) }
 }
 
 #[cfg(test)]

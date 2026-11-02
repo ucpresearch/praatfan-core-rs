@@ -10,7 +10,7 @@
 //! This implementation matches Praat's Sound_to_Harmonicity_cc and
 //! Sound_to_Harmonicity_ac functions.
 
-use crate::interpolation::Interpolation;
+use crate::interpolation::{sampled_window_samples, vector_extremum, vector_value_at_x, Interpolation, PeakInterpolation};
 use crate::pitch::{Pitch, PitchFrame, PitchMethod};
 use crate::Sound;
 
@@ -25,6 +25,9 @@ pub struct Harmonicity {
     time_step: f64,
     /// Minimum pitch used for analysis
     min_pitch: f64,
+    /// Time domain (Praat's xmin/xmax: the analysed sound's domain)
+    xmin: f64,
+    xmax: f64,
 }
 
 impl Harmonicity {
@@ -186,6 +189,8 @@ impl Harmonicity {
             start_time: pitch.start_time(),
             time_step: pitch.time_step(),
             min_pitch,
+            xmin: pitch.xmin(),
+            xmax: pitch.xmax(),
         })
     }
 
@@ -231,6 +236,8 @@ impl Harmonicity {
             start_time: pitch.start_time(),
             time_step: pitch.time_step(),
             min_pitch,
+            xmin: pitch.xmin(),
+            xmax: pitch.xmax(),
         }
     }
 
@@ -260,6 +267,8 @@ impl Harmonicity {
                 start_time: 0.0,
                 time_step: if time_step > 0.0 { time_step } else { 0.01 },
                 min_pitch,
+                xmin: 0.0,
+                xmax: 0.0,
             };
         }
 
@@ -304,6 +313,8 @@ impl Harmonicity {
             start_time: pitch.start_time(),
             time_step: pitch.time_step(),
             min_pitch,
+            xmin: pitch.xmin(),
+            xmax: pitch.xmax(),
         }
     }
 
@@ -357,6 +368,8 @@ impl Harmonicity {
             start_time: pitch.start_time(),
             time_step: pitch.time_step(),
             min_pitch,
+            xmin: pitch.xmin(),
+            xmax: pitch.xmax(),
         }
     }
 
@@ -369,49 +382,13 @@ impl Harmonicity {
     /// # Returns
     /// HNR in dB, or None if time is outside range or undefined
     ///
-    /// # Known divergence from Praat
-    ///
-    /// This does **not** match Praat, deliberately. Praat's
-    /// `Harmonicity: Get value at time...` is a plain
-    /// `Vector_getValueAtX (me, time, 1, interpolation)`, with no awareness
-    /// that `-200` is a sentinel, so it blends the sentinel into neighbouring
-    /// readings. Measured on `one_two_three_four_five.wav` across the
-    /// boundary at t = 0.3910 s (12.361 dB) -> t = 0.4010 s (-200 dB),
-    /// parselmouth returns -35.632 / -106.408 / -170.890 dB at the quarter
-    /// points; this function returns 12.361 dB at all three.
-    ///
-    /// We treat `<= -199` as undefined and let `interpolate_with_undefined`
-    /// hold the defined neighbour, rather than report a blend of a
-    /// measurement and a sentinel as though it were dB. (Praat itself
-    /// excludes `-200` from `Get mean` / `Get standard deviation` /
-    /// `Get quantile` via `Harmonicity_getSoundingValues`, so its own
-    /// aggregate queries treat it as a sentinel while this point query does
-    /// not.)
-    ///
-    /// Frame-level access (`values`, `get_value_at_frame`) is unaffected and
-    /// matches Praat exactly. Callers needing byte-parity with Praat at
-    /// arbitrary times should read the frames and interpolate themselves.
-    /// See `DIVERGENCES.md` SS5.
+    /// Praat's `Harmonicity: Get value at time...`: a plain
+    /// `Vector_getValueAtX`, so -200 (unvoiced) frames are interpolated in
+    /// like any other value (e.g. -35.6 dB a quarter of the way from a
+    /// 12.4 dB frame to a -200 dB one). Use `get_value_at_frame` (None for
+    /// -200) to tell unvoiced frames apart.
     pub fn get_value_at_time(&self, time: f64, interpolation: Interpolation) -> Option<f64> {
-        if self.values.is_empty() {
-            return None;
-        }
-
-        // Get frame position
-        let position = (time - self.start_time) / self.time_step;
-
-        if position < -0.5 || position > self.values.len() as f64 - 0.5 {
-            return None;
-        }
-
-        // Convert -200 to NaN for interpolation (unvoiced frames)
-        let values_for_interp: Vec<f64> = self
-            .values
-            .iter()
-            .map(|&v| if v > -199.0 { v } else { f64::NAN })
-            .collect();
-
-        interpolation.interpolate_with_undefined(&values_for_interp, position.max(0.0))
+        vector_value_at_x(&self.values, self.start_time, self.time_step, time, interpolation)
     }
 
     /// Get HNR value at a specific frame
@@ -460,44 +437,119 @@ impl Harmonicity {
         }
     }
 
-    /// Get minimum HNR value (excluding undefined frames)
-    pub fn min(&self) -> Option<f64> {
-        self.values
-            .iter()
-            .filter(|&&v| v > -199.0)
-            .cloned()
-            .reduce(f64::min)
+    /// Start of the time domain (Praat's xmin)
+    pub fn xmin(&self) -> f64 {
+        self.xmin
     }
 
-    /// Get maximum HNR value
-    pub fn max(&self) -> Option<f64> {
-        self.values
-            .iter()
-            .filter(|&&v| v > -199.0)
-            .cloned()
-            .reduce(f64::max)
+    /// End of the time domain (Praat's xmax)
+    pub fn xmax(&self) -> f64 {
+        self.xmax
     }
 
-    /// Get mean HNR value (excluding undefined frames)
-    pub fn mean(&self) -> Option<f64> {
-        let finite: Vec<f64> = self.values.iter().filter(|&&v| v > -199.0).cloned().collect();
-        if finite.is_empty() {
+    /// `Harmonicity_getSoundingValues`: the frames in `[from_time, to_time]`
+    /// (equal or reversed: everything) whose value is not -200.
+    fn sounding_values(&self, mut from_time: f64, mut to_time: f64) -> Vec<f64> {
+        if from_time >= to_time {
+            from_time = self.xmin;
+            to_time = self.xmax;
+        }
+        let (imin, imax) =
+            sampled_window_samples(self.values.len(), self.start_time, self.time_step, from_time, to_time);
+        if imin > imax {
+            return Vec::new();
+        }
+        self.values[(imin - 1) as usize..imax as usize]
+            .iter()
+            .copied()
+            .filter(|&v| v != -200.0)
+            .collect()
+    }
+
+    /// Praat's `Harmonicity: Get mean...`: mean of the sounding frames
+    /// (-200 frames excluded) in `[from_time, to_time]`.
+    pub fn get_mean(&self, from_time: f64, to_time: f64) -> Option<f64> {
+        let v = self.sounding_values(from_time, to_time);
+        if v.is_empty() {
             None
         } else {
-            Some(finite.iter().sum::<f64>() / finite.len() as f64)
+            Some(crate::utils::praat_mean(&v))
         }
     }
 
-    /// Get standard deviation of HNR values
-    pub fn standard_deviation(&self) -> Option<f64> {
-        let finite: Vec<f64> = self.values.iter().filter(|&&v| v > -199.0).cloned().collect();
-        if finite.len() < 2 {
+    /// Praat's `Harmonicity: Get standard deviation...` (sounding frames,
+    /// n - 1 denominator).
+    pub fn get_standard_deviation(&self, from_time: f64, to_time: f64) -> Option<f64> {
+        let v = self.sounding_values(from_time, to_time);
+        // Praat's NUMstdev: sumsq / (n - 1). With no sounding frames that is
+        // 0 / -1 = -0.0 (Praat reports -0); with one it is 0 / 0 (undefined).
+        if v.is_empty() {
+            return Some(-0.0);
+        }
+        if v.len() == 1 {
             return None;
         }
+        let mean = crate::utils::praat_mean(&v);
+        let mut sumsq = crate::utils::CompSum::default();
+        for &x in &v {
+            sumsq.add((x - mean) * (x - mean));
+        }
+        Some(libm::sqrt(sumsq.value() / (v.len() - 1) as f64))
+    }
 
-        let mean = finite.iter().sum::<f64>() / finite.len() as f64;
-        let variance = finite.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (finite.len() - 1) as f64;
-        Some(variance.sqrt())
+    fn extremum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation, is_max: bool) -> (f64, f64) {
+        vector_extremum(
+            &self.values,
+            self.start_time,
+            self.time_step,
+            self.xmin,
+            self.xmax,
+            from_time,
+            to_time,
+            interpolation,
+            is_max,
+        )
+    }
+
+    /// Praat's `Harmonicity: Get minimum...` (`Vector_getMinimum`; as in
+    /// Praat, -200 frames take part).
+    pub fn get_minimum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation) -> Option<f64> {
+        Some(self.extremum(from_time, to_time, interpolation, false).0).filter(|v| !v.is_nan())
+    }
+
+    /// Praat's `Harmonicity: Get maximum...` (`Vector_getMaximum`).
+    pub fn get_maximum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation) -> Option<f64> {
+        Some(self.extremum(from_time, to_time, interpolation, true).0).filter(|v| !v.is_nan())
+    }
+
+    /// Praat's `Harmonicity: Get time of minimum...`.
+    pub fn get_time_of_minimum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation) -> Option<f64> {
+        Some(self.extremum(from_time, to_time, interpolation, false).1).filter(|v| !v.is_nan())
+    }
+
+    /// Praat's `Harmonicity: Get time of maximum...`.
+    pub fn get_time_of_maximum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation) -> Option<f64> {
+        Some(self.extremum(from_time, to_time, interpolation, true).1).filter(|v| !v.is_nan())
+    }
+
+    /// Minimum over the whole domain, parabolic (Praat's defaults).
+    pub fn min(&self) -> Option<f64> {
+        self.get_minimum(0.0, 0.0, PeakInterpolation::Parabolic)
+    }
+
+    /// Maximum over the whole domain, parabolic (Praat's defaults).
+    pub fn max(&self) -> Option<f64> {
+        self.get_maximum(0.0, 0.0, PeakInterpolation::Parabolic)
+    }
+
+    /// Mean of the sounding frames over the whole domain (Praat's `Get mean`).
+    pub fn mean(&self) -> Option<f64> {
+        self.get_mean(0.0, 0.0)
+    }
+
+    /// Standard deviation of the sounding frames over the whole domain.
+    pub fn standard_deviation(&self) -> Option<f64> {
+        self.get_standard_deviation(0.0, 0.0)
     }
 
     /// Get the minimum pitch setting used for analysis

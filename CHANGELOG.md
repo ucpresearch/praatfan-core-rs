@@ -5,8 +5,130 @@ Python bindings).
 
 ## [0.1.15] - unreleased
 
-Bug-fix release: AC harmonicity now matches Praat exactly, and pitch and CC
-harmonicity lose their last residual error. The APIs are unchanged.
+Bug-fix release: AC harmonicity now matches Praat exactly, pitch and CC
+harmonicity lose their last residual error, and a parameter sweep against
+parselmouth (`scripts/parity_sweep.py`: 13 signals, 8-44.1 kHz, short, silent,
+noisy, DC-offset; every analysis and query over a grid of parameters) found
+and closed a series of gaps away from the default parameters. Query helpers
+now follow Praat too (*Changed*); everything else is additive (*Added*).
+
+### Fixed (parameter-sweep gaps)
+
+- **Formant (burg)**: no more parameter clamping (window length was clamped
+  to 0.01-0.1 s, ceiling to >= 1000 Hz and <= Nyquist, formants to <= 10), so
+  e.g. a 0.005 s or 0.2 s window gave a different frame grid. The sound is
+  now resampled to 2 x ceiling *upwards* too, as Praat does (an 8 kHz file
+  with a 5500 Hz ceiling is analysed at 11 kHz; it used to be analysed at
+  4000 Hz). Sounds shorter than the window are analysed as one frame, as in
+  Praat (they returned no frames). Roots are kept on Praat's
+  `50 <= f <= nyquist - 50` rule with no bandwidth test.
+- **Resampled sounds lost Praat's `x1`.** Praat keeps `xmin`/`xmax` and
+  centres the new samples (`x1 = (xmin + xmax - (n-1)/fs) / 2`); we assumed
+  `x1 = xmin + dx/2`, which shifted every formant frame by up to a quarter
+  sample whenever duration x 2 x ceiling is not an integer (most files at
+  11025/44100 Hz, the Hillenbrand 16 kHz files at 11 kHz). `Sound` now keeps
+  Praat's `x1` (exposed as `Sound.x1` in Python), computed with Praat's exact
+  arithmetic. This also fixed the real-stereo FLAC fixture's one 2.2 Hz
+  formant frame.
+- **FormantPath candidate framing** now follows `Sound_into_LPC` exactly
+  (frame start from the window *duration*, `round(duration x fs)` samples,
+  ties-up rounding), and the shared frame grid uses Praat's
+  `Sampled_shortTermAnalysis` expression on the middle-ceiling sound (the
+  standalone-Formant `t1` formula is algebraically equal but can differ by
+  an ulp, which moves frames centred on a sample tie). With the `x1` fix, Hillenbrand 1995 FormantPath parity
+  (4827 values, framing fixes alone): within 0.01 Hz 36.8% -> 99.8%,
+  within 1 Hz 98.82% -> 99.83%, P99 1.22 -> 0.000 Hz,
+  median 0.019 -> 0.0000 Hz.
+- **FormantPath path finder**: frame formant counts are Praat's real counts,
+  not the NaN-padded length (frequency-change and Q terms were divided by 4
+  where Praat divides by 3), and the stress model keeps under-determined
+  tracks as Praat does (zero-model chi-squared, negative degrees of
+  freedom) instead of making the whole stress undefined. With the framing
+  fixes above, **all 1609 Hillenbrand tokens now match Praat on F1-F3 within
+  5e-7 Hz** (max error was 50.8 Hz on w32aw).
+- **Resample**: an exact doubling now uses Praat's FFT upsampler
+  (`Sound_upsample`) instead of sinc interpolation (was off by up to 0.046);
+  sinc interpolation takes Praat's cubic branch where the depth is clipped to
+  2 at the edges (the second sample from each end was off by up to 7e-6).
+  All directions now agree with Praat to <= 5e-13.
+- **CC harmonicity / CC pitch**:
+  - the silence gate measured the local peak over the whole window instead of
+    +/- half a longest period, so with `periods_per_window != 1` frames Praat
+    calls silent came out voiced (HNR CC off by ~210 dB on several frames per
+    file at ppw 1.5-2);
+  - the correlation is now computed as Praat does, by direct summation with a
+    running energy term (compensated sums for Praat's `long double`), not by
+    FFT. FFT rounding ripple made fake maxima on constant stretches (digital
+    silence, DC offset), giving +48..+85 dB where Praat has -200 dB. CC pitch
+    is ~2.6x slower and CC HNR ~1.2x (10-minute 24 kHz file, 20 threads:
+    1.06 -> 2.8 s and 2.8 -> 3.3 s).
+- **Pitch with `silence_threshold = 0`**: the unvoiced candidate's strength
+  was 0 instead of Praat's `voicing_threshold`, flipping voicing on ~25% of
+  frames (F0 off by up to 289 Hz on octave errors).
+- **Pitch/HNR on an all-zero sound** returned no frames; Praat returns the full
+  frame grid, all unvoiced (HNR -200 dB).
+- **Pitch and Formant `get_value_at_time`** follow Praat's
+  `Sampled_getValueAtX`: frames are converted to the unit *before*
+  interpolating (semitone/mel/ERB queries were off by up to 1 unit), the
+  nearer frame decides definedness, and a missing farther frame returns the
+  nearer value.
+- **Unit formulas** are Praat's: ERB was Glasberg-Moore instead of
+  `11.17 ln((f+312)/(f+14680)) + 43` (off by ~0.5), Bark used 600 Hz instead
+  of 650 Hz, semitones `(12/ln 2) ln(f/ref)`. Formant bandwidths in Bark are
+  the Bark width of `[f - b/2, f + b/2]`, as in Praat.
+- **Intensity**: frame centres round as Praat does (`(x - x1)/dx + 1`, ties
+  up), fixing 0.001-0.01 dB on one or two frames per file at 8/16 kHz; frame
+  means use Praat's long-double `NUMmean`, so constant stretches give exactly
+  -300 dB (were about -201 dB). `get_value_at_time` follows
+  `Vector_getValueAtX` (Praat's nearest/linear/cubic/sinc kernels).
+- **Spectrum**: FFT via the vendored FFTPACK (as Praat; was rustfft), and
+  centre of gravity / moments ported exactly (long-double sums, `m3/m2^1.5`,
+  `m4/m2^2 - 3`); an all-zero spectrum gives NaN (Praat: undefined), not 0.
+  All moments and band energies now agree to <= 5e-13 relative.
+- **Spectrogram**: FFT via FFTPACK, as Praat.
+- **`Sound.extract_part`** ports `Sound_extractPart`: Praat's sample range
+  (one sample fewer in general), zero-filled virtual samples, the
+  `relative_width` margin, and Praat's window formulas over the whole part
+  (`gaussian` = Praat Gaussian1, `kaiser` = Kaiser1).
+
+### Changed (Praat compliance; observable)
+
+- **`Intensity.mean()/min()/max()`** now return Praat's `Get mean`
+  (energy-averaged, interpolated contour) and `Get minimum/maximum`
+  (parabolic) over the whole sound; they were plain dB frame statistics
+  (mean off by up to 15 dB on speech). New Praat queries with time ranges:
+  `get_average(from, to, averaging)` (energy/sones/dB),
+  `get_minimum/get_maximum/get_time_of_minimum/get_time_of_maximum(from, to,
+  interpolation)` (none/parabolic/cubic/sinc70/sinc700).
+- **`Harmonicity.mean()/standard_deviation()`** follow Praat (sounding
+  frames only, as before, now with Praat's arithmetic and edge cases);
+  **`min()/max()`** follow Praat's `Get minimum/maximum` (parabolic, and
+  -200 frames take part, as in Praat). New `get_mean`,
+  `get_standard_deviation`, and the extremum getters with time ranges.
+- **`Harmonicity.get_value_at_time`** is now Praat's plain
+  `Vector_getValueAtX`: -200 frames are interpolated in, as in Praat
+  (DIVERGENCES §5 retired; it used to hold the defined neighbour).
+- **`Sound.get_value_at_time`** defaults to Sinc70 interpolation, Praat's
+  default (was linear); Python takes `interpolation=`.
+- **`Sound.pre_emphasis/de_emphasis`** (Python and WASM) rescale the result
+  to a 0.99 peak, as Praat's commands and parselmouth do; Python
+  `normalize=False` returns the raw filter. The Rust methods stay raw;
+  `Sound::scale_peak` is Praat's `Vector_scale`.
+- Pipe: spectrum moments of an all-zero signal are `null` (Praat:
+  undefined; were 0); segment extraction follows `extract_part` above.
+
+### Added
+
+- `Formant::from_sound_burg_f` (Rust) and a float `max_num_formants` in
+  Python `Sound.to_formant_burg` (e.g. 5.5, as in Praat: LPC order
+  `round(2 x n)`).
+- `Sound::get_value_at_time_interpolated` (Rust); Python
+  `Sound.get_value_at_time(time, interpolation="linear")` now accepts
+  `nearest`/`linear`/`cubic`/`sinc70`/`sinc700` (Praat's default is sinc70;
+  ours stays linear for compatibility).
+- Python `Sound.x1`; `Spectrum::get_central_moment` (Rust); window-shape
+  aliases `square`, `bartlett`, `welch` (Praat's spectrogram names).
+- `scripts/parity_sweep.py`: the sweep above.
 
 ### Fixed
 

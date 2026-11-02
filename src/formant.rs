@@ -11,7 +11,7 @@
 //! 4. Find formants as roots of the LPC polynomial
 //! 5. Track formants across frames
 
-use crate::interpolation::Interpolation;
+use crate::interpolation::{sampled_value_at_x, Interpolation};
 use crate::utils::lpc::{lpc_burg, lpc_to_formants, FormantCandidate};
 use crate::window::praat_formant_window;
 use crate::{FrequencyUnit, Sound};
@@ -52,6 +52,13 @@ impl FormantFrame {
     /// Get the number of formants in this frame
     pub fn num_formants(&self) -> usize {
         self.formants.len()
+    }
+
+    /// Number of real formants in the frame (Praat's `numberOfFormants`).
+    /// Frames are padded with NaN entries up to the analysis maximum, so this
+    /// counts the leading defined ones.
+    pub fn num_defined_formants(&self) -> usize {
+        self.formants.iter().take_while(|p| !p.frequency.is_nan()).count()
     }
 
     /// Get the intensity of this frame (sum of squared samples before windowing)
@@ -109,7 +116,32 @@ impl Formant {
         Self::from_sound_burg_impl(
             sound,
             time_step,
-            max_num_formants,
+            2 * max_num_formants,
+            max_formant_hz,
+            window_length,
+            pre_emphasis_from,
+            None,
+            false,
+        )
+    }
+
+    /// Like [`Formant::from_sound_burg`], but takes Praat's real-valued
+    /// "Max. number of formants" (e.g. 5.5). As in Praat, the LPC order is
+    /// `round(2 * max_num_formants)` and a frame holds up to
+    /// `(order + 1) / 2` formants.
+    pub fn from_sound_burg_f(
+        sound: &Sound,
+        time_step: f64,
+        max_num_formants: f64,
+        max_formant_hz: f64,
+        window_length: f64,
+        pre_emphasis_from: f64,
+    ) -> Self {
+        let poles = libm::round(2.0 * max_num_formants).max(1.0) as usize;
+        Self::from_sound_burg_impl(
+            sound,
+            time_step,
+            poles,
             max_formant_hz,
             window_length,
             pre_emphasis_from,
@@ -137,7 +169,7 @@ impl Formant {
         Self::from_sound_burg_impl(
             sound,
             time_step,
-            max_num_formants,
+            2 * max_num_formants,
             max_formant_hz,
             window_length,
             pre_emphasis_from,
@@ -149,17 +181,17 @@ impl Formant {
     fn from_sound_burg_impl(
         sound: &Sound,
         time_step: f64,
-        max_num_formants: usize,
+        number_of_poles: usize,
         max_formant_hz: f64,
         window_length: f64,
         pre_emphasis_from: f64,
         forced_grid: Option<(f64, usize)>,
         subtract_mean_per_frame: bool,
     ) -> Self {
-        // Validate parameters
-        let max_num_formants = max_num_formants.max(1).min(10);
-        let window_length = window_length.max(0.01).min(0.1);
-        let max_formant_hz = max_formant_hz.max(1000.0).min(sound.sample_rate() / 2.0);
+        // No parameter clamping: Praat (Sound_to_Formant.cpp) uses the values
+        // as given. Up to (poles + 1) / 2 formants per frame (Formant_create).
+        let number_of_poles = number_of_poles.max(1);
+        let max_num_formants = (number_of_poles + 1) / 2;
 
         // Time step: default is 0.25 × window_length (Praat convention)
         let time_step = if time_step <= 0.0 {
@@ -170,12 +202,16 @@ impl Formant {
 
         // Praat resamples to 2 × max_formant before LPC analysis
         // This is critical for accurate formant estimation
-        let target_sample_rate = 2.0 * max_formant_hz;
-        let resampled = if sound.sample_rate() > target_sample_rate {
-            sound.resample(target_sample_rate)
-        } else {
-            sound.clone()
-        };
+        // Sound_to_Formant_any: resample to 2 x ceiling, upwards too (an 8 kHz
+        // file with a 5500 Hz ceiling is analysed at 11 kHz), unless the
+        // ceiling is <= 0 or already the Nyquist frequency.
+        let nyquist_in = 0.5 * sound.sample_rate();
+        let (resampled, max_formant_hz) =
+            if max_formant_hz <= 0.0 || (max_formant_hz / nyquist_in - 1.0).abs() < 1e-12 {
+                (sound.clone(), nyquist_in)
+            } else {
+                (sound.resample(2.0 * max_formant_hz), max_formant_hz)
+            };
 
         // Pre-emphasize AFTER resampling (Praat does it this way)
         // The pre-emphasis filter coefficient depends on sample rate,
@@ -190,22 +226,21 @@ impl Formant {
         let samples = emphasized.samples();
         let dx = 1.0 / sample_rate;
         // Praat's x1 is the time of the first sample: xmin + 0.5*dx
-        let x1_sound = emphasized.start_time() + 0.5 * dx;
+        let x1_sound = emphasized.x1();
 
         // LPC order: 2 × max_formants (Praat convention for Sound -> Formant)
         // Each formant needs 2 poles (complex conjugate pair)
-        let lpc_order = 2 * max_num_formants;
+        let lpc_order = number_of_poles;
 
         // CRITICAL: window_length parameter is actually halfdt_window in Praat!
         // The actual analysis window is TWICE this value.
         // See Sound_to_Formant.cpp: dt_window = 2.0 * halfdt_window
         let halfdt_window = window_length;
-        let dt_window = 2.0 * halfdt_window;
-        let nsamp_window = (dt_window / dx).floor() as usize;
+        let mut dt_window = 2.0 * halfdt_window;
+        let mut nsamp_window = (dt_window / dx).floor() as usize;
+        // Praat computes halfnsamp_window here, *before* the one-frame fallback
+        // below resets nsamp_window, and never updates it.
         let halfnsamp_window = nsamp_window / 2;
-
-        // Generate Praat's exact Gaussian window for formant analysis
-        let window = praat_formant_window(nsamp_window);
 
         // Frame timing - exactly as Praat does it (verified with source code)
         // physicalDuration = nx * dx
@@ -213,21 +248,38 @@ impl Formant {
         let (first_frame_time, num_frames) = if let Some((t1, nf)) = forced_grid {
             (t1, nf)
         } else {
-            let nf = 1 + ((physical_duration - dt_window) / time_step).floor() as usize;
-            if nf == 0 || samples.is_empty() {
-                return Self {
-                    frames: Vec::new(),
-                    start_time: sound.start_time(),
-                    time_step,
-                    max_num_formants,
-                    max_formant_hz,
-                };
+            // nFrames = 1 + floor((physicalDuration - dt_window) / dt), which
+            // Praat computes in signed arithmetic; if it is < 1 Praat analyses
+            // the whole sound as one frame.
+            let nf = 1 + libm::floor((physical_duration - dt_window) / time_step) as i64;
+            if nf < 1 {
+                dt_window = physical_duration;
+                nsamp_window = samples.len();
+                (x1_sound + 0.5 * physical_duration, 1)
+            } else {
+                // t1 = x1 + 0.5 * (physicalDuration - dx - (numberOfFrames - 1) * dt)
+                let nf = nf as usize;
+                let t1 = x1_sound + 0.5 * (physical_duration - dx - (nf - 1) as f64 * time_step);
+                (t1, nf)
             }
-            // t1 = x1 + 0.5 * (physicalDuration - dx - (numberOfFrames - 1) * dt)
-            // This is Praat's exact formula from Sound_to_Formant.cpp
-            let t1 = x1_sound + 0.5 * (physical_duration - dx - (nf - 1) as f64 * time_step);
-            (t1, nf)
         };
+        let _ = dt_window;
+
+        // Generate Praat's exact Gaussian window for formant analysis.
+        //
+        // FormantPath candidates go through `Sound_into_LPC`
+        // (LPC/Sound_and_LPC.cpp), which sizes everything from the window
+        // *duration*: windowDuration = min(2 * analysisWidth, nx * dx); the
+        // frame and the Gaussian (Sound_createSimple / Sound_createGaussian)
+        // have round(windowDuration * fs) samples; the frame starts at
+        // Sampled_xToNearestIndex(t - windowDuration / 2).
+        let lpc_window_duration = (2.0 * window_length).min(dx * samples.len() as f64);
+        let frame_window_len = if subtract_mean_per_frame {
+            libm::round(lpc_window_duration * sample_rate) as usize
+        } else {
+            nsamp_window
+        };
+        let window = praat_formant_window(frame_window_len);
 
         if num_frames == 0 || samples.is_empty() {
             return Self {
@@ -257,10 +309,12 @@ impl Formant {
             // `subtract_mean_per_frame` doubles as the FormantPath flag, so we
             // switch sample-extraction convention accordingly.
             let (start_sample_raw, end_sample_raw) = if subtract_mean_per_frame {
-                // Praat `Sound_into_Sound`: start_0 = round((t - 0.5*windowDuration - x1)/dx)
-                let start_time_abs = frame_time - 0.5 * (nsamp_window as f64) * dx;
-                let nearest = ((start_time_abs - x1_sound) / dx).round() as isize;
-                (nearest, nearest + nsamp_window as isize - 1)
+                // Praat `Sound_into_Sound (sound, sframe, t - 0.5 * windowDuration)`:
+                // index = Melder_iround ((x - x1) / dx + 1.0)  (1-based, ties up)
+                let x = frame_time - 0.5 * lpc_window_duration;
+                let index_1based = libm::floor((x - x1_sound) / dx + 1.0 + 0.5) as isize;
+                let start0 = index_1based - 1;
+                (start0, start0 + frame_window_len as isize - 1)
             } else {
                 let left_sample = ((frame_time - x1_sound) / dx).floor() as isize;
                 let right_sample = left_sample + 1;
@@ -276,8 +330,8 @@ impl Formant {
             // `nsamp_window` buffer. For standalone, we simply clamp to
             // available samples (matching `Sound_to_Formant_any`).
             let raw_frame: Vec<f64> = if subtract_mean_per_frame {
-                let mut out = Vec::with_capacity(nsamp_window);
-                for i in 0..nsamp_window {
+                let mut out = Vec::with_capacity(frame_window_len);
+                for i in 0..frame_window_len {
                     let j = start_sample_raw + i as isize;
                     let v = if j < 0 || (j as usize) >= samples.len() {
                         0.0
@@ -346,12 +400,17 @@ impl Formant {
                 // - Frequency in range [50, max_formant_hz]
                 // - Positive bandwidth (pole inside unit circle)
                 // Note: Praat does NOT filter by bandwidth, so we don't either
+                // Praat (burg() in Sound_to_Formant.cpp and
+                // Roots_into_Formant_Frame): keep roots with
+                // 50 <= f <= nyquist - 50 (safety margin 50 Hz); no
+                // bandwidth test.
+                let nyquist = 0.5 * sample_rate;
                 let mut valid_formants: Vec<FormantCandidate> = candidates
                     .into_iter()
                     .filter(|f| {
-                        f.frequency > 50.0
-                            && f.frequency < max_formant_hz
-                            && f.bandwidth > 0.0
+                        f.frequency >= 50.0
+                            && f.frequency <= nyquist - 50.0
+                            && !f.bandwidth.is_nan()
                     })
                     .collect();
 
@@ -443,29 +502,21 @@ impl Formant {
             return None;
         }
 
-        // Get frame position
-        let position = (time - self.start_time) / self.time_step;
-
-        if position < -0.5 || position > self.frames.len() as f64 - 0.5 {
-            return None;
-        }
-
-        // Extract formant frequencies for interpolation
-        let frequencies: Vec<f64> = self
-            .frames
-            .iter()
-            .map(|f| {
-                f.get_formant(formant_number)
-                    .map(|p| p.frequency)
-                    .unwrap_or(f64::NAN)
-            })
-            .collect();
-
-        // Interpolate
-        let hz = interpolation.interpolate_with_undefined(&frequencies, position.max(0.0))?;
-
-        // Convert to requested unit
-        Some(unit.from_hertz(hz))
+        // Praat: Formant_getValueAtTime -> Sampled_getValueAtX (always
+        // linear; "nearest" here selects the nearest frame), with each frame
+        // converted to `unit` before interpolating.
+        sampled_value_at_x(
+            self.frames.len(),
+            self.start_time,
+            self.time_step,
+            time,
+            interpolation != Interpolation::Nearest,
+            |i| {
+                self.frames[i]
+                    .get_formant(formant_number)
+                    .map(|p| unit.from_hertz(p.frequency))
+            },
+        )
     }
 
     /// Get the formant bandwidth at a specific time
@@ -493,29 +544,28 @@ impl Formant {
             return None;
         }
 
-        // Get frame position
-        let position = (time - self.start_time) / self.time_step;
-
-        if position < -0.5 || position > self.frames.len() as f64 - 0.5 {
-            return None;
-        }
-
-        // Extract bandwidths for interpolation
-        let bandwidths: Vec<f64> = self
-            .frames
-            .iter()
-            .map(|f| {
-                f.get_formant(formant_number)
-                    .map(|p| p.bandwidth)
-                    .unwrap_or(f64::NAN)
-            })
-            .collect();
-
-        // Interpolate
-        let hz = interpolation.interpolate_with_undefined(&bandwidths, position.max(0.0))?;
-
-        // Convert to requested unit
-        Some(unit.from_hertz(hz))
+        // Praat: Formant_getBandwidthAtTime -> Sampled_getValueAtX. In a
+        // non-Hertz unit the bandwidth is the width of [f - b/2, f + b/2]
+        // on that scale, the lower edge floored at 0 Hz
+        // (structFormant::v_getValueAtSample).
+        sampled_value_at_x(
+            self.frames.len(),
+            self.start_time,
+            self.time_step,
+            time,
+            interpolation != Interpolation::Nearest,
+            |i| {
+                self.frames[i].get_formant(formant_number).map(|p| {
+                    if unit == FrequencyUnit::Hertz {
+                        p.bandwidth
+                    } else {
+                        let fleft = p.frequency - 0.5 * p.bandwidth;
+                        let fleft = if fleft <= 0.0 { 0.0 } else { unit.from_hertz(fleft) };
+                        unit.from_hertz(p.frequency + 0.5 * p.bandwidth) - fleft
+                    }
+                })
+            },
+        )
     }
 
     /// Get formant values at a specific frame

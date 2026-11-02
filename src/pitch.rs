@@ -8,8 +8,8 @@
 //! corresponding to pitch candidates, and uses dynamic programming to select
 //! the optimal pitch path.
 
-use crate::interpolation::Interpolation;
-use crate::utils::Fft;
+use crate::interpolation::{sampled_value_at_x, Interpolation};
+use crate::utils::{CompSum, Fft};
 use crate::{PitchUnit, Sound};
 use num_complex::Complex;
 use std::f64::consts::PI;
@@ -427,14 +427,16 @@ impl Pitch {
 
         // Compute global peak for intensity normalization
         let samples = sound.samples();
-        let mean: f64 = samples.iter().sum::<f64>() / nx as f64;
+        let mean: f64 = crate::utils::praat_mean(samples); // NUMmean (long double)
         let global_peak = samples
             .iter()
             .map(|&s| (s - mean).abs())
             .fold(0.0, f64::max);
 
         if global_peak == 0.0 {
-            return Self::empty(xmin, xmax, dt, pitch_floor, pitch_ceiling);
+            // Praat returns the full frame grid, every frame unvoiced
+            // (Sound_to_Pitch.cpp:419), not an empty Pitch.
+            return Self::all_unvoiced(xmin, xmax, t1, dt, number_of_frames, pitch_floor, pitch_ceiling);
         }
         let global_peak = reference_override.unwrap_or(global_peak);
 
@@ -482,6 +484,31 @@ impl Pitch {
 
         Self {
             frames,
+            start_time: t1,
+            time_step: dt,
+            pitch_floor,
+            pitch_ceiling,
+            xmin,
+            xmax,
+        }
+    }
+
+    fn all_unvoiced(
+        xmin: f64,
+        xmax: f64,
+        t1: f64,
+        dt: f64,
+        number_of_frames: usize,
+        pitch_floor: f64,
+        pitch_ceiling: f64,
+    ) -> Self {
+        let frame = PitchFrame {
+            candidates: vec![PitchCandidate { frequency: 0.0, strength: 0.0 }],
+            intensity: 0.0,
+            raw_ac_peak: 0.0,
+        };
+        Self {
+            frames: vec![frame; number_of_frames],
             start_time: t1,
             time_step: dt,
             pitch_floor,
@@ -680,7 +707,7 @@ impl Pitch {
         let mut global_peak = 0.0;
         for sound in sounds {
             let samples = sound.samples();
-            let mean: f64 = samples.iter().sum::<f64>() / nx as f64;
+            let mean: f64 = crate::utils::praat_mean(samples); // NUMmean (long double)
             let channel_peak = samples.iter().map(|&s| (s - mean).abs()).fold(0.0, f64::max);
             if channel_peak > global_peak {
                 global_peak = channel_peak;
@@ -688,7 +715,9 @@ impl Pitch {
         }
 
         if global_peak == 0.0 {
-            return Self::empty(xmin, xmax, dt, pitch_floor, pitch_ceiling);
+            // Praat returns the full frame grid, every frame unvoiced
+            // (Sound_to_Pitch.cpp:419), not an empty Pitch.
+            return Self::all_unvoiced(xmin, xmax, t1, dt, number_of_frames, pitch_floor, pitch_ceiling);
         }
 
         // Adjust max_candidates if needed
@@ -817,7 +846,7 @@ impl Pitch {
         let mut global_peak = 0.0;
         for sound in sounds {
             let samples = sound.samples();
-            let mean: f64 = samples.iter().sum::<f64>() / nx as f64;
+            let mean: f64 = crate::utils::praat_mean(samples); // NUMmean (long double)
             let channel_peak = samples.iter().map(|&s| (s - mean).abs()).fold(0.0, f64::max);
             if channel_peak > global_peak {
                 global_peak = channel_peak;
@@ -825,7 +854,9 @@ impl Pitch {
         }
 
         if global_peak == 0.0 {
-            return Self::empty(xmin, xmax, dt, pitch_floor, pitch_ceiling);
+            // Praat returns the full frame grid, every frame unvoiced
+            // (Sound_to_Pitch.cpp:419), not an empty Pitch.
+            return Self::all_unvoiced(xmin, xmax, t1, dt, number_of_frames, pitch_floor, pitch_ceiling);
         }
 
         let max_candidates = max_candidates.max((pitch_ceiling / pitch_floor).floor() as usize);
@@ -836,21 +867,15 @@ impl Pitch {
         let channel_samples: Vec<&[f64]> = sounds.iter().map(|s| s.samples()).collect();
         let nchan = sounds.len();
         let max_span = maximum_lag + nsamp_window;
-        let fcc_fft_size = (nsamp_window + max_span).next_power_of_two();
 
         // Process each frame
         let mut frames: Vec<PitchFrame> = crate::par::map_init(
             number_of_frames,
             || (
-                Fft::new(),
                 (0..nchan).map(|_| vec![0.0; max_span]).collect::<Vec<Vec<f64>>>(),
                 vec![0.0; 2 * nsamp_window + 1],
-                vec![Complex::new(0.0, 0.0); fcc_fft_size],
-                vec![Complex::new(0.0, 0.0); fcc_fft_size],
-                vec![Complex::new(0.0, 0.0); fcc_fft_size],
-                vec![0.0; max_span + 1],
             ),
-            |(fft, mean_sub_pool, r_buf, fft_buffer, fft_a_buf, power_buffer, cum_sq_buf), iframe| {
+            |(mean_sub_pool, r_buf), iframe| {
                 let time = t1 + iframe as f64 * dt;
                 compute_pitch_frame_fcc_multichannel(
                     &channel_samples, dx, x1, nx, time,
@@ -861,9 +886,6 @@ impl Pitch {
                     brent_ixmax, brent_depth,
                     global_peak, dt_window,
                     mean_sub_pool, r_buf,
-                    fft, fft_buffer, fft_a_buf,
-                    power_buffer, cum_sq_buf,
-                    fcc_fft_size,
                 )
             },
         );
@@ -968,14 +990,16 @@ impl Pitch {
 
         // Compute global peak for intensity normalization
         let samples = sound.samples();
-        let mean: f64 = samples.iter().sum::<f64>() / nx as f64;
+        let mean: f64 = crate::utils::praat_mean(samples); // NUMmean (long double)
         let global_peak = samples
             .iter()
             .map(|&s| (s - mean).abs())
             .fold(0.0, f64::max);
 
         if global_peak == 0.0 {
-            return Self::empty(xmin, xmax, dt, pitch_floor, pitch_ceiling);
+            // Praat returns the full frame grid, every frame unvoiced
+            // (Sound_to_Pitch.cpp:419), not an empty Pitch.
+            return Self::all_unvoiced(xmin, xmax, t1, dt, number_of_frames, pitch_floor, pitch_ceiling);
         }
         let global_peak = reference_override.unwrap_or(global_peak);
 
@@ -987,20 +1011,12 @@ impl Pitch {
         let halfnsamp_period = nsamp_period / 2 + 1;
 
         let max_span = maximum_lag + nsamp_window;
-        let fcc_fft_size = (nsamp_window + max_span).next_power_of_two();
 
         // Process each frame using FCC
         let mut frames: Vec<PitchFrame> = crate::par::map_init(
             number_of_frames,
-            || (
-                Fft::new(),
-                vec![0.0; max_span],
-                vec![0.0; 2 * nsamp_window + 1],
-                vec![Complex::new(0.0, 0.0); fcc_fft_size],
-                vec![Complex::new(0.0, 0.0); fcc_fft_size],
-                vec![0.0; max_span + 1],
-            ),
-            |(fft, mean_sub_buf, r_buf, fft_buffer, fft_a_buf, cum_sq_buf), iframe| {
+            || (vec![0.0; max_span], vec![0.0; 2 * nsamp_window + 1]),
+            |(mean_sub_buf, r_buf), iframe| {
                 let time = t1 + iframe as f64 * dt;
                 compute_pitch_frame_fcc(
                     samples, dx, x1, nx, time,
@@ -1011,8 +1027,6 @@ impl Pitch {
                     brent_ixmax, brent_depth,
                     global_peak, dt_window,
                     mean_sub_buf, r_buf,
-                    fft, fft_buffer, fft_a_buf,
-                    cum_sq_buf, fcc_fft_size,
                 )
             },
         );
@@ -1047,35 +1061,21 @@ impl Pitch {
         unit: PitchUnit,
         interpolation: Interpolation,
     ) -> Option<f64> {
-        if self.frames.is_empty() {
+        // Praat: Pitch_getValueAtTime -> Sampled_getValueAtX. Each frame is
+        // converted to `unit` *before* interpolating, and Praat's pitch query
+        // has only "nearest" and "linear"; every non-nearest method here is
+        // linear.
+        if time < self.xmin || time > self.xmax {
             return None;
         }
-
-        let position = (time - self.start_time) / self.time_step;
-
-        if position < -0.5 || position > self.frames.len() as f64 - 0.5 {
-            return None;
-        }
-
-        let pitch_values: Vec<f64> = self
-            .frames
-            .iter()
-            .map(|f| {
-                if f.candidates.is_empty() {
-                    f64::NAN
-                } else {
-                    let freq = f.candidates[0].frequency;
-                    if freq > 0.0 && freq < self.pitch_ceiling {
-                        freq
-                    } else {
-                        f64::NAN
-                    }
-                }
-            })
-            .collect();
-
-        let hz = interpolation.interpolate_with_undefined(&pitch_values, position.max(0.0))?;
-        Some(unit.from_hertz(hz))
+        sampled_value_at_x(
+            self.frames.len(),
+            self.start_time,
+            self.time_step,
+            time,
+            interpolation != Interpolation::Nearest,
+            |i| self.get_value_at_frame(i).map(|hz| unit.from_hertz(hz)),
+        )
     }
 
     /// Get the pitch value at a specific frame
@@ -1135,6 +1135,16 @@ impl Pitch {
     /// Get the start time
     pub fn start_time(&self) -> f64 {
         self.start_time
+    }
+
+    /// Start of the time domain (Praat's xmin: the analysed sound's)
+    pub fn xmin(&self) -> f64 {
+        self.xmin
+    }
+
+    /// End of the time domain (Praat's xmax)
+    pub fn xmax(&self) -> f64 {
+        self.xmax
     }
 
     /// Get the end time
@@ -1629,6 +1639,84 @@ fn compute_pitch_frame_multichannel(
     PitchFrame { candidates, intensity, raw_ac_peak }
 }
 
+/// Compensated dot product: 4 independent branch-free TwoSum lanes (so the
+/// loop pipelines), each product rounded to f64 first as in Praat. The result
+/// keeps roughly twice f64 precision; the value depends only on the input
+/// sequence, so identical sequences give bit-identical sums.
+#[inline]
+fn dot_compensated(x: &[f64], y: &[f64]) -> f64 {
+    const L: usize = 4;
+    let n = x.len().min(y.len());
+    let mut s = [0.0f64; L];
+    let mut c = [0.0f64; L];
+    let chunks = n / L;
+    for k in 0..chunks {
+        let b = k * L;
+        for l in 0..L {
+            let p = x[b + l] * y[b + l];
+            let t = s[l] + p;
+            let z = t - s[l];
+            c[l] += (s[l] - (t - z)) + (p - z);
+            s[l] = t;
+        }
+    }
+    let mut acc = CompSum::default();
+    for l in 0..L {
+        acc.add(s[l]);
+    }
+    for l in 0..L {
+        acc.add(c[l]);
+    }
+    for j in chunks * L..n {
+        acc.add(x[j] * y[j]);
+    }
+    acc.value()
+}
+
+/// Forward cross-correlation exactly as Praat computes it
+/// (`Sound_into_PitchFrame`, FCC branch, Sound_to_Pitch.cpp:105-134): direct
+/// time-domain sums with a running `sumy2` update, summed over channels.
+///
+/// `channels[ch][k]` holds the mean-subtracted samples `amp[k+1] - localMean`
+/// for k in `0..local_maximum_lag + nsamp_window`. Fills
+/// `r[r_offset ± lag]` for lag in `1..=local_maximum_lag` and sets
+/// `r[r_offset] = 1`.
+///
+/// This used to be an FFT cross-correlation. That is not equivalent on
+/// (near-)constant stretches -- digital silence plus DC, LSB dither -- where
+/// Praat's sums are bit-identical across lags (so no strict maximum and no
+/// voiced candidate), while FFT rounding ripple manufactures fake maxima with
+/// r ~ 1 (HNR +60 dB instead of -200 dB).
+fn fcc_correlate(
+    channels: &[&[f64]],
+    nsamp_window: usize,
+    local_maximum_lag: usize,
+    r: &mut [f64],
+    r_offset: usize,
+) {
+    let mut sumx2 = CompSum::default();
+    for amp in channels {
+        for &x in &amp[..nsamp_window] {
+            sumx2.add(x * x);
+        }
+    }
+    let sumx2_d = sumx2.value();
+    let mut sumy2 = sumx2; // at zero lag, these are still equal
+    r[r_offset] = 1.0;
+    for i in 1..=local_maximum_lag {
+        let mut product = CompSum::default();
+        for amp in channels {
+            let y0 = amp[i - 1];
+            let y_z = amp[i - 1 + nsamp_window];
+            sumy2.add(y_z * y_z - y0 * y0);
+            product.add(dot_compensated(&amp[..nsamp_window], &amp[i..i + nsamp_window]));
+        }
+        let v = product.value() / (sumx2_d * sumy2.value()).sqrt();
+        r[r_offset + i] = v;
+        r[r_offset - i] = v;
+    }
+}
+
 /// Compute pitch candidates for a single frame using FCC with multiple channels
 ///
 /// Uses FFT-based autocorrelation O(n log n) with cumulative-sum normalization,
@@ -1647,7 +1735,7 @@ fn compute_pitch_frame_fcc_multichannel(
     octave_cost: f64,
     nsamp_window: usize,
     halfnsamp_window: usize,
-    _halfnsamp_period: usize,
+    halfnsamp_period: usize,
     maximum_lag: usize,
     brent_ixmax: usize,
     brent_depth: usize,
@@ -1656,12 +1744,6 @@ fn compute_pitch_frame_fcc_multichannel(
     // Pre-allocated buffers
     mean_sub_pool: &mut [Vec<f64>],
     r: &mut [f64],
-    fft: &mut Fft,
-    fft_buffer: &mut [Complex<f64>],
-    fft_a: &mut [Complex<f64>],
-    power_buffer: &mut [Complex<f64>],
-    cum_sq: &mut [f64],
-    fft_size: usize,
 ) -> PitchFrame {
     let r_offset = nsamp_window;
     let left_sample = ((time - x1) / dx).floor() as isize;
@@ -1692,8 +1774,16 @@ fn compute_pitch_frame_fcc_multichannel(
     let local_maximum_lag = local_span.saturating_sub(nsamp_window);
 
     // Compute local peak across all channels
-    let peak_start = (right_sample - halfnsamp_window as isize).max(0) as usize;
-    let peak_end = ((left_sample + halfnsamp_window as isize) as usize).min(nx);
+    // Praat (Sound_to_Pitch.cpp:91-101): frame index j in
+    // [halfnsamp_window+1-halfnsamp_period, halfnsamp_window+halfnsamp_period]
+    // (1-based, clipped to the frame), i.e. half a longest period on each side
+    // of the centre -- NOT the whole window (which spans `periods_per_window`
+    // periods). Frame index j0 (0-based) is sample right_sample - hw + j0.
+    let frame_start = right_sample - halfnsamp_window as isize;
+    let j_lo = halfnsamp_window.saturating_sub(halfnsamp_period);
+    let j_hi = (halfnsamp_window + halfnsamp_period).min(nsamp_window);
+    let peak_start = (frame_start + j_lo as isize).max(0) as usize;
+    let peak_end = ((frame_start + j_hi as isize).max(0) as usize).min(nx);
     let mut local_peak = 0.0;
     for (ch, samples) in channel_samples.iter().enumerate() {
         for i in peak_start..peak_end {
@@ -1738,73 +1828,10 @@ fn compute_pitch_frame_fcc_multichannel(
         return PitchFrame { candidates, intensity, raw_ac_peak: 0.0 };
     }
 
-    // === FFT-based cross-correlation, summing across channels ===
-    // For each channel: cross_corr = IFFT(FFT(A_ch) * conj(FFT(B_ch)))
-    // where A_ch = first nsamp_window samples, B_ch = full span
-    // Sum cross-spectra across channels, then single IFFT.
-
-    // Clear power accumulator (reused for cross-spectrum sum)
-    for p in power_buffer.iter_mut().take(fft_size) {
-        *p = Complex::new(0.0, 0.0);
-    }
-
-    for ms in mean_sub_pool.iter() {
-        // FFT(A): first nsamp_window samples
-        for i in 0..fft_size {
-            fft_a[i] = if i < nsamp_window {
-                Complex::new(ms[i], 0.0)
-            } else {
-                Complex::new(0.0, 0.0)
-            };
-        }
-        fft.fft_forward_inplace(fft_a, fft_size);
-
-        // FFT(B): full span
-        for i in 0..fft_size {
-            fft_buffer[i] = if i < span {
-                Complex::new(ms[i], 0.0)
-            } else {
-                Complex::new(0.0, 0.0)
-            };
-        }
-        fft.fft_forward_inplace(fft_buffer, fft_size);
-
-        // Accumulate cross-spectrum: conj(FFT(A)) * FFT(B) → cross_corr[lag] = Σ_i a[i]*b[i+lag]
-        for i in 0..fft_size {
-            power_buffer[i] += fft_a[i].conj() * fft_buffer[i];
-        }
-    }
-
-    // Inverse FFT on accumulated cross-spectrum
-    fft.ifft_inplace(power_buffer, fft_size);
-    let fft_scale = 1.0 / fft_size as f64;
-
-    // Compute cumulative sum of squares across all channels for energy normalization
-    cum_sq[0] = 0.0;
-    for i in 0..span {
-        let mut sq_sum = 0.0;
-        for ms in mean_sub_pool.iter() {
-            sq_sum += ms[i] * ms[i];
-        }
-        cum_sq[i + 1] = cum_sq[i] + sq_sum;
-    }
-
-    // Initialize correlation array
     r.fill(0.0);
-    r[r_offset] = 1.0;
-
-    // Normalize each lag
-    // numerator = Σ_ch Σ_{i=0}^{nsamp_window-1} x_ch[i]*x_ch[i+lag]
-    // sumy2 = Σ_ch Σ_{i=lag}^{lag+nsamp_window-1} x_ch[i]²
-    for lag in 1..=local_maximum_lag {
-        let corr = power_buffer[lag].re * fft_scale;
-        let e2 = cum_sq[(lag + nsamp_window).min(span)] - cum_sq[lag];
-        let norm = (sumx2 * e2).sqrt();
-        if norm > 0.0 {
-            let normalized = corr / norm;
-            r[r_offset + lag] = normalized;
-            r[r_offset - lag] = normalized;
-        }
+    {
+        let chans: Vec<&[f64]> = mean_sub_pool.iter().map(|v| &v[..span]).collect();
+        fcc_correlate(&chans, nsamp_window, local_maximum_lag, r, r_offset);
     }
 
     // Raw autocorrelation peak in valid lag range (independent of voicing threshold)
@@ -1909,7 +1936,7 @@ fn compute_pitch_frame_fcc(
     octave_cost: f64,
     nsamp_window: usize,
     halfnsamp_window: usize,
-    _halfnsamp_period: usize,
+    halfnsamp_period: usize,
     maximum_lag: usize,
     brent_ixmax: usize,
     brent_depth: usize,
@@ -1918,11 +1945,6 @@ fn compute_pitch_frame_fcc(
     // Pre-allocated buffers
     mean_sub: &mut [f64],
     r: &mut [f64],
-    fft: &mut Fft,
-    fft_buffer: &mut [Complex<f64>],
-    fft_a: &mut [Complex<f64>],
-    cum_sq: &mut [f64],
-    fft_size: usize,
 ) -> PitchFrame {
     let r_offset = nsamp_window;
 
@@ -1951,8 +1973,16 @@ fn compute_pitch_frame_fcc(
     let local_maximum_lag = local_span.saturating_sub(nsamp_window);
 
     // Compute local peak for intensity (looking at the window around the frame center)
-    let peak_start = (right_sample - halfnsamp_window as isize).max(0) as usize;
-    let peak_end = ((left_sample + halfnsamp_window as isize) as usize).min(nx);
+    // Praat (Sound_to_Pitch.cpp:91-101): frame index j in
+    // [halfnsamp_window+1-halfnsamp_period, halfnsamp_window+halfnsamp_period]
+    // (1-based, clipped to the frame), i.e. half a longest period on each side
+    // of the centre -- NOT the whole window (which spans `periods_per_window`
+    // periods). Frame index j0 (0-based) is sample right_sample - hw + j0.
+    let frame_start = right_sample - halfnsamp_window as isize;
+    let j_lo = halfnsamp_window.saturating_sub(halfnsamp_period);
+    let j_hi = (halfnsamp_window + halfnsamp_period).min(nsamp_window);
+    let peak_start = (frame_start + j_lo as isize).max(0) as usize;
+    let peak_end = ((frame_start + j_hi as isize).max(0) as usize).min(nx);
     let mut local_peak = 0.0;
     for i in peak_start..peak_end {
         let value = (samples[i] - local_mean).abs();
@@ -2013,65 +2043,8 @@ fn compute_pitch_frame_fcc(
         };
     }
 
-    // === FFT-based cross-correlation ===
-    // FCC computes: r(lag) = Σ_{i=0}^{nsamp_window-1} x[i]*x[i+lag] / sqrt(sumx2 * sumy2)
-    // Numerator via FFT: IFFT(conj(FFT(A)) * FFT(B))[lag] where
-    //   A = mean_sub[0:nsamp_window] zero-padded, B = mean_sub[0:span] zero-padded
-    // Denominator: sumx2 (constant) * sumy2(lag) via cumulative sum of squares
-
-    // FFT(A): the first nsamp_window samples, zero-padded (using pre-allocated buffer)
-    for i in 0..fft_size {
-        fft_a[i] = if i < nsamp_window {
-            Complex::new(mean_sub[i], 0.0)
-        } else {
-            Complex::new(0.0, 0.0)
-        };
-    }
-    fft.fft_forward_inplace(fft_a, fft_size);
-
-    // FFT(B): the full span, zero-padded
-    for i in 0..fft_size {
-        fft_buffer[i] = if i < span {
-            Complex::new(mean_sub[i], 0.0)
-        } else {
-            Complex::new(0.0, 0.0)
-        };
-    }
-    fft.fft_forward_inplace(fft_buffer, fft_size);
-
-    // Cross-spectrum: conj(FFT(A)) * FFT(B) → cross_corr[lag] = Σ_i a[i]*b[i+lag]
-    for i in 0..fft_size {
-        fft_buffer[i] = fft_a[i].conj() * fft_buffer[i];
-    }
-
-    // Inverse FFT
-    fft.ifft_inplace(fft_buffer, fft_size);
-    let fft_scale = 1.0 / fft_size as f64;
-
-    // Compute cumulative sum of squares for denominator energy normalization
-    // cum_sq[k] = Σᵢ₌₀^{k-1} mean_sub[i]²
-    cum_sq[0] = 0.0;
-    for i in 0..span {
-        cum_sq[i + 1] = cum_sq[i] + mean_sub[i] * mean_sub[i];
-    }
-
-    // Initialize correlation array
     r.fill(0.0);
-    r[r_offset] = 1.0;
-
-    // Normalize each lag
-    // numerator = cross_corr[lag] = Σ_{i=0}^{nsamp_window-1} x[i]*x[i+lag]
-    // sumy2 = Σ_{i=lag}^{lag+nsamp_window-1} x[i]² = cum_sq[lag+nsamp_window] - cum_sq[lag]
-    for lag in 1..=local_maximum_lag {
-        let corr = fft_buffer[lag].re * fft_scale;
-        let e2 = cum_sq[(lag + nsamp_window).min(span)] - cum_sq[lag];
-        let norm = (sumx2 * e2).sqrt();
-        if norm > 0.0 {
-            let normalized = corr / norm;
-            r[r_offset + lag] = normalized;
-            r[r_offset - lag] = normalized;
-        }
-    }
+    fcc_correlate(&[&mean_sub[..span]], nsamp_window, local_maximum_lag, r, r_offset);
 
     // Raw autocorrelation peak in valid lag range (independent of voicing threshold)
     let raw_ac_peak = (2..local_maximum_lag.min(brent_ixmax))
@@ -2235,6 +2208,18 @@ pub fn sinc_interpolate(r: &[f64], offset: usize, x: f64, max_depth: i32) -> f64
         let frac = x - midleft as f64;
         return r[idx_midleft as usize] * (1.0 - frac) + r[idx_midright as usize] * frac;
     }
+    if max_depth == 2 {
+        // Praat's NUM_VALUE_INTERPOLATE_CUBIC branch (NUMinterpol.cpp), hit
+        // when the depth is clipped to 2 near the ends of the slice.
+        let yl = r[idx_midleft as usize];
+        let yr = r[idx_midright as usize];
+        let dyl = 0.5 * (yr - r[(idx_midleft - 1) as usize]);
+        let dyr = 0.5 * (r[(idx_midright + 1) as usize] - yl);
+        let fil = x - midleft as f64;
+        let fir = midright as f64 - x;
+        return yl * fir + yr * fil
+            - fil * fir * (0.5 * (dyr - dyl) + (fil - 0.5) * (dyl + dyr - 2.0 * (yr - yl)));
+    }
 
     // Full sinc interpolation with raised cosine window
     let left = idx_midright - max_depth;  // leftmost sample index
@@ -2322,7 +2307,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub static BRENT_TOTAL_ITERS: AtomicU64 = AtomicU64::new(0);
 pub static BRENT_TOTAL_CALLS: AtomicU64 = AtomicU64::new(0);
 
-fn minimize_brent<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64) -> (f64, f64) {
+pub(crate) fn minimize_brent<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64) -> (f64, f64) {
     const GOLDEN: f64 = 1.0 - 0.6180339887498948482; // 1 - golden ratio
     let sqrt_epsilon = f64::EPSILON.sqrt();
     const ITERMAX: usize = 60;
@@ -2522,12 +2507,15 @@ fn pitch_path_finder(
 
     // Compute initial local scores (matching Praat)
     for (iframe, frame) in frames.iter().enumerate() {
-        let unvoiced_strength = if silence_threshold <= 0.0 {
+        // Praat (Pitch.cpp:553): the voicing threshold is added even when the
+        // silence threshold is off (<= 0), so unvoiced strength is then
+        // exactly `voicing_threshold`, not 0.
+        let silence_term = if silence_threshold <= 0.0 {
             0.0
         } else {
-            let intensity_factor = frame.intensity / (silence_threshold / (1.0 + voicing_threshold));
-            voicing_threshold + (2.0 - intensity_factor).max(0.0)
+            2.0 - frame.intensity / (silence_threshold / (1.0 + voicing_threshold))
         };
+        let unvoiced_strength = voicing_threshold + silence_term.max(0.0);
 
         for (icand, cand) in frame.candidates.iter().enumerate() {
             let voiceless = cand.frequency <= 0.0 || cand.frequency >= ceiling;

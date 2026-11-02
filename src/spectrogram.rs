@@ -8,7 +8,6 @@
 //! - FFT bins are combined ("binned") into spectrogram frequency bins
 //! - Specific normalization: power / (windowssq × binWidth_samples)
 
-use crate::utils::Fft;
 use crate::window::WindowShape;
 use crate::Sound;
 
@@ -140,7 +139,7 @@ impl Spectrogram {
 
         // Compute number of time frames
         let number_of_times = 1 + ((physical_duration - physical_analysis_width) / time_step).floor() as usize;
-        let t1 = sound.start_time() + 0.5 * dx
+        let t1 = sound.x1()
             + 0.5 * ((nx as f64 - 1.0) * dx - (number_of_times as f64 - 1.0) * time_step);
 
         // Generate window
@@ -174,12 +173,15 @@ impl Spectrogram {
 
         // Frames are independent: compute each frame's column (in parallel
         // when enabled), then transpose into [freq_bin][time_frame].
-        let columns: Vec<Vec<f64>> = crate::par::map_init(number_of_times, Fft::new, |fft, iframe| {
+        let columns: Vec<Vec<f64>> = crate::par::map_init(
+            number_of_times,
+            || crate::utils::fft_fftpack::RealFftPlan::new(nsamp_fft),
+            |plan, iframe| {
             let t = t1 + iframe as f64 * time_step;
 
             // Find sample indices
             // leftSample = floor((t - x1) / dx), rightSample = leftSample + 1 (1-based)
-            let x1 = sound.start_time() + 0.5 * dx;
+            let x1 = sound.x1();
             let left_sample_1based = ((t - x1) / dx).floor() as i64 + 1;
             let right_sample_1based = left_sample_1based + 1;
 
@@ -200,16 +202,17 @@ impl Spectrogram {
                 }
             }
 
-            // Compute FFT
-            let spectrum = fft.real_fft(&fft_data, nsamp_fft);
+            // FFT as Praat does it (NUMfft_forward = FFTPACK drftf1, layout
+            // [DC, Re1, Im1, ..., Nyquist]).
+            plan.forward(&mut fft_data);
 
             // Compute power spectrum
             let mut power_spectrum = vec![0.0; half_nsamp_fft + 1];
-            power_spectrum[0] = spectrum[0].re * spectrum[0].re; // DC
+            power_spectrum[0] = fft_data[0] * fft_data[0]; // DC
             for i in 1..half_nsamp_fft {
-                power_spectrum[i] = spectrum[i].re * spectrum[i].re + spectrum[i].im * spectrum[i].im;
+                power_spectrum[i] = fft_data[2 * i - 1] * fft_data[2 * i - 1] + fft_data[2 * i] * fft_data[2 * i];
             }
-            power_spectrum[half_nsamp_fft] = spectrum[half_nsamp_fft].re * spectrum[half_nsamp_fft].re; // Nyquist
+            power_spectrum[half_nsamp_fft] = fft_data[nsamp_fft - 1] * fft_data[nsamp_fft - 1]; // Nyquist
 
             // Binning: combine multiple FFT bins into spectrogram bins
             let mut column = vec![0.0; number_of_freqs];
@@ -226,7 +229,8 @@ impl Spectrogram {
                 column[iband] = power * one_by_bin_width;
             }
             column
-        });
+        },
+        );
 
         let data: Vec<Vec<f64>> = (0..number_of_freqs)
             .map(|iband| columns.iter().map(|col| col[iband]).collect())

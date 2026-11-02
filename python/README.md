@@ -99,9 +99,9 @@ sound.start_time, sound.end_time         # Time bounds
 
 # Methods
 sound.samples()                          # Get samples as numpy array
-sound.get_value_at_time(time)            # Linear interpolation
+sound.get_value_at_time(time, interpolation="sinc70")  # Praat default
 sound.extract_part(start, end, ...)      # Extract segment
-sound.pre_emphasis(from_freq)            # High-pass filter
+sound.pre_emphasis(from_freq, normalize=True)  # as Praat: rescaled to 0.99 peak
 sound.rms(), sound.peak()                # Amplitude measures
 
 # Analysis
@@ -185,7 +185,9 @@ formant.times()                                       # Frame times
 intensity.get_value_at_time(time, interp)  # Query dB
 intensity.values()                          # All values
 intensity.times()                           # Frame times
-intensity.min(), intensity.max(), intensity.mean()
+intensity.min(), intensity.max(), intensity.mean()  # Praat "Get minimum/maximum/mean" defaults
+intensity.get_average(t0, t1, "energy")     # also "sones", "dB"
+intensity.get_minimum(t0, t1, "parabolic") # get_maximum, get_time_of_minimum/maximum
 ```
 
 ### Spectrum
@@ -215,7 +217,9 @@ spectrogram.time_step, spectrogram.freq_step
 harmonicity.get_value_at_time(time, interp)  # Query HNR (dB)
 harmonicity.values()                          # All values
 harmonicity.times()                           # Frame times
-harmonicity.min(), harmonicity.max(), harmonicity.mean()
+harmonicity.min(), harmonicity.max(), harmonicity.mean()  # Praat semantics (mean skips -200)
+harmonicity.get_mean(t0, t1), harmonicity.get_standard_deviation(t0, t1)
+harmonicity.get_minimum(t0, t1, "parabolic")  # get_maximum, get_time_of_*
 ```
 
 ## Unit Options

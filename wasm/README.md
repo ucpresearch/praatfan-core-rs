@@ -139,8 +139,8 @@ sound.end_time         // number
 
 // Methods
 sound.samples()                              // Float64Array
-sound.get_value_at_time(time)               // number | undefined
-sound.pre_emphasis(fromFreq)                 // Sound
+sound.get_value_at_time(time)               // number | undefined (sinc70, as Praat)
+sound.pre_emphasis(fromFreq)                 // Sound (rescaled to 0.99 peak, as Praat)
 sound.de_emphasis(fromFreq)                  // Sound
 sound.rms()                                  // number
 sound.peak()                                 // number

@@ -4,7 +4,7 @@
 //! providing magnitude/power spectra and spectral moments (center of gravity,
 //! standard deviation, skewness, kurtosis).
 
-use crate::utils::Fft;
+use crate::utils::CompSum;
 use crate::Sound;
 
 /// Single-frame spectrum representation
@@ -48,22 +48,32 @@ impl Spectrum {
             return Self::new(Vec::new(), Vec::new(), 0.0, 0.0);
         }
 
-        // Determine FFT size
-        let fft_size = if fast {
-            n.next_power_of_two()
-        } else {
-            n
-        };
+        // Praat (Sound_to_Spectrum): fast -> next power of two (at least 2),
+        // zero-padded; FFT via FFTPACK (NUMfft_forward), scaled by dx.
+        let fft_size = if fast { n.next_power_of_two().max(2) } else { n };
+        let mut data = vec![0.0f64; fft_size];
+        data[..n].copy_from_slice(samples);
+        let mut plan = crate::utils::fft_fftpack::RealFftPlan::new(fft_size);
+        plan.forward(&mut data);
 
-        let mut fft = Fft::new();
-        let spectrum = fft.real_fft(samples, fft_size);
-
-        // Extract positive frequencies (0 to Nyquist)
-        // Scale by dx (sample period) to match Praat's normalization
+        // drftf1 layout: [DC, Re1, Im1, Re2, Im2, ..., (Re_{n/2} if n even)]
         let n_bins = fft_size / 2 + 1;
         let dx = 1.0 / sound.sample_rate(); // sample period
-        let real: Vec<f64> = spectrum[..n_bins].iter().map(|c| c.re * dx).collect();
-        let imag: Vec<f64> = spectrum[..n_bins].iter().map(|c| c.im * dx).collect();
+        let mut real = vec![0.0f64; n_bins];
+        let mut imag = vec![0.0f64; n_bins];
+        real[0] = data[0] * dx;
+        for k in 1..n_bins - 1 {
+            real[k] = data[2 * k - 1] * dx;
+            imag[k] = data[2 * k] * dx;
+        }
+        if n_bins > 1 {
+            if fft_size % 2 == 1 {
+                real[n_bins - 1] = data[fft_size - 2] * dx;
+                imag[n_bins - 1] = data[fft_size - 1] * dx;
+            } else {
+                real[n_bins - 1] = data[fft_size - 1] * dx;
+            }
+        }
 
         let df = sound.sample_rate() / fft_size as f64;
         let max_frequency = sound.sample_rate() / 2.0;
@@ -215,133 +225,70 @@ impl Spectrum {
         }
     }
 
-    /// Compute spectral center of gravity (centroid)
-    ///
-    /// # Arguments
-    /// * `power` - The power to use for weighting (typically 1.0 or 2.0)
-    ///
-    /// The center of gravity is the weighted mean frequency:
-    /// CoG = Σ(f × |X(f)|^power) / Σ(|X(f)|^power)
+    /// Bin energies as Praat weights them: `re^2 + im^2`, raised to
+    /// `power / 2` unless that is 1.
+    fn weighted_energy(&self, bin: usize, halfpower: f64) -> f64 {
+        let (re, im) = (self.real[bin], self.imag[bin]);
+        let energy = re * re + im * im;
+        if halfpower != 1.0 { libm::pow(energy, halfpower) } else { energy }
+    }
+
+    /// Spectral centre of gravity: Praat's `Spectrum_getCentreOfGravity`,
+    /// `sum(f |X|^power) / sum(|X|^power)` with long-double sums.
+    /// NaN (Praat: undefined) for an all-zero spectrum.
     pub fn get_center_of_gravity(&self, power: f64) -> f64 {
-        let mut weighted_sum = 0.0;
-        let mut weight_sum = 0.0;
-
+        let halfpower = 0.5 * power;
+        let (mut sum_e, mut sum_fe) = (CompSum::default(), CompSum::default());
         for bin in 0..self.real.len() {
-            let freq = self.get_frequency_from_bin(bin);
-            let r = self.real[bin];
-            let i = self.imag[bin];
-            let magnitude = (r * r + i * i).sqrt();
-            let weight = libm::pow(magnitude, power);
-
-            weighted_sum += freq * weight;
-            weight_sum += weight;
+            let energy = self.weighted_energy(bin, halfpower);
+            let f = bin as f64 * self.df;
+            sum_e.add(energy);
+            sum_fe.add(f * energy);
         }
-
-        if weight_sum > 0.0 {
-            weighted_sum / weight_sum
-        } else {
-            0.0
-        }
+        let se = sum_e.value();
+        if se == 0.0 { f64::NAN } else { sum_fe.value() / se }
     }
 
-    /// Compute spectral standard deviation
-    ///
-    /// # Arguments
-    /// * `power` - The power to use for weighting
-    ///
-    /// The standard deviation measures the spread around the center of gravity
+    /// Praat's `Spectrum_getCentralMoment`.
+    pub fn get_central_moment(&self, moment: f64, power: f64) -> f64 {
+        let fmean = self.get_center_of_gravity(power);
+        if fmean.is_nan() {
+            return f64::NAN;
+        }
+        let halfpower = 0.5 * power;
+        let (mut sum_e, mut sum_fe) = (CompSum::default(), CompSum::default());
+        for bin in 0..self.real.len() {
+            let energy = self.weighted_energy(bin, halfpower);
+            let f = bin as f64 * self.df;
+            sum_e.add(energy);
+            sum_fe.add(libm::pow(f - fmean, moment) * energy);
+        }
+        sum_fe.value() / sum_e.value()
+    }
+
+    /// Spectral standard deviation: `sqrt(m2)` (Praat).
     pub fn get_standard_deviation(&self, power: f64) -> f64 {
-        let cog = self.get_center_of_gravity(power);
-
-        let mut weighted_var_sum = 0.0;
-        let mut weight_sum = 0.0;
-
-        for bin in 0..self.real.len() {
-            let freq = self.get_frequency_from_bin(bin);
-            let r = self.real[bin];
-            let i = self.imag[bin];
-            let magnitude = (r * r + i * i).sqrt();
-            let weight = libm::pow(magnitude, power);
-
-            let deviation = freq - cog;
-            weighted_var_sum += deviation * deviation * weight;
-            weight_sum += weight;
-        }
-
-        if weight_sum > 0.0 {
-            (weighted_var_sum / weight_sum).sqrt()
-        } else {
-            0.0
-        }
+        libm::sqrt(self.get_central_moment(2.0, power))
     }
 
-    /// Compute spectral skewness
-    ///
-    /// Skewness measures the asymmetry of the spectrum around the center of gravity.
-    /// Positive values indicate more energy at higher frequencies.
+    /// Spectral skewness: `m3 / m2^1.5` (Praat); NaN if undefined.
     pub fn get_skewness(&self, power: f64) -> f64 {
-        let cog = self.get_center_of_gravity(power);
-        let std_dev = self.get_standard_deviation(power);
-
-        if std_dev == 0.0 {
-            return 0.0;
+        let m2 = self.get_central_moment(2.0, power);
+        let m3 = self.get_central_moment(3.0, power);
+        if m2.is_nan() || m3.is_nan() || m2 == 0.0 {
+            return f64::NAN;
         }
-
-        let mut weighted_sum = 0.0;
-        let mut weight_sum = 0.0;
-
-        for bin in 0..self.real.len() {
-            let freq = self.get_frequency_from_bin(bin);
-            let r = self.real[bin];
-            let i = self.imag[bin];
-            let magnitude = (r * r + i * i).sqrt();
-            let weight = libm::pow(magnitude, power);
-
-            let z = (freq - cog) / std_dev;
-            weighted_sum += z.powi(3) * weight;
-            weight_sum += weight;
-        }
-
-        if weight_sum > 0.0 {
-            weighted_sum / weight_sum
-        } else {
-            0.0
-        }
+        m3 / (m2 * libm::sqrt(m2))
     }
 
-    /// Compute spectral kurtosis
-    ///
-    /// Kurtosis measures the "peakedness" of the spectrum.
-    /// Higher values indicate a more peaked distribution.
+    /// Spectral (excess) kurtosis: `m4 / m2^2 - 3` (Praat); NaN if undefined.
     pub fn get_kurtosis(&self, power: f64) -> f64 {
-        let cog = self.get_center_of_gravity(power);
-        let std_dev = self.get_standard_deviation(power);
-
-        if std_dev == 0.0 {
-            return 0.0;
+        let m2 = self.get_central_moment(2.0, power);
+        let m4 = self.get_central_moment(4.0, power);
+        if m2.is_nan() || m4.is_nan() || m2 == 0.0 {
+            return f64::NAN;
         }
-
-        let mut weighted_sum = 0.0;
-        let mut weight_sum = 0.0;
-
-        for bin in 0..self.real.len() {
-            let freq = self.get_frequency_from_bin(bin);
-            let r = self.real[bin];
-            let i = self.imag[bin];
-            let magnitude = (r * r + i * i).sqrt();
-            let weight = libm::pow(magnitude, power);
-
-            let z = (freq - cog) / std_dev;
-            weighted_sum += z.powi(4) * weight;
-            weight_sum += weight;
-        }
-
-        if weight_sum > 0.0 {
-            // Subtract 3 to get excess kurtosis (normal distribution has kurtosis = 3)
-            weighted_sum / weight_sum - 3.0
-        } else {
-            0.0
-        }
+        m4 / (m2 * m2) - 3.0
     }
 
     /// Get the total energy (integral of power spectrum)

@@ -34,6 +34,12 @@ pub struct Sound {
     sample_rate: f64,
     /// Start time of the first sample (usually 0.0)
     start_time: f64,
+    /// Praat's `x1` (time of the first sample's centre) when it is not
+    /// `start_time + dx/2`, stored as Praat computes it so that frame
+    /// placement is bit-identical. Set by [`Sound::resample`], where Praat keeps
+    /// `xmin`/`xmax` and centres the new samples:
+    /// `x1 = (xmin + xmax - (n - 1) / fs) / 2`.
+    x1_override: Option<f64>,
 }
 
 impl Sound {
@@ -56,6 +62,7 @@ impl Sound {
             samples: samples.to_vec(),
             sample_rate,
             start_time: 0.0,
+            x1_override: None,
         }
     }
 
@@ -65,6 +72,7 @@ impl Sound {
             samples,
             sample_rate,
             start_time: 0.0,
+            x1_override: None,
         }
     }
 
@@ -241,6 +249,7 @@ impl Sound {
             samples: all_samples,
             sample_rate,
             start_time: 0.0,
+            x1_override: None,
         })
     }
 
@@ -322,6 +331,7 @@ impl Sound {
             samples,
             sample_rate,
             start_time: 0.0,
+            x1_override: None,
         })
     }
 
@@ -419,6 +429,7 @@ impl Sound {
                 samples,
                 sample_rate,
                 start_time: 0.0,
+                x1_override: None,
             })
             .collect();
 
@@ -501,6 +512,7 @@ impl Sound {
                 samples,
                 sample_rate,
                 start_time: 0.0,
+                x1_override: None,
             })
             .collect();
 
@@ -549,7 +561,7 @@ impl Sound {
     /// In Praat's terminology, this is x1 = xmin + 0.5 * dx.
     /// Samples are considered to be centered at their time positions.
     pub fn x1(&self) -> f64 {
-        self.start_time + 0.5 * self.dx()
+        self.x1_override.unwrap_or(self.start_time + 0.5 * self.dx())
     }
 
     /// Get the time corresponding to a sample index
@@ -579,31 +591,24 @@ impl Sound {
         }
     }
 
-    /// Get the sample value at a given time using linear interpolation
+    /// Sample value at `time` with Sinc70 interpolation, Praat's default for
+    /// `Sound: Get value at time` (see `get_value_at_time_interpolated`).
     ///
     /// Returns None if the time is outside the sound's duration.
     pub fn get_value_at_time(&self, time: f64) -> Option<f64> {
-        if time < self.start_time || time > self.end_time() {
-            return None;
-        }
+        // Praat's default interpolation for `Sound: Get value at time`.
+        self.get_value_at_time_interpolated(time, crate::Interpolation::Sinc70)
+    }
 
-        // Find the fractional sample position
-        let position = (time - self.start_time) * self.sample_rate - 0.5;
-
-        if position <= 0.0 {
-            return Some(self.samples[0]);
-        }
-
-        let index = position.floor() as usize;
-        if index >= self.samples.len() - 1 {
-            return Some(*self.samples.last().unwrap());
-        }
-
-        // Linear interpolation
-        let frac = position - index as f64;
-        let v0 = self.samples[index];
-        let v1 = self.samples[index + 1];
-        Some(v0 + frac * (v1 - v0))
+    /// Sample value at `time` with Praat's `Vector_getValueAtX` semantics
+    /// (`Sound: Get value at time...`; Praat's default interpolation there is
+    /// `Sinc70`). Undefined outside `[x1 - dx/2, x1 + (n - 1/2) dx]`.
+    pub fn get_value_at_time_interpolated(
+        &self,
+        time: f64,
+        interpolation: crate::Interpolation,
+    ) -> Option<f64> {
+        crate::interpolation::vector_value_at_x(&self.samples, self.x1(), self.dx(), time, interpolation)
     }
 
     /// Extract a portion of the sound
@@ -624,40 +629,49 @@ impl Sound {
         relative_width: f64,
         preserve_times: bool,
     ) -> Result<Sound> {
-        if start_time >= end_time {
+        // Port of Praat's Sound_extractPart (fon/Sound.cpp).
+        // Function_unidirectionalAutowindow: an empty range means everything.
+        let (mut tmin, mut tmax) = (start_time, end_time);
+        if tmin >= tmax {
+            tmin = self.start_time;
+            tmax = self.end_time();
+        }
+        // Window tails may extend outside the requested domain.
+        if relative_width != 1.0 {
+            let margin = 0.5 * (relative_width - 1.0) * (tmax - tmin);
+            tmin -= margin;
+            tmax += margin;
+        }
+        // All real or virtual samples that fit within [tmin, tmax] (1-based).
+        let dx = self.dx();
+        let x1 = self.x1();
+        let itmin = 1 + libm::ceil((tmin - x1) / dx) as i64;
+        let itmax = 1 + libm::floor((tmax - x1) / dx) as i64;
+        if itmax < itmin {
             return Err(PraatError::InvalidParameter(
-                "start_time must be less than end_time".to_string(),
+                "Extracted Sound would contain no samples".to_string(),
             ));
         }
-
-        let duration = end_time - start_time;
-        let n_samples = (duration * self.sample_rate).round() as usize;
-
-        if n_samples == 0 {
-            return Err(PraatError::InvalidParameter(
-                "Extraction would result in zero samples".to_string(),
-            ));
+        let n = (itmax - itmin + 1) as usize;
+        // Virtual samples (outside the sound) stay zero.
+        let nx = self.samples.len() as i64;
+        let mut extracted = vec![0.0; n];
+        for it in itmin.max(1)..=itmax.min(nx) {
+            extracted[(it - itmin) as usize] = self.samples[(it - 1) as usize];
         }
+        multiply_by_window_praat(&mut extracted, window_shape);
 
-        // Calculate sample indices
-        let first_sample = self.time_to_index(start_time).max(0) as usize;
-        let last_sample = (self.time_to_index(end_time).max(0) as usize).min(self.samples.len());
-
-        // Extract and optionally window the samples
-        let mut extracted: Vec<f64> = self.samples[first_sample..last_sample].to_vec();
-
-        // Apply window if not rectangular
-        if window_shape != WindowShape::Rectangular {
-            let window = window_shape.generate(extracted.len(), Some(relative_width));
-            for (sample, &w) in extracted.iter_mut().zip(window.iter()) {
-                *sample *= w;
-            }
+        let mut new_x1 = x1 + (itmin - 1) as f64 * dx;
+        let mut new_xmin = tmin;
+        if !preserve_times {
+            new_xmin = 0.0;
+            new_x1 -= tmin;
         }
-
         Ok(Sound {
             samples: extracted,
             sample_rate: self.sample_rate,
-            start_time: if preserve_times { start_time } else { 0.0 },
+            start_time: new_xmin,
+            x1_override: Some(new_x1),
         })
     }
 
@@ -689,6 +703,7 @@ impl Sound {
             samples: filtered,
             sample_rate: self.sample_rate,
             start_time: self.start_time,
+            x1_override: self.x1_override,
         }
     }
 
@@ -714,6 +729,19 @@ impl Sound {
             samples: filtered,
             sample_rate: self.sample_rate,
             start_time: self.start_time,
+            x1_override: self.x1_override,
+        }
+    }
+
+    /// Praat's `Vector_scale`: multiply so that the largest absolute sample
+    /// becomes `peak` (unchanged if the sound is all zeros). Praat's
+    /// pre-/de-emphasis commands finish with `Vector_scale (me, 0.99)`.
+    pub fn scale_peak(&self, peak: f64) -> Sound {
+        let extremum = self.samples.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+        if extremum == 0.0 {
+            self.clone()
+        } else {
+            self.scale(peak / extremum)
         }
     }
 
@@ -723,6 +751,7 @@ impl Sound {
             samples: self.samples.iter().map(|&s| s * factor).collect(),
             sample_rate: self.sample_rate,
             start_time: self.start_time,
+            x1_override: self.x1_override,
         }
     }
 
@@ -751,6 +780,7 @@ impl Sound {
             samples: result,
             sample_rate: self.sample_rate,
             start_time: self.start_time.min(other.start_time),
+            x1_override: None,
         })
     }
 
@@ -780,6 +810,7 @@ impl Sound {
             samples,
             sample_rate,
             start_time: 0.0,
+            x1_override: None,
         }
     }
 
@@ -790,6 +821,7 @@ impl Sound {
             samples: vec![0.0; n_samples],
             sample_rate,
             start_time: 0.0,
+            x1_override: None,
         }
     }
 
@@ -838,6 +870,11 @@ impl Sound {
 
         let upfactor = new_sample_rate / self.sample_rate;
 
+        // Praat (Sound_resample): an exact doubling goes through the FFT
+        // upsampler, not sinc interpolation.
+        if (upfactor - 2.0).abs() < 1e-6 {
+            return self.upsample_by_two();
+        }
         // If ratio is ~1, return copy
         if (upfactor - 1.0).abs() < 1e-6 {
             return self.clone();
@@ -853,6 +890,7 @@ impl Sound {
                 samples: Vec::new(),
                 sample_rate: new_sample_rate,
                 start_time: self.start_time,
+                x1_override: self.x1_override,
             };
         }
 
@@ -869,8 +907,9 @@ impl Sound {
         // x1_new = 0.5 * (xmin + xmax - (numberOfSamples - 1) / samplingFrequency)
         let dx_orig = 1.0 / self.sample_rate;
         let dx_new = 1.0 / new_sample_rate;
-        let x1_orig = xmin + 0.5 * dx_orig;
-        let x1_new = 0.5 * (xmin + xmax - (new_num_samples - 1) as f64 * dx_new);
+        let _ = dx_orig;
+        let x1_orig = self.x1();
+        let x1_new = 0.5 * (xmin + xmax - (new_num_samples - 1) as f64 / new_sample_rate);
 
         // Sinc interpolation precision (Praat default is 50)
         let precision: isize = 50;
@@ -891,7 +930,7 @@ impl Sound {
                     // Praat: index = Sampled_xToIndex(me, x) = (x - x1) / dx + 1.0
                     let index = (x - x1_orig) / dx_orig + 1.0;
 
-                    sinc_interpolate_1based(&filtered_samples, index, precision)
+                    crate::interpolation::num_interpolate_sinc(&filtered_samples, index, precision)
                 })
                 .collect()
         });
@@ -901,6 +940,7 @@ impl Sound {
             samples: new_samples,
             sample_rate: new_sample_rate,
             start_time: self.start_time,
+            x1_override: Some(x1_new),
         }
     }
 
@@ -916,6 +956,48 @@ impl Sound {
     /// Praat's NUMrealft packed format (1-based):
     ///   data[1] = DC, data[2] = Nyquist
     ///   data[2k+1], data[2k+2] = Re, Im of frequency bin k (for k >= 1)
+    /// Port of Praat's `Sound_upsample` (fon/Sound.cpp): zero-pad by 1000
+    /// samples on each side, real FFT of size `nfft`, linear taper over the
+    /// top 5% of bins, Nyquist zeroed, inverse real FFT of size `2 * nfft`.
+    /// The left edge of the first sample stays put, so `start_time` is
+    /// unchanged and there are exactly `2 * n` output samples.
+    fn upsample_by_two(&self) -> Sound {
+        use crate::utils::fft_fftpack::RealFftPlan;
+
+        let n = self.samples.len();
+        let anti_turn_around = 1000;
+        let nfft = (n + 2 * anti_turn_around).next_power_of_two();
+
+        let mut data = vec![0.0_f64; 2 * nfft];
+        data[anti_turn_around..anti_turn_around + n].copy_from_slice(&self.samples);
+        {
+            let mut plan = RealFftPlan::new(nfft);
+            crate::utils::fft_fftpack::realft_forward_praat(&mut plan, &mut data[..nfft]);
+        }
+        // Praat (1-based): imin = (integer) (nfft * 0.95);
+        //   for i in imin+1 ..= nfft: data[i] *= (nfft - i) / (nfft - imin)
+        let imin = (nfft as f64 * 0.95) as usize;
+        for i in imin + 1..=nfft {
+            data[i - 1] *= (nfft - i) as f64 / (nfft - imin) as f64;
+        }
+        data[1] = 0.0; // Praat data[2]: Nyquist in NUMrealft's layout
+        {
+            let mut plan = RealFftPlan::new(2 * nfft);
+            crate::utils::fft_fftpack::realft_backward_praat(&mut plan, &mut data);
+        }
+        let factor = 1.0 / nfft as f64;
+        let samples = (0..2 * n)
+            .map(|i| data[i + 2 * anti_turn_around] * factor)
+            .collect();
+        Sound {
+            samples,
+            sample_rate: 2.0 * self.sample_rate,
+            start_time: self.start_time,
+            // Praat: new x1 = old x1 - 0.5 * (old dx - new dx)
+            x1_override: Some(self.x1() - 0.5 * (self.dx() - 0.5 * self.dx())),
+        }
+    }
+
     fn fft_lowpass_filter(&self, upfactor: f64) -> Vec<f64> {
         use crate::utils::fft_fftpack::RealFftPlan;
 
@@ -974,12 +1056,71 @@ impl Sound {
     }
 }
 
+/// Praat's `Sound_multiplyByWindow` (fon/Sound.cpp). `Gaussian` is Praat's
+/// "Gaussian1" and `Kaiser` its "Kaiser1".
+fn multiply_by_window_praat(x: &mut [f64], shape: WindowShape) {
+    use std::f64::consts::PI;
+    let n = x.len();
+    if n == 0 {
+        return;
+    }
+    let nf = n as f64;
+    let imid = 0.5 * (nf + 1.0);
+    match shape {
+        WindowShape::Rectangular => {}
+        WindowShape::Triangular => {
+            for (i, v) in x.iter_mut().enumerate() {
+                let phase = (i + 1) as f64 / nf;
+                *v *= 1.0 - (2.0 * phase - 1.0).abs();
+            }
+        }
+        WindowShape::Parabolic => {
+            for (i, v) in x.iter_mut().enumerate() {
+                let phase = (i + 1) as f64 / nf;
+                *v *= 1.0 - (2.0 * phase - 1.0) * (2.0 * phase - 1.0);
+            }
+        }
+        WindowShape::Hanning => {
+            for (i, v) in x.iter_mut().enumerate() {
+                let phase = (i + 1) as f64 / nf;
+                *v *= 0.5 * (1.0 - libm::cos(2.0 * PI * phase));
+            }
+        }
+        WindowShape::Hamming => {
+            for (i, v) in x.iter_mut().enumerate() {
+                let phase = (i + 1) as f64 / nf;
+                *v *= 0.54 - 0.46 * libm::cos(2.0 * PI * phase);
+            }
+        }
+        WindowShape::Gaussian => {
+            let edge = libm::exp(-3.0);
+            let onebyedge1 = 1.0 / (1.0 - edge);
+            for (i, v) in x.iter_mut().enumerate() {
+                let phase = ((i + 1) as f64 - imid) / nf;
+                *v *= (libm::exp(-12.0 * phase * phase) - edge) * onebyedge1;
+            }
+        }
+        WindowShape::Kaiser => {
+            let factor = 1.0 / crate::intensity::bessel_i0(2.0 * PI);
+            for (i, v) in x.iter_mut().enumerate() {
+                let phase = 2.0 * ((i + 1) as f64 - imid) / nf;
+                let root = 1.0 - phase * phase;
+                *v *= if root <= 0.0 {
+                    0.0
+                } else {
+                    factor * crate::intensity::bessel_i0(2.0 * PI * libm::sqrt(root))
+                };
+            }
+        }
+    }
+}
+
 /// Sinc interpolation matching Praat's NUM_interpolate_sinc exactly
 /// From Praat's melder/NUMinterpol.cpp
 ///
 /// Note: This function uses 1-BASED indexing to match Praat exactly.
 /// So x=1.0 refers to samples[0], x=2.0 refers to samples[1], etc.
-fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize) -> f64 {
+pub(crate) fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize) -> f64 {
     let n = samples.len() as isize;
     if n < 1 {
         return f64::NAN;

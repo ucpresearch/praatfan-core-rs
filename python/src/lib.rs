@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 
 // Import from praatfan-core-rs (use :: to disambiguate from pymodule name)
 use ::praatfan_core::{
-    FrequencyUnit, Interpolation, PitchUnit, WindowShape,
+    FrequencyUnit, Interpolation, IntensityAveraging, PeakInterpolation, PitchUnit, WindowShape,
     Sound as RustSound,
     Pitch as RustPitch,
     PitchMethod as RustPitchMethod,
@@ -91,14 +91,28 @@ impl PySound {
         self.inner.end_time()
     }
 
+    /// Time of the first sample's centre (Praat's ``x1``). Equals
+    /// ``start_time + 0.5 / sample_rate`` except after ``resample``, where
+    /// Praat centres the new samples in the original time domain.
+    #[getter]
+    fn x1(&self) -> f64 {
+        self.inner.x1()
+    }
+
     /// Get the audio samples as a numpy array
     fn samples<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         self.inner.samples().to_vec().into_pyarray_bound(py)
     }
 
-    /// Get the sample value at a specific time using linear interpolation
-    fn get_value_at_time(&self, time: f64) -> Option<f64> {
-        self.inner.get_value_at_time(time)
+    /// Get the sample value at a specific time.
+    ///
+    /// ``interpolation``: "nearest", "linear", "cubic", "sinc70" (default,
+    /// as in Praat's ``Sound: Get value at time``) or "sinc700". Matches
+    /// Praat's ``Vector_getValueAtX``.
+    #[pyo3(signature = (time, interpolation = "sinc70"))]
+    fn get_value_at_time(&self, time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        let interp = parse_interpolation(interpolation)?;
+        Ok(self.inner.get_value_at_time_interpolated(time, interp))
     }
 
     /// Extract a portion of the sound
@@ -117,18 +131,21 @@ impl PySound {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    /// Apply pre-emphasis filter
-    fn pre_emphasis(&self, from_frequency: f64) -> Self {
-        PySound {
-            inner: self.inner.pre_emphasis(from_frequency),
-        }
+    /// Apply pre-emphasis filter. As Praat's "Filter (pre-emphasis)" (and
+    /// parselmouth's default), the result is rescaled to a peak of 0.99
+    /// unless ``normalize=False``.
+    #[pyo3(signature = (from_frequency = 50.0, normalize = true))]
+    fn pre_emphasis(&self, from_frequency: f64, normalize: bool) -> Self {
+        let s = self.inner.pre_emphasis(from_frequency);
+        PySound { inner: if normalize { s.scale_peak(0.99) } else { s } }
     }
 
-    /// Apply de-emphasis filter (inverse of pre-emphasis)
-    fn de_emphasis(&self, from_frequency: f64) -> Self {
-        PySound {
-            inner: self.inner.de_emphasis(from_frequency),
-        }
+    /// Apply de-emphasis filter (inverse of pre-emphasis); rescaled to a
+    /// 0.99 peak unless ``normalize=False``, as in Praat.
+    #[pyo3(signature = (from_frequency = 50.0, normalize = true))]
+    fn de_emphasis(&self, from_frequency: f64, normalize: bool) -> Self {
+        let s = self.inner.de_emphasis(from_frequency);
+        PySound { inner: if normalize { s.scale_peak(0.99) } else { s } }
     }
 
     /// Get the root-mean-square amplitude
@@ -367,8 +384,9 @@ impl PySound {
     /// ----------
     /// time_step : float
     ///     Time between analysis frames (0.0 for automatic)
-    /// max_num_formants : int
-    ///     Maximum number of formants (typically 5)
+    /// max_num_formants : float
+    ///     Maximum number of formants (typically 5; fractional values such as
+    ///     5.5 work as in Praat: LPC order = round(2 * max_num_formants))
     /// max_formant_hz : float
     ///     Maximum formant frequency (Hz). Use ~5500 for male, ~5000 for female
     /// window_length : float
@@ -379,13 +397,13 @@ impl PySound {
         &self,
         py: Python<'_>,
         time_step: f64,
-        max_num_formants: usize,
+        max_num_formants: f64,
         max_formant_hz: f64,
         window_length: f64,
         pre_emphasis_from: f64,
     ) -> PyFormant {
         let inner = py.allow_threads(|| {
-            RustFormant::from_sound_burg(
+            RustFormant::from_sound_burg_f(
                 &self.inner,
                 time_step,
                 max_num_formants,
@@ -1132,16 +1150,70 @@ impl PyIntensity {
         self.inner.start_time()
     }
 
+    /// Minimum over the whole domain, parabolic (Praat's "Get minimum" defaults)
     fn min(&self) -> Option<f64> {
         self.inner.min()
     }
 
+    /// Maximum over the whole domain, parabolic (Praat's "Get maximum" defaults)
     fn max(&self) -> Option<f64> {
         self.inner.max()
     }
 
+    /// Energy-averaged mean over the whole domain (Praat's "Get mean" defaults)
     fn mean(&self) -> Option<f64> {
         self.inner.mean()
+    }
+
+    /// Praat's "Get mean..." (``averaging``: energy (default), sones, dB;
+    /// ``from_time == to_time``: whole domain).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, averaging = "energy"))]
+    fn get_average(&self, from_time: f64, to_time: f64, averaging: &str) -> PyResult<Option<f64>> {
+        let method = match averaging.to_lowercase().as_str() {
+            "energy" => IntensityAveraging::Energy,
+            "sones" => IntensityAveraging::Sones,
+            "db" => IntensityAveraging::Db,
+            _ => return Err(PyValueError::new_err(format!(
+                "Unknown averaging: '{}'. Valid options: energy, sones, dB", averaging))),
+        };
+        Ok(self.inner.get_average(from_time, to_time, method))
+    }
+
+    /// Praat's "Get minimum..." (``from_time == to_time``: whole domain;
+    /// ``interpolation``: none, parabolic (default), cubic, sinc70, sinc700).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, interpolation = "parabolic"))]
+    fn get_minimum(&self, from_time: f64, to_time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_minimum(from_time, to_time, parse_peak_interpolation(interpolation)?))
+    }
+
+    /// Praat's "Get maximum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, interpolation = "parabolic"))]
+    fn get_maximum(&self, from_time: f64, to_time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_maximum(from_time, to_time, parse_peak_interpolation(interpolation)?))
+    }
+
+    /// Praat's "Get time of minimum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, interpolation = "parabolic"))]
+    fn get_time_of_minimum(&self, from_time: f64, to_time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_time_of_minimum(from_time, to_time, parse_peak_interpolation(interpolation)?))
+    }
+
+    /// Praat's "Get time of maximum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, interpolation = "parabolic"))]
+    fn get_time_of_maximum(&self, from_time: f64, to_time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_time_of_maximum(from_time, to_time, parse_peak_interpolation(interpolation)?))
+    }
+
+    /// Time domain start (Praat's xmin)
+    #[getter]
+    fn xmin(&self) -> f64 {
+        self.inner.xmin()
+    }
+
+    /// Time domain end (Praat's xmax)
+    #[getter]
+    fn xmax(&self) -> f64 {
+        self.inner.xmax()
     }
 }
 
@@ -1311,26 +1383,93 @@ impl PyHarmonicity {
         self.inner.start_time()
     }
 
+    /// Minimum over the whole domain, parabolic; -200 frames take part
+    /// (Praat's "Get minimum" defaults)
     fn min(&self) -> Option<f64> {
         self.inner.min()
     }
 
+    /// Maximum over the whole domain, parabolic (Praat's "Get maximum" defaults)
     fn max(&self) -> Option<f64> {
         self.inner.max()
     }
 
+    /// Mean of the sounding (not -200) frames (Praat's "Get mean")
     fn mean(&self) -> Option<f64> {
         self.inner.mean()
+    }
+
+    /// Praat's "Get mean..." over [from_time, to_time] (sounding frames).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0))]
+    fn get_mean(&self, from_time: f64, to_time: f64) -> Option<f64> {
+        self.inner.get_mean(from_time, to_time)
+    }
+
+    /// Praat's "Get standard deviation..." (sounding frames).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0))]
+    fn get_standard_deviation(&self, from_time: f64, to_time: f64) -> Option<f64> {
+        self.inner.get_standard_deviation(from_time, to_time)
+    }
+
+    /// Praat's "Get minimum..." (``from_time == to_time``: whole domain;
+    /// ``interpolation``: none, parabolic (default), cubic, sinc70, sinc700).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, interpolation = "parabolic"))]
+    fn get_minimum(&self, from_time: f64, to_time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_minimum(from_time, to_time, parse_peak_interpolation(interpolation)?))
+    }
+
+    /// Praat's "Get maximum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, interpolation = "parabolic"))]
+    fn get_maximum(&self, from_time: f64, to_time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_maximum(from_time, to_time, parse_peak_interpolation(interpolation)?))
+    }
+
+    /// Praat's "Get time of minimum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, interpolation = "parabolic"))]
+    fn get_time_of_minimum(&self, from_time: f64, to_time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_time_of_minimum(from_time, to_time, parse_peak_interpolation(interpolation)?))
+    }
+
+    /// Praat's "Get time of maximum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, interpolation = "parabolic"))]
+    fn get_time_of_maximum(&self, from_time: f64, to_time: f64, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_time_of_maximum(from_time, to_time, parse_peak_interpolation(interpolation)?))
+    }
+
+    /// Time domain start (Praat's xmin)
+    #[getter]
+    fn xmin(&self) -> f64 {
+        self.inner.xmin()
+    }
+
+    /// Time domain end (Praat's xmax)
+    #[getter]
+    fn xmax(&self) -> f64 {
+        self.inner.xmax()
     }
 }
 
 // Helper functions for parsing string arguments
 
+fn parse_peak_interpolation(s: &str) -> PyResult<PeakInterpolation> {
+    match s.to_lowercase().as_str() {
+        "none" => Ok(PeakInterpolation::None),
+        "parabolic" => Ok(PeakInterpolation::Parabolic),
+        "cubic" => Ok(PeakInterpolation::Cubic),
+        "sinc70" => Ok(PeakInterpolation::Sinc70),
+        "sinc700" => Ok(PeakInterpolation::Sinc700),
+        _ => Err(PyValueError::new_err(format!(
+            "Unknown interpolation: '{}'. Valid options: none, parabolic, cubic, sinc70, sinc700",
+            s
+        ))),
+    }
+}
+
 fn parse_window_shape(s: &str) -> PyResult<WindowShape> {
     match s.to_lowercase().as_str() {
-        "rectangular" | "rect" => Ok(WindowShape::Rectangular),
-        "triangular" | "tri" => Ok(WindowShape::Triangular),
-        "parabolic" | "para" => Ok(WindowShape::Parabolic),
+        "rectangular" | "rect" | "square" => Ok(WindowShape::Rectangular),
+        "triangular" | "tri" | "bartlett" => Ok(WindowShape::Triangular),
+        "parabolic" | "para" | "welch" => Ok(WindowShape::Parabolic),
         "hanning" | "hann" => Ok(WindowShape::Hanning),
         "hamming" => Ok(WindowShape::Hamming),
         "gaussian" | "gauss" => Ok(WindowShape::Gaussian),
@@ -1347,8 +1486,10 @@ fn parse_interpolation(s: &str) -> PyResult<Interpolation> {
         "nearest" | "none" => Ok(Interpolation::Nearest),
         "linear" => Ok(Interpolation::Linear),
         "cubic" => Ok(Interpolation::Cubic),
+        "sinc70" => Ok(Interpolation::Sinc70),
+        "sinc700" => Ok(Interpolation::Sinc700),
         _ => Err(PyValueError::new_err(format!(
-            "Unknown interpolation: '{}'. Valid options: nearest, linear, cubic",
+            "Unknown interpolation: '{}'. Valid options: nearest, linear, cubic, sinc70, sinc700",
             s
         ))),
     }

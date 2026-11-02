@@ -26,9 +26,10 @@ fix); 2026-10-16 (§7 added); §1–6 against praatfan-core-clean at 0.1.10.
 | 2 | HNR at `r → 0` | `-150.0` dB when `r <= 1e-15` | same | `-200.0` dB | **No** |
 | 3 | HNR clamp | none | none | removed in 0.1.10 (was `[1e-10, 1-1e-10]`) | n/a — never had it |
 | 4 | AC `periods_per_window < 3` | command layer refuses; C function does not | accepted silently | `FutureWarning`, error later | **No** — documented instead |
-| 5 | `Harmonicity: Get value at time` across a marker | interpolates the marker in | holds the defined neighbour | returns the nearest frame | **No** — but see §5, we already diverge |
+| 5 | `Harmonicity: Get value at time` across a marker | interpolates the marker in | same as Praat (since 0.1.15; held the defined neighbour before) | returns the nearest frame | n/a — we match Praat |
 | 6 | HNR bandwidth on wideband (48 kHz) input | effectively band-limited | same as Praat | broadband | **No** |
 | 7 | Pipe `spectrogram`: too-short sound, `max_frequency <= 0` | errors | empty result / Nyquist (pipe only) | same as ours (shared spec) | **Yes** — interface choice, values unaffected |
+| 8 | Residual gaps found by `scripts/parity_sweep.py` | — | numerical floors + unported query semantics | n/a | documented, see §8 |
 
 ---
 
@@ -173,6 +174,11 @@ Praat and here alike.
 
 ## 5. Interpolating `Harmonicity` across marker frames
 
+> **Retired in 0.1.15** (user decision, 2026-11-01: maximal Praat
+> compliance). `get_value_at_time` is now Praat's `Vector_getValueAtX`,
+> markers included; use `get_value_at_frame` (None for -200) to detect
+> unvoiced frames. The text below is the earlier rationale, kept for history.
+
 This one is a divergence we **already** carried before 0.1.10, in a third
 direction from both Praat and the clean package. It is recorded here so it is
 a known deviation rather than an accident.
@@ -284,6 +290,41 @@ Only the response shape is common. Anyone who needs Praat's exact
 spectrogram should use this engine.
 
 ---
+
+## 8. What the parameter sweep still finds (0.1.15)
+
+`scripts/parity_sweep.py` runs every analysis and query over a parameter
+grid on 13 signals (the speech fixture at 8/11.025/16/24/44.1 kHz, 30 and
+80 ms excerpts, white noise, a vibrato harmonic tone, silence, silence-padded
+speech, clipped speech, speech + 0.2 DC) against parselmouth 0.4.7. Measured
+2026-11-01 after the 0.1.15 sweep fixes (CHANGELOG). What is left falls in
+two groups.
+
+**Numerical floors** (inputs where the last bits decide the answer; not
+fixable without reproducing x87 `long double` and glibc's `exp`/`sin`
+bit for bit):
+
+- Pitch F0: <= 3e-5 Hz on the fixtures, <= 1.3e-3 Hz on the 8 kHz
+  resampled signal (Brent/sinc refinement), voicing identical.
+- Frames that contain only numerical noise: digital silence after
+  resampling (FFT ringing ~1e-13), or a constant DC stretch (centring
+  residue ~1e-16). Formants, pitch candidates and HNR of such frames are
+  noise-determined in Praat as in ours. Formant frames inside 0.2 s of
+  zero padding differ by up to 248 Hz; that is the whole effect.
+- HNR CC where `r` is within ~1e-9 of 1 (near-silent resampled stretches,
+  85-112 dB): `10 log10(r/(1-r))` amplifies the last bits.
+- Spectrogram bins 15-20 orders of magnitude below the frame's peak
+  (relative error up to 5e-7; absolute ~1e-33).
+
+FormantPath on Hillenbrand 1995 has no remaining gap (all 1609 tokens
+within 5e-7 Hz on F1-F3, since 0.1.15).
+
+**Interface choice:** for sounds too short for the analysis, Praat refuses
+("shorter than window length", "minimum pitch must not be less than ...");
+pitch, HNR and intensity here return an empty object instead (kept by user
+decision, 2026-11-01). The query helpers that used to differ (Intensity and
+Harmonicity mean/min/max, Harmonicity point queries, Sound value at time,
+pre-emphasis normalization) follow Praat since 0.1.15.
 
 ## Related documents
 

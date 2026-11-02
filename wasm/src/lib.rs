@@ -96,22 +96,24 @@ impl Sound {
         Float64Array::from(samples)
     }
 
-    /// Get the sample value at a specific time using linear interpolation
+    /// Sample value at a time, Sinc70-interpolated (Praat's default for
+    /// `Sound: Get value at time`)
     pub fn get_value_at_time(&self, time: f64) -> Option<f64> {
         self.inner.get_value_at_time(time)
     }
 
-    /// Apply pre-emphasis filter
+    /// Apply pre-emphasis filter, then rescale to a 0.99 peak as Praat's
+    /// "Filter (pre-emphasis)" does
     pub fn pre_emphasis(&self, from_frequency: f64) -> Sound {
         Sound {
-            inner: self.inner.pre_emphasis(from_frequency),
+            inner: self.inner.pre_emphasis(from_frequency).scale_peak(0.99),
         }
     }
 
-    /// Apply de-emphasis filter
+    /// Apply de-emphasis filter, then rescale to a 0.99 peak (as Praat)
     pub fn de_emphasis(&self, from_frequency: f64) -> Sound {
         Sound {
-            inner: self.inner.de_emphasis(from_frequency),
+            inner: self.inner.de_emphasis(from_frequency).scale_peak(0.99),
         }
     }
 

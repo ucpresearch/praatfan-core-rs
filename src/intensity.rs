@@ -8,7 +8,7 @@
 //! - Physical window duration is 6.4 / min_pitch
 //! - Frame timing uses Sampled_shortTermAnalysis formula
 
-use crate::interpolation::Interpolation;
+use crate::interpolation::{sampled_mean_interpolated, vector_extremum, vector_value_at_x, Interpolation, PeakInterpolation};
 use crate::Sound;
 
 /// Reference pressure for dB SPL calculation (2×10⁻⁵ Pa)
@@ -26,11 +26,26 @@ pub struct Intensity {
     time_step: f64,
     /// Minimum pitch used for analysis (determines window size)
     min_pitch: f64,
+    /// Time domain (Praat's xmin/xmax: the analysed sound's domain)
+    xmin: f64,
+    xmax: f64,
+}
+
+/// Averaging method for [`Intensity::get_average`] (Praat's "Get mean").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IntensityAveraging {
+    /// Average the energy, 10^(dB/10) (Praat's default)
+    #[default]
+    Energy,
+    /// Average the loudness in sones, 2^(dB/10)
+    Sones,
+    /// Average the dB values
+    Db,
 }
 
 /// Modified Bessel function I0 (first kind, order zero)
 /// Matches Praat's NUMbessel_i0_f from melder/NUMspecfunc.cpp
-fn bessel_i0(x: f64) -> f64 {
+pub(crate) fn bessel_i0(x: f64) -> f64 {
     let x = x.abs();
     if x < 3.75 {
         // Formula 9.8.1 from Abramowitz & Stegun. Accuracy 1.6e-7.
@@ -51,12 +66,22 @@ fn bessel_i0(x: f64) -> f64 {
 impl Intensity {
     /// Create an Intensity from the given values and timing parameters
     pub fn new(values: Vec<f64>, start_time: f64, time_step: f64, min_pitch: f64) -> Self {
-        Self {
-            values,
-            start_time,
-            time_step,
-            min_pitch,
-        }
+        // Without a known sound, the domain is the frames' extent.
+        let xmin = start_time - 0.5 * time_step;
+        let xmax = xmin + values.len() as f64 * time_step;
+        Self::with_domain(values, start_time, time_step, min_pitch, xmin, xmax)
+    }
+
+    /// Like [`Intensity::new`] with an explicit time domain (the sound's).
+    pub fn with_domain(
+        values: Vec<f64>,
+        start_time: f64,
+        time_step: f64,
+        min_pitch: f64,
+        xmin: f64,
+        xmax: f64,
+    ) -> Self {
+        Self { values, start_time, time_step, min_pitch, xmin, xmax }
     }
 
     /// Compute intensity from a Sound (matches Praat exactly)
@@ -130,7 +155,7 @@ impl Intensity {
 
         let num_frames = ((my_duration - physical_window_duration) / time_step).floor() as usize + 1;
 
-        let x1 = sound.start_time() + 0.5 * dx; // Time of first sample (Praat convention)
+        let x1 = sound.x1(); // Time of first sample (Praat convention)
         let our_mid_time = x1 - 0.5 * dx + 0.5 * my_duration;
         let thy_duration = num_frames as f64 * time_step;
         let first_time = our_mid_time - 0.5 * thy_duration + 0.5 * time_step;
@@ -141,7 +166,8 @@ impl Intensity {
             let mid_time = first_time + iframe as f64 * time_step;
 
             // soundCentreSampleNumber = round((midTime - x1) / dx) + 1 (1-based)
-            let sound_centre_sample = ((mid_time - x1) / dx).round() as i64 + 1;
+            // Sampled_xToNearestIndex: Melder_iround ((x - x1) / dx + 1.0), ties up
+            let sound_centre_sample = libm::floor((mid_time - x1) / dx + 1.0 + 0.5) as i64;
 
             let left_sample = sound_centre_sample - half_window_samples;
             let right_sample = sound_centre_sample + half_window_samples;
@@ -158,39 +184,31 @@ impl Intensity {
             let window_from_sound_offset = window_centre - sound_centre_sample;
 
             // Compute weighted sum
-            let mut sumxw: f64 = 0.0;
-            let mut sumw: f64 = 0.0;
 
             // For stereo, Praat sums energies across channels
             // Our Sound is mono, but we handle it the same way
 
             // First pass: compute UNWEIGHTED mean if needed (Praat's centre_VEC_inout uses NUMmean)
+            // centre_VEC_inout: subtract NUMmean (long-double sum) of the frame
             let mean = if subtract_mean {
-                let mut sum = 0.0;
-                let mut count = 0;
-                for isamp in left_sample_clamped..=right_sample_clamped {
-                    let window_idx = (window_from_sound_offset + isamp as i64) as usize;
-                    if window_idx > 0 && window_idx <= window_num_samples {
-                        let s = samples[isamp - 1]; // Convert to 0-based
-                        sum += s;
-                        count += 1;
-                    }
-                }
-                if count > 0 { sum / count as f64 } else { 0.0 }
+                crate::utils::praat_mean(&samples[left_sample_clamped - 1..right_sample_clamped])
             } else {
                 0.0
             };
 
-            // Second pass: compute weighted energy
+            // Second pass: compute weighted energy (long-double sums in Praat)
+            let (mut acc_xw, mut acc_w) = (crate::utils::CompSum::default(), crate::utils::CompSum::default());
             for isamp in left_sample_clamped..=right_sample_clamped {
                 let window_idx = (window_from_sound_offset + isamp as i64) as usize;
                 if window_idx > 0 && window_idx <= window_num_samples {
                     let w = window[window_idx - 1]; // Convert to 0-based
                     let s = samples[isamp - 1] - mean; // Convert to 0-based
-                    sumxw += s * s * w;
-                    sumw += w;
+                    acc_xw.add(s * s * w);
+                    acc_w.add(w);
                 }
             }
+            let sumxw = acc_xw.value();
+            let sumw = acc_w.value();
 
             // intensity_in_Pa2 = sumxw / sumw
             let intensity_in_pa2 = if sumw > 0.0 { sumxw / sumw } else { 0.0 };
@@ -206,7 +224,7 @@ impl Intensity {
             }
         });
 
-        Self::new(values, first_time, time_step, min_pitch)
+        Self::with_domain(values, first_time, time_step, min_pitch, sound.start_time(), sound.end_time())
     }
 
     /// Compute intensity from multiple channels (matches Praat for stereo/multichannel)
@@ -263,7 +281,7 @@ impl Intensity {
         }
 
         let num_frames = ((my_duration - physical_window_duration) / time_step).floor() as usize + 1;
-        let x1 = sound.start_time() + 0.5 * dx;
+        let x1 = sound.x1();
         let our_mid_time = x1 - 0.5 * dx + 0.5 * my_duration;
         let thy_duration = num_frames as f64 * time_step;
         let first_time = our_mid_time - 0.5 * thy_duration + 0.5 * time_step;
@@ -273,7 +291,8 @@ impl Intensity {
 
         let values = crate::par::map_init(num_frames, || (), |_, iframe| {
             let mid_time = first_time + iframe as f64 * time_step;
-            let sound_centre_sample = ((mid_time - x1) / dx).round() as i64 + 1;
+            // Sampled_xToNearestIndex: Melder_iround ((x - x1) / dx + 1.0), ties up
+            let sound_centre_sample = libm::floor((mid_time - x1) / dx + 1.0 + 0.5) as i64;
             let left_sample = sound_centre_sample - half_window_samples;
             let right_sample = sound_centre_sample + half_window_samples;
             let left_sample_clamped = left_sample.max(1) as usize;
@@ -289,25 +308,15 @@ impl Intensity {
             let mut chan_means = vec![0.0; nchan];
             if subtract_mean {
                 for ch in 0..nchan {
-                    let mut sum = 0.0;
-                    let mut count = 0;
-                    for isamp in left_sample_clamped..=right_sample_clamped {
-                        let window_idx = (window_from_sound_offset + isamp as i64) as usize;
-                        if window_idx > 0 && window_idx <= window_num_samples {
-                            sum += all_samples[ch][isamp - 1];
-                            count += 1;
-                        }
-                    }
-                    if count > 0 {
-                        chan_means[ch] = sum / count as f64;
-                    }
+                    chan_means[ch] = crate::utils::praat_mean(
+                        &all_samples[ch][left_sample_clamped - 1..right_sample_clamped],
+                    );
                 }
             }
 
             // Sum energy across all channels (Praat: inner loop over ichan)
-            let mut sumxw: f64 = 0.0;
-            let mut sumw: f64 = 0.0;
 
+            let (mut acc_xw, mut acc_w) = (crate::utils::CompSum::default(), crate::utils::CompSum::default());
             for ch in 0..nchan {
                 let samples = all_samples[ch];
                 let mean = chan_means[ch];
@@ -316,11 +325,13 @@ impl Intensity {
                     if window_idx > 0 && window_idx <= window_num_samples {
                         let w = window[window_idx - 1];
                         let s = samples[isamp - 1] - mean;
-                        sumxw += s * s * w;
-                        sumw += w;
+                        acc_xw.add(s * s * w);
+                        acc_w.add(w);
                     }
                 }
             }
+            let sumxw = acc_xw.value();
+            let sumw = acc_w.value();
 
             let intensity_in_pa2 = if sumw > 0.0 { sumxw / sumw } else { 0.0 };
             let hearing_threshold_pa2 = REFERENCE_PRESSURE * REFERENCE_PRESSURE;
@@ -333,7 +344,7 @@ impl Intensity {
             }
         });
 
-        Self::new(values, first_time, time_step, min_pitch)
+        Self::with_domain(values, first_time, time_step, min_pitch, sounds[0].start_time(), sounds[0].end_time())
     }
 
     /// Get intensity value at a specific time
@@ -349,14 +360,8 @@ impl Intensity {
             return None;
         }
 
-        // Convert time to frame position
-        let position = (time - self.start_time) / self.time_step;
-
-        if position < -0.5 || position > self.values.len() as f64 - 0.5 {
-            return None;
-        }
-
-        interpolation.interpolate(&self.values, position.max(0.0))
+        // Praat: Intensity "Get value at time" is Vector_getValueAtX.
+        vector_value_at_x(&self.values, self.start_time, self.time_step, time, interpolation)
     }
 
     /// Get the time of a specific frame
@@ -400,34 +405,93 @@ impl Intensity {
         }
     }
 
-    /// Get the minimum intensity value
+    /// Start of the time domain (Praat's xmin)
+    pub fn xmin(&self) -> f64 {
+        self.xmin
+    }
+
+    /// End of the time domain (Praat's xmax)
+    pub fn xmax(&self) -> f64 {
+        self.xmax
+    }
+
+    /// Praat's `Intensity: Get mean...` (`Sampled_getMean_standardUnit`,
+    /// interpolated): the mean of the linearly interpolated contour over
+    /// `[from_time, to_time]` (equal or reversed: the whole domain), averaged
+    /// in the chosen unit and returned in dB.
+    pub fn get_average(&self, from_time: f64, to_time: f64, method: IntensityAveraging) -> Option<f64> {
+        let conv = |v: f64| match method {
+            IntensityAveraging::Energy => libm::pow(10.0, 0.1 * v),
+            IntensityAveraging::Sones => libm::pow(2.0, 0.1 * v),
+            IntensityAveraging::Db => v,
+        };
+        let mean = sampled_mean_interpolated(
+            self.values.len(),
+            self.start_time,
+            self.time_step,
+            self.xmin,
+            self.xmax,
+            from_time,
+            to_time,
+            |i| conv(self.values[(i - 1) as usize]),
+        )?;
+        Some(match method {
+            IntensityAveraging::Energy => 10.0 * libm::log10(mean),
+            IntensityAveraging::Sones => 10.0 * libm::log2(mean),
+            IntensityAveraging::Db => mean,
+        })
+    }
+
+    fn extremum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation, is_max: bool) -> (f64, f64) {
+        vector_extremum(
+            &self.values,
+            self.start_time,
+            self.time_step,
+            self.xmin,
+            self.xmax,
+            from_time,
+            to_time,
+            interpolation,
+            is_max,
+        )
+    }
+
+    /// Praat's `Intensity: Get minimum...` (`Vector_getMinimum`).
+    pub fn get_minimum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation) -> Option<f64> {
+        Some(self.extremum(from_time, to_time, interpolation, false).0).filter(|v| !v.is_nan())
+    }
+
+    /// Praat's `Intensity: Get maximum...` (`Vector_getMaximum`).
+    pub fn get_maximum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation) -> Option<f64> {
+        Some(self.extremum(from_time, to_time, interpolation, true).0).filter(|v| !v.is_nan())
+    }
+
+    /// Praat's `Intensity: Get time of minimum...`.
+    pub fn get_time_of_minimum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation) -> Option<f64> {
+        Some(self.extremum(from_time, to_time, interpolation, false).1).filter(|v| !v.is_nan())
+    }
+
+    /// Praat's `Intensity: Get time of maximum...`.
+    pub fn get_time_of_maximum(&self, from_time: f64, to_time: f64, interpolation: PeakInterpolation) -> Option<f64> {
+        Some(self.extremum(from_time, to_time, interpolation, true).1).filter(|v| !v.is_nan())
+    }
+
+    /// Minimum over the whole domain, parabolic interpolation (Praat's
+    /// `Get minimum` defaults).
     pub fn min(&self) -> Option<f64> {
-        self.values
-            .iter()
-            .filter(|&&v| v.is_finite() && v > -300.0)
-            .cloned()
-            .reduce(f64::min)
+        self.get_minimum(0.0, 0.0, PeakInterpolation::Parabolic)
     }
 
-    /// Get the maximum intensity value
+    /// Maximum over the whole domain, parabolic interpolation (Praat's
+    /// `Get maximum` defaults).
     pub fn max(&self) -> Option<f64> {
-        self.values
-            .iter()
-            .filter(|&&v| v.is_finite() && v > -300.0)
-            .cloned()
-            .reduce(f64::max)
+        self.get_maximum(0.0, 0.0, PeakInterpolation::Parabolic)
     }
 
-    /// Get the mean intensity value
+    /// Energy-averaged mean over the whole domain (Praat's `Get mean`
+    /// defaults).
     pub fn mean(&self) -> Option<f64> {
-        let finite_values: Vec<f64> = self.values.iter()
-            .filter(|&&v| v.is_finite() && v > -300.0)
-            .cloned()
-            .collect();
-        if finite_values.is_empty() {
-            return None;
-        }
-        Some(finite_values.iter().sum::<f64>() / finite_values.len() as f64)
+        self.get_average(0.0, 0.0, IntensityAveraging::Energy)
     }
 
     /// Get the minimum pitch used for analysis
