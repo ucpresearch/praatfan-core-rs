@@ -10,7 +10,7 @@ harmonicity lose their last residual error, and a parameter sweep against
 parselmouth (`scripts/parity_sweep.py`: 13 signals, 8-44.1 kHz, short, silent,
 noisy, DC-offset; every analysis and query over a grid of parameters) found
 and closed a series of gaps away from the default parameters. Query helpers
-now follow Praat too (*Changed*); everything else is additive (*Added*).
+now follow Praat too (*Changed*); new API is under *Added*; one Rust removal is flagged **breaking** under *Changed*.
 
 ### Fixed (parameter-sweep gaps)
 
@@ -131,6 +131,11 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
   to a 0.99 peak, as Praat's commands and parselmouth do; Python
   `normalize=False` returns the raw filter. The Rust methods stay raw;
   `Sound::scale_peak` is Praat's `Vector_scale`.
+- **`Pitch.mean()/min()/max()`** return Praat's whole-sound defaults
+  (interpolated mean; parabolic extrema) instead of plain frame statistics.
+- **Breaking (Rust):** `Formant::get_mean(n)` / `get_min(n)` / `get_max(n)`
+  are replaced by the ranged, unit-aware `get_mean(n, from, to, unit)`,
+  `get_minimum(...)`, `get_maximum(...)` (see *Added*).
 - Pipe: spectrum moments of an all-zero signal are `null` (Praat:
   undefined; were 0); segment extraction follows `extract_part` above.
 
@@ -151,8 +156,9 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
 ### Added
 
 - **Voice quality** (Rust `point_process` module; Python): glottal pulses
-  (`Sound.to_point_process_periodic_cc(floor, ceiling)`,
-  `Sound.to_point_process_cc(pitch)`, `PointProcess`), jitter (local,
+  (`Sound::to_point_process_periodic_cc(floor, ceiling)`; from a Pitch, Rust
+  `PointProcess::from_sound_pitch_cc(&sound, &pitch)` / Python
+  `Sound.to_point_process_cc(pitch)`; `PointProcess`), jitter (local,
   local absolute, rap, ppq5, ddp), shimmer (local, local dB, apq3, apq5,
   apq11, dda), period statistics, and Praat's **Voice report**
   (`voice_report(sound, pitch, pulses, ...)` -> dict). Ports of Praat's
@@ -165,14 +171,10 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
   and units: `get_mean`, `get_standard_deviation`, `get_quantile`,
   `get_minimum` / `get_maximum` / `get_time_of_minimum` /
   `get_time_of_maximum` (interpolation "parabolic" or "none"),
-  `count_voiced_frames`; `xmin` / `xmax`. `Pitch.mean()/min()/max()` now
-  return Praat's whole-sound defaults (interpolated mean; parabolic extrema)
-  instead of plain frame statistics.
+  `count_voiced_frames`; `xmin` / `xmax`.
 - **Formant summaries** per formant: `get_mean`, `get_standard_deviation`,
   `get_quantile`, `get_quantile_of_bandwidth`, `get_minimum` /
-  `get_maximum` / `get_time_of_*`; `xmin` / `xmax`. The Rust
-  `Formant::get_mean(n)` / `get_min(n)` / `get_max(n)` are replaced by these
-  ranged, unit-aware versions.
+  `get_maximum` / `get_time_of_*`; `xmin` / `xmax`.
   Verified against parselmouth over the sweep (ranges, Hz/mel/ERB/semitones,
   Hz/Bark); where frame values match, the summaries match exactly.
 - **Opt-in FormantPath path-finder corrections**
@@ -186,18 +188,37 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
   Python `Sound.to_formant_burg` (e.g. 5.5, as in Praat: LPC order
   `round(2 x n)`).
 - `Sound::get_value_at_time_interpolated` (Rust); Python
-  `Sound.get_value_at_time(time, interpolation="linear")` now accepts
-  `nearest`/`linear`/`cubic`/`sinc70`/`sinc700` (Praat's default is sinc70;
-  ours stays linear for compatibility).
+  `Sound.get_value_at_time(time, interpolation="sinc70")` accepts
+  `nearest`/`linear`/`cubic`/`sinc70`/`sinc700` (default sinc70, as Praat;
+  see *Changed*).
 - Python `Sound.x1`; `Spectrum::get_central_moment` (Rust); window-shape
   aliases `square`, `bartlett`, `welch` (Praat's spectrogram names).
 - `scripts/parity_sweep.py`: the sweep above.
+- **WASM `Sound.from_bytes_channels(bytes, ext)`** (new default `decode`
+  feature of the WASM crate): decodes WAV/FLAC/MP3/OGG/NIST SPHERE with this
+  library's own decoders, at the file's own rate. The browser's
+  `decodeAudioData` resamples to the AudioContext rate with a non-Praat
+  resampler. On the fixtures the decoded samples equal parselmouth's exactly
+  (same count, rate, channels, sum). The example app and the Pages demo use
+  it, falling back to the browser for other formats.
+- WASM option strings match Python: interpolation `sinc70`/`sinc700`, window
+  aliases `square`/`bartlett`/`welch`.
 
 ### Fixed
 
+- **Pitch and Formant `get_time_of_minimum/maximum` returned undefined
+  whenever the parabolic extremum value was <= 0.** Praat sets only the
+  *value* to undefined there and keeps its time (e.g. F1 time of minimum,
+  parabolic, on the 24 kHz fixture: Praat 1.4224 s, we returned None). Now
+  every Formant min/max/time query on the fixture equals Praat, F1-F3, both
+  interpolations.
+- **Example app** (`wasm/examples/acoustic-analyzer`) and the Pages demo:
+  missing values come back from wasm-bindgen as `undefined`, not `null`, so
+  the CSV export threw and the summary means became NaN; the mean HNR also
+  averaged in the -200 dB unvoiced marker. Fixed, plus a broken GitHub link.
 - **AC harmonicity (`To Harmonicity (ac)`) differed from Praat by up to
   5–12 dB on a few frames**, at high HNR (`r` near 1) and short windows:
-  5.11 dB at `periods_per_window = 3` on the 22.05 kHz fixture, 12.4 dB on the
+  5.11 dB at `periods_per_window = 3` on the 24 kHz fixture, 12.4 dB on the
   16 kHz one, 1.35 dB on stereo, 11.05 dB at `periods_per_window = 1`. Praat
   refines each pitch candidate on lags `-brent_ixmax..=brent_ixmax` of the
   correlation only, and its sinc interpolator clips its depth to that slice;
@@ -218,6 +239,15 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
   FFT; table re-measured. §1–2 table re-measured (maxima now identical to
   parselmouth). DEVELOPMENT.md accuracy summary updated (CC HNR and stereo
   pitch were also listed below their measured accuracy).
+- Docs checked against the code (2026-11-02): README accuracy table
+  regenerated (100.0% on all 1150 points); Python and WASM READMEs now
+  list every class, method, default and option string; stale DEVELOPMENT.md
+  sections fixed (libm/`crate::math` rules, FFTPACK coverage, sinc depths,
+  bandwidth filter, fixture rates, wheel names).
+- **WASM output is bit-identical to the default native build** (measured on
+  the 24/16/44.1 kHz fixtures, every analysis). The WASM/native difference
+  noted in 0.1.14 is consistent with the FFTs that were still on rustfft then
+  (spectrogram, CC correlation); no analysis uses rustfft any more.
 
 ## [0.1.14] - 2026-11-01
 

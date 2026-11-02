@@ -60,6 +60,27 @@ impl Sound {
         }
     }
 
+    /// Decode an audio file from its bytes with this library's own decoders
+    /// (WAV, FLAC, MP3, OGG, NIST SPHERE), one Sound per channel, at the
+    /// file's own sample rate. Unlike the browser's `decodeAudioData`, which
+    /// resamples to the AudioContext's rate, the samples reach the analysis
+    /// unchanged, as they would in Praat.
+    ///
+    /// @param bytes - Uint8Array with the file's contents
+    /// @param extension - Format hint such as "wav" or "flac" (may be empty)
+    /// @returns Array of Sound, one per channel
+    #[cfg(feature = "decode")]
+    pub fn from_bytes_channels(bytes: &[u8], extension: &str) -> Result<js_sys::Array, JsError> {
+        let hint = if extension.is_empty() { None } else { Some(extension) };
+        let sounds = praatfan_core::Sound::from_bytes_channels(bytes, hint)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        let out = js_sys::Array::new();
+        for inner in sounds {
+            out.push(&JsValue::from(Sound { inner }));
+        }
+        Ok(out)
+    }
+
     /// Get the sample rate in Hz
     #[wasm_bindgen(getter)]
     pub fn sample_rate(&self) -> f64 {
@@ -167,9 +188,9 @@ impl Sound {
 
     /// Resample to a new sample rate.
     ///
-    /// Uses Praat's FFT-based windowed-sinc algorithm. If `new_sample_rate` is
-    /// greater than or equal to the current rate, returns a copy without
-    /// upsampling (matching Praat's Sound_resample behavior).
+    /// Praat's `Sound_resample`: FFT low-pass (when downsampling) and sinc
+    /// interpolation; an exact doubling uses Praat's FFT upsampler. Returns a
+    /// copy when the rate is unchanged.
     ///
     /// @param new_sample_rate - Target sample rate in Hz
     pub fn resample(&self, new_sample_rate: f64) -> Sound {
@@ -304,7 +325,7 @@ impl Sound {
     /// @param max_frequency - Maximum frequency (Hz), 0 for Nyquist
     /// @param time_step - Time between frames (0 for automatic)
     /// @param frequency_step - Frequency resolution (Hz), 0 for automatic
-    /// @param window_shape - Window function: "gaussian", "hanning", "hamming", "rectangular"
+    /// @param window_shape - Window: "gaussian" (Praat default), "hanning", "hamming", "rectangular"/"square", "triangular"/"bartlett", "parabolic"/"welch"
     pub fn to_spectrogram(
         &self,
         effective_analysis_width: f64,
@@ -396,8 +417,8 @@ impl Pitch {
     /// Get pitch value at a specific time
     ///
     /// @param time - Time to query
-    /// @param unit - Unit: "hertz", "mel", "semitones", "erb"
-    /// @param interpolation - Interpolation: "nearest", "linear", "cubic"
+    /// @param unit - Unit: "hertz", "mel", "erb", "semitones" (re 1 Hz), "semitones_re_100hz", "semitones_re_200hz", "semitones_re_440hz"
+    /// @param interpolation - Interpolation: "nearest" or "linear" (Praat has only these for Pitch; other choices are linear)
     /// @returns Pitch value or undefined if unvoiced
     pub fn get_value_at_time(
         &self,
@@ -492,7 +513,7 @@ impl Formant {
     /// @param formant_number - Formant number (1 for F1, 2 for F2, etc.)
     /// @param time - Time to query
     /// @param unit - Unit: "hertz", "bark", "mel", "erb"
-    /// @param interpolation - Interpolation: "nearest", "linear", "cubic"
+    /// @param interpolation - Interpolation: "nearest" or "linear" (Praat has only these for Formant; other choices are linear)
     pub fn get_value_at_time(
         &self,
         formant_number: usize,
@@ -943,9 +964,9 @@ impl Harmonicity {
 
 fn parse_window_shape(s: &str) -> Result<WindowShape, JsError> {
     match s.to_lowercase().as_str() {
-        "rectangular" | "rect" => Ok(WindowShape::Rectangular),
-        "triangular" | "tri" => Ok(WindowShape::Triangular),
-        "parabolic" | "para" => Ok(WindowShape::Parabolic),
+        "rectangular" | "rect" | "square" => Ok(WindowShape::Rectangular),
+        "triangular" | "tri" | "bartlett" => Ok(WindowShape::Triangular),
+        "parabolic" | "para" | "welch" => Ok(WindowShape::Parabolic),
         "hanning" | "hann" => Ok(WindowShape::Hanning),
         "hamming" => Ok(WindowShape::Hamming),
         "gaussian" | "gauss" => Ok(WindowShape::Gaussian),
@@ -962,8 +983,10 @@ fn parse_interpolation(s: &str) -> Result<Interpolation, JsError> {
         "nearest" | "none" => Ok(Interpolation::Nearest),
         "linear" => Ok(Interpolation::Linear),
         "cubic" => Ok(Interpolation::Cubic),
+        "sinc70" => Ok(Interpolation::Sinc70),
+        "sinc700" => Ok(Interpolation::Sinc700),
         _ => Err(JsError::new(&format!(
-            "Unknown interpolation: '{}'. Valid options: nearest, linear, cubic",
+            "Unknown interpolation: '{}'. Valid options: nearest, linear, cubic, sinc70, sinc700",
             s
         ))),
     }
@@ -979,7 +1002,7 @@ fn parse_pitch_unit(s: &str) -> Result<PitchUnit, JsError> {
         "semitones_re_440hz" | "st440" => Ok(PitchUnit::SemitonesRe440Hz),
         "erb" => Ok(PitchUnit::Erb),
         _ => Err(JsError::new(&format!(
-            "Unknown pitch unit: '{}'. Valid options: hertz, mel, semitones, erb",
+            "Unknown pitch unit: '{}'. Valid options: hertz, mel, erb, semitones (re 1 Hz), semitones_re_100hz, semitones_re_200hz, semitones_re_440hz",
             s
         ))),
     }

@@ -105,7 +105,7 @@ impl Formant {
     /// For each frame:
     /// 1. Apply pre-emphasis filter
     /// 2. Extract frame with Gaussian window
-    /// 3. Compute LPC coefficients (order = 2 × max_num_formants + 2)
+    /// 3. Compute LPC coefficients (order = 2 × max_num_formants)
     /// 4. Find roots of LPC polynomial
     /// 5. Convert poles to formant frequencies and bandwidths
     pub fn from_sound_burg(
@@ -400,11 +400,6 @@ impl Formant {
                 // Find formants from LPC polynomial roots
                 let candidates = lpc_to_formants(&lpc_result.coefficients, sample_rate);
 
-                // Filter candidates - reject clearly invalid formants
-                // Valid formants must have:
-                // - Frequency in range [50, max_formant_hz]
-                // - Positive bandwidth (pole inside unit circle)
-                // Note: Praat does NOT filter by bandwidth, so we don't either
                 // Praat (burg() in Sound_to_Formant.cpp and
                 // Roots_into_Formant_Frame): keep roots with
                 // 50 <= f <= nyquist - 50 (safety margin 50 Hz); no
@@ -692,17 +687,24 @@ impl Formant {
         }
         let (v, t) = sampled_extremum(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
             from_time, to_time, interpolate, is_max, |i| self.unit_value(n, i, unit))?;
-        if v <= 0.0 { None } else { Some((v, t)) }
+        Some((v, t))
+    }
+
+    /// `Formant_getMinimumAndTime`: a value <= 0 is undefined; the time of
+    /// that extremum stays defined, as in Praat.
+    fn extremum_value(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit, interpolate: bool, is_max: bool) -> Option<f64> {
+        let (v, _) = self.extremum(n, from_time, to_time, unit, interpolate, is_max)?;
+        if v <= 0.0 { None } else { Some(v) }
     }
 
     /// Praat's `Formant: Get minimum...` (`interpolate`: "Parabolic" vs "None").
     pub fn get_minimum(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit, interpolate: bool) -> Option<f64> {
-        self.extremum(n, from_time, to_time, unit, interpolate, false).map(|x| x.0)
+        self.extremum_value(n, from_time, to_time, unit, interpolate, false)
     }
 
     /// Praat's `Formant: Get maximum...`.
     pub fn get_maximum(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit, interpolate: bool) -> Option<f64> {
-        self.extremum(n, from_time, to_time, unit, interpolate, true).map(|x| x.0)
+        self.extremum_value(n, from_time, to_time, unit, interpolate, true)
     }
 
     /// Praat's `Formant: Get time of minimum...`.

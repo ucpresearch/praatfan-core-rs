@@ -9,7 +9,7 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 - **Cross-platform**: Native Rust, Python bindings (PyO3), and WASM
 - **No GUI dependencies** - pure computational library
 - **Multi-threaded, bit-identical**: per-frame work (pitch, HNR, formants, FormantPath, intensity, spectrogram, resampling) is spread across CPU cores in the Python package and pipe CLI, with output bit-for-bit identical to a single-threaded run. WASM runs single-threaded.
-- **Host-independent results**: all transcendental maths (exp, log, pow, sin, cos, …) goes through the pure-Rust [`libm`](https://crates.io/crates/libm) crate instead of the platform C library, so a given build gives byte-identical output whatever CPU features glibc detects (FMA/AVX2) and on any glibc version.
+- **Host-independent results**: all transcendental maths (exp, log, pow, sin, cos, …) goes through the pure-Rust [`libm`](https://crates.io/crates/libm) crate instead of the platform C library, so a given build gives byte-identical output whatever CPU features glibc detects (FMA/AVX2) and on any glibc version. The opt-in `system-libm` feature uses the platform C library instead, which reproduces Praat's last bits on the same host (see [DIVERGENCES.md](DIVERGENCES.md) §8).
 - **Broad audio format support**: WAV, FLAC, MP3, OGG, and NIST SPHERE (including shorten-compressed PCM/µ-law, which Praat itself cannot read)
 
 ### Supported Analysis Types
@@ -19,11 +19,20 @@ Praat/parselmouth. One advantage of using Rust is that code can be webassembled 
 | `Sound` | Audio samples with sample rate |
 | `Pitch` | F0 contour from autocorrelation analysis |
 | `Intensity` | RMS energy contour in dB |
-| `Formant` | LPC-based formant tracks (F1-F4 + bandwidths) |
+| `Formant` | LPC-based formant tracks (F1-F5 by default, + bandwidths) |
 | `FormantPath` | Multi-ceiling Burg formant analysis with Viterbi-optimal ceiling selection (not natively exposed by parselmouth) |
 | `Harmonicity` | HNR (harmonics-to-noise ratio) contour |
 | `Spectrum` | Single-frame FFT magnitude spectrum |
 | `Spectrogram` | Time-frequency representation |
+| `PointProcess` | Glottal pulses; jitter, shimmer and Praat's Voice report |
+
+Every analysis object also has Praat's summary queries (Get mean, standard
+deviation, quantile, minimum/maximum and their times, ...).
+
+**Cargo features:** `file-io` (default: read audio files), `decode` (decode
+in-memory audio, no filesystem; builds for wasm32), `parallel` (multi-threaded
+frames), `pipe-core` / `pipe` (JSON pipe), `system-libm` (platform C library
+for transcendentals; ignored on wasm32).
 
 ## Quick Start
 
@@ -224,7 +233,7 @@ cd wasm && wasm-pack build --target web
 To create a release zip:
 
 ```bash
-cd wasm/pkg && zip -r ../../praatfan-gpl.zip .
+cd wasm && zip -r ../praatfan-gpl.zip pkg/   # same layout as the CI release zip
 ```
 
 To update the GitHub Pages demo (docs/):
@@ -431,20 +440,22 @@ Accuracy comparison against Praat/parselmouth using `tests/fixtures/one_two_thre
 
 | Metric | Accuracy | Points | Mean Error | Max Error |
 |--------|----------|--------|------------|-----------|
-| F1 | 99.4% | 159 | 0.047 Hz | 7.3 Hz |
-| F2 | 100.0% | 159 | 0.004 Hz | 0.33 Hz |
-| F3 | 100.0% | 159 | 0.005 Hz | 0.34 Hz |
-| Intensity | 100.0% | 196 | ~0 dB | ~0 dB |
-| Pitch (F0) | 100.0% | 104 | 0.047 Hz | 0.66 Hz |
+| F1 | 100.0% | 159 | 3.9e-11 Hz | 3.0e-09 Hz |
+| F2 | 100.0% | 159 | 2.1e-11 Hz | 9.1e-10 Hz |
+| F3 | 100.0% | 159 | 3.6e-11 Hz | 3.3e-09 Hz |
+| Intensity | 100.0% | 196 | 2.8e-15 dB | 1.1e-13 dB |
+| Pitch (F0) | 100.0% | 104 | 9.3e-10 Hz | 2.9e-08 Hz |
 | Voicing | 100.0% | 160 | 0 | 0 |
-| Spectrum CoG | 100.0% | 1 | ~0% | ~0% |
-| Spectrum StdDev | 100.0% | 1 | ~0% | ~0% |
+| Spectrum CoG | 100.0% | 1 | 0% | 0% |
+| Spectrum StdDev | 100.0% | 1 | 0% | 0% |
 | Spectrum Skew | 100.0% | 1 | 0% | 0% |
-| Spectrum Kurt | 100.0% | 1 | ~0% | ~0% |
-| Total Energy | 100.0% | 1 | ~0% | ~0% |
-| HNR (AC) | 100.0% | 102 | 0.036 dB | 0.77 dB |
-| HNR (CC) | 98.1% | 106 | 0.16 dB | 8.0 dB |
-| **OVERALL** | **99.7%** | **1150** | | |
+| Spectrum Kurt | 100.0% | 1 | 2.0e-14% | 2.0e-14% |
+| Total Energy | 100.0% | 1 | 2.6e-12% | 2.6e-12% |
+| HNR (AC) | 100.0% | 102 | 1.2e-12 dB | 7.2e-11 dB |
+| HNR (CC) | 100.0% | 106 | 3.1e-14 dB | 1.4e-12 dB |
+| **OVERALL** | **100.0%** | **1150** | | |
+
+(Default build, 2026-11-02.)
 
 Accuracy is measured as percentage of points within tolerance (1 Hz for frequency metrics, 0.1 dB for intensity, 1 dB for HNR, 1% relative error for spectrum moments).
 
@@ -457,9 +468,11 @@ python scripts/accuracy_histogram.py
 
 ### Known divergences
 
-A small number of behaviours are knowingly *not* bit-accurate with Praat —
-notably `Harmonicity: Get value at time` across unvoiced frames, and the
-`periods_per_window` range for the AC method. **[DIVERGENCES.md](DIVERGENCES.md)**
+A small number of behaviours knowingly differ from Praat: notably, AC
+harmonicity accepts `periods_per_window < 3` (Praat's command layer refuses
+it; its C function and parselmouth do not), sounds too short for an analysis
+return an empty object instead of an error, and last-bit differences remain
+on frames that contain only numerical noise. **[DIVERGENCES.md](DIVERGENCES.md)**
 records each one, what Praat does, what this crate does, and what it costs in
 measured dB. It also records where the sibling clean-room package
 (`praatfan`, MIT) has deliberately chosen different behaviour from Praat that
@@ -515,4 +528,4 @@ If you use this library in published work, please cite Praat, Parselmouth, and
 ## Authors
 
 - Uriel Cohen Priva designed, tested, and vibe-coded
-- Claude (Opus 4.5) by Anthropic imeplemented
+- Claude (Opus 4.5) by Anthropic implemented

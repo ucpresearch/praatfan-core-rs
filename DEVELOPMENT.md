@@ -28,14 +28,15 @@ Previously built manually on a Raspberry Pi 5; now built in CI. The manual build
 # Find your platform's wheel at:
 # https://github.com/ucpresearch/praatfan-core-rs/releases
 
-# Install directly from URL (example for Linux x64, Python 3.12):
-pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/v0.1.0/praatfan_core-0.1.0-cp312-cp312-manylinux_2_35_x86_64.whl
+# Install directly from URL (example: Linux x64; wheels are cp39-abi3):
+pip install https://github.com/ucpresearch/praatfan-core-rs/releases/download/vX.Y.Z/praatfan_gpl-X.Y.Z-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+# Or simply: pip install praatfan-gpl
 ```
 
 ### Testing Installation
 
 ```python
-from praatfan_core import Sound
+from praatfan_gpl import Sound
 import numpy as np
 
 # Create test signal (440 Hz sine wave)
@@ -161,7 +162,7 @@ This was the critical insight needed to achieve exact match with Praat.
 
 Run `scripts/verify_formant_match.py` to confirm exact match with Praat:
 ```bash
-source ~/local/scr/commonpip/bin/activate  # or your parselmouth environment
+source /path/to/venv-with-parselmouth/bin/activate
 python scripts/verify_formant_match.py
 ```
 
@@ -192,10 +193,8 @@ The resampling step is critical for formant analysis. Praat resamples to `2 × m
 
 ### Current Accuracy
 
-**99.4%** of formant values match Praat within 1 Hz (157/158 voiced frames).
-**100%** of formant values match Praat within 5 Hz.
-
-Maximum error: 4.4 Hz (single frame, likely floating-point precision).
+Resampled samples agree with Praat to <= 5e-13 in every direction (0.1.15),
+and formants on the fixtures to ~3e-9 Hz.
 
 ### Praat's Resampling (from `fon/Sound.cpp`)
 
@@ -213,7 +212,9 @@ Sampled_xToIndex(me, x) = (x - x1) / dx + 1.0
 - Uses 1-based indexing
 - Boundary handling: constant extrapolation outside valid range
 - Window: `0.5 * sin(phase) / phase * (1.0 + cos(windowPhase))`
-- Window phase: `phase / (maxDepth + 0.5)` where `maxDepth` is typically 50
+- Window phase: `phase / leftDepth` with Praat 6.1.38's asymmetric depths
+  `leftDepth = x - left + 1`, `rightDepth = right - x + 1` (Praat 6.2+ uses
+  `maxDepth + 0.5`; parselmouth 0.4.x ships 6.1.38)
 
 **FFT lowpass filter (for downsampling):**
 - Uses zero padding (NOT mirror padding)
@@ -246,9 +247,8 @@ The main issue preventing 100% accuracy was an incorrect bandwidth filter in for
 // WRONG - rejected valid low-frequency formants
 f.bandwidth < f.frequency * 2.0
 
-// CORRECT - Praat does NOT filter by bandwidth
-// Just require positive bandwidth
-f.bandwidth > 0.0
+// CORRECT - Praat does NOT filter by bandwidth: it keeps every root with
+// 50 <= f <= nyquist - 50 (and a defined bandwidth)
 ```
 
 At phoneme transitions, formants can have large bandwidths relative to frequency. A formant at 315 Hz with bandwidth > 630 Hz was being rejected, causing formant misassignment.
@@ -294,9 +294,11 @@ for coeff in coefficients[-2::-1]:
 return (pr, pi), (dpr, dpi)
 ```
 
-### 2. Alternative: Use nalgebra for eigenvalues
+### 2. Eigenvalues
 
-The `nalgebra` crate has pure-Rust eigenvalue decomposition that's WASM-compatible. May provide better numerical precision than our custom QR implementation.
+The companion-matrix eigenvalues come from `faer` (pure Rust,
+WASM-compatible), which replaced the earlier custom QR; root polishing then
+follows Praat.
 
 ---
 
@@ -307,7 +309,7 @@ The `nalgebra` crate has pure-Rust eigenvalue decomposition that's WASM-compatib
 **`scripts/compare_formants.py`** - Python script comparing Praat (parselmouth) vs praatfan-core-rs formant analysis.
 
 ```bash
-source ~/local/scr/commonpip/bin/activate
+source /path/to/venv-with-parselmouth/bin/activate
 python scripts/compare_formants.py path/to/audio.wav [options]
 
 # Options:
@@ -606,12 +608,11 @@ The normalized autocorrelation is still `r[i] = ac[i] / (ac[0] * window_r[i])`, 
 
 ### Stereo Accuracy
 
-| Test Case | Accuracy |
-|-----------|----------|
-| Mono file | 100% (104/104 within 1 Hz) |
-| Stereo file | 99.2% (122/123 within 1 Hz) |
+Both mono and stereo now match exactly (max 0.0000 Hz, 0.1.15; see the
+summary table below). Historical note, from before the 6.1.38 sinc depths
+and the peak-refinement slice fix:
 
-**Investigation of stereo discrepancy (frame at t=0.643s):**
+**Former stereo discrepancy (frame at t=0.643s):**
 
 1. Both 224.83 Hz and 231.54 Hz are valid candidates with similar strengths
 2. Our Viterbi correctly selects 224.83 Hz (lower transition cost to frame 63: 224.98 Hz)
@@ -621,12 +622,15 @@ This single-frame difference (~7 Hz) is at a voiced/unvoiced transition where th
 
 ### Sinc Interpolation
 
-Praat uses full sinc interpolation with raised cosine window (depth=30) for pitch strength computation:
+Praat refines each pitch candidate with `NUMimproveExtremum`: Brent
+minimisation over sinc interpolation, SINC70 for AC_HANNING and SINC700 for
+AC_GAUSS / FCC (and for candidates above 0.3/dx), on the slice of `r` of
+lags `±brent_ixmax` only, with Praat 6.1.38's asymmetric window depths:
 
 ```cpp
-// From melder/NUMinterpol.cpp
+// From melder/NUMinterpol.cpp (6.1.38)
 // Window: 0.5 * sin(phase) / phase * (1.0 + cos(windowPhase))
-// where windowPhase = phase / (maxDepth + 0.5)
+// where windowPhase = phase / leftDepth, leftDepth = x - left + 1
 ```
 
 This is now implemented in our Rust code (previously was linear interpolation fallback).
@@ -634,10 +638,10 @@ This is now implemented in our Rust code (previously was linear interpolation fa
 ### Comparison Script
 
 ```bash
-python scripts/compare_pitch.py tests/fixtures/one_two_three_four_five.wav --verbose
+python scripts/compare_pitch.py tests/fixtures/one_two_three_four_five.wav
 
 # Stereo file
-python scripts/compare_pitch.py tests/fixtures/one_two_three_four_five-stereo.flac --verbose
+python scripts/compare_pitch.py tests/fixtures/one_two_three_four_five-stereo.flac
 ```
 
 ---
@@ -724,12 +728,12 @@ python scripts/compare_harmonicity.py tests/fixtures/one_two_three_four_five.wav
 | `compare_intensity.py` | Intensity | `python scripts/compare_intensity.py audio.wav --verbose` |
 | `compare_spectrum.py` | Spectrum | `python scripts/compare_spectrum.py audio.wav` |
 | `compare_spectrogram.py` | Spectrogram | `python scripts/compare_spectrogram.py audio.wav --verbose` |
-| `compare_pitch.py` | Pitch | `python scripts/compare_pitch.py audio.wav --verbose` |
+| `compare_pitch.py` | Pitch | `python scripts/compare_pitch.py audio.wav` |
 | `compare_harmonicity.py` | Harmonicity | `python scripts/compare_harmonicity.py audio.wav --method ac --verbose` |
 
 All scripts require:
 ```bash
-source ~/local/scr/commonpip/bin/activate  # parselmouth environment
+source /path/to/venv-with-parselmouth/bin/activate
 cargo build --release --example <module>_json  # Rust JSON output binary
 ```
 
@@ -748,7 +752,7 @@ cargo build --release --example <module>_json  # Rust JSON output binary
 | Harmonicity (CC) | 100% | 100% | FCC_ACCURATE (time-domain cross-correlation); max 0.0000 dB |
 
 Measured 2026-11-01 (0.1.15) against parselmouth 0.4.7 on the
-`one_two_three_four_five` fixtures (22.05/16/44.1/48 kHz mono, stereo WAV and
+`one_two_three_four_five` fixtures (24/16/44.1/48 kHz mono, stereo WAV and
 FLAC). Two fixes got pitch and HNR there:
 
 1. **Sinc depth formula of Praat 6.1.38.** `sinc_interpolate` in `pitch.rs`
@@ -838,29 +842,34 @@ the non-FMA path changed ~60% of formant values and some pitch values.
 
 Rules:
 
-1. **Transcendentals go through the `libm` crate** (pure-Rust musl port,
-   MIT/Apache): `libm::exp(x)`, `libm::log(x)` (= `f64::ln`),
-   `libm::pow(x, y)` (= `powf`), `libm::atan2(y, x)`, …
-   `num_complex::Complex::norm`/`arg`/`exp`/`ln`/`from_polar` call std
-   internally: write `libm::hypot(z.re, z.im)` etc. `sqrt` (IEEE-exact) and
-   `powi` (multiplication) are fine.
-2. **`clippy.toml` enforces it** with `disallowed-methods`. Check with
+1. **Transcendentals go through `crate::math`** (`src/math.rs`): the
+   pure-Rust `libm` crate (musl port, MIT/Apache) by default, or the
+   platform C library under the opt-in `system-libm` feature (Praat's last
+   bits on the same host; ignored on wasm32). Write `crate::math::exp(x)`,
+   `crate::math::log(x)` (= `f64::ln`), `crate::math::pow(x, y)`,
+   `crate::math::atan2(y, x)`, ... `num_complex::Complex::norm`/`arg`/`exp`/
+   `ln`/`from_polar` call std internally: write
+   `crate::math::hypot(z.re, z.im)` etc. Only the exactly rounded `sqrt`,
+   `floor`, `ceil`, `round`, `fma` may be called on `libm` directly; `powi`
+   (multiplication) is fine.
+2. **`clippy.toml` enforces it** with `disallowed-methods` (std's f64
+   transcendentals and direct `libm::sin/cos/exp/...` calls). Check with
    `cargo clippy --release --features pipe,parallel --lib`. (`--all-targets`
    currently stops early on pre-existing deny-level lints; add
    `-- -A clippy::approx_constant` to get further. `examples/` debug scripts
    still use std and are not checked.)
-3. **FFTs whose bits matter use the vendored FFTPACK** (`src/utils/fft_fftpack/`,
-   libm twiddles): the resampling low-pass and the AC pitch/HNR circular
-   autocorrelation. rustfft computes its twiddles with the host `sincos`. It
-   drifted AC pitch on 44.1k/16k input, but measured, it does not drift for
-   CC pitch, spectrum or spectrogram. The FFTPACK copy carries two fixes to the
-   c2rust translation's general-radix code (`dradfg_l102` loop start,
-   `dradbg` twiddle recurrence); `test_all_lengths_against_direct_dft`
-   checks every length 1..=700.
-4. **Third-party crates are left stock** (rustfft, faer, nalgebra's SVD,
-   symphonia). rustfft's runtime SIMD choice (AVX/SSE/NEON, scalar on wasm32)
-   remains an accepted difference between CPU families. It is why WASM vs
-   native is ~1e-11 relative on spectrogram power, not bit-identical.
+3. **Every FFT in an analysis uses the vendored FFTPACK**
+   (`src/utils/fft_fftpack/`, libm twiddles): the resampling low-pass and
+   upsampler, the AC pitch/HNR circular autocorrelation, Spectrum and
+   Spectrogram. CC pitch/HNR is a direct compensated sum, no FFT. rustfft
+   (host `sincos` twiddles) remains only in unused helpers of
+   `utils::Fft`. The FFTPACK copy carries two fixes to the c2rust
+   translation's general-radix code (`dradfg_l102` loop start, `dradbg`
+   twiddle recurrence); `test_all_lengths_against_direct_dft` checks every
+   length 1..=700.
+4. **Third-party crates are left stock** (faer, nalgebra's SVD, symphonia).
+   Measured 2026-11-02, WASM output is bit-identical to the default native
+   build on the fixtures (all analyses).
 
 **Verification:**
 

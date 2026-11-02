@@ -48,7 +48,7 @@ impl PySound {
 
     /// Load a Sound from an audio file
     ///
-    /// Supports WAV, MP3, FLAC, and OGG formats.
+    /// Supports WAV, FLAC, MP3, OGG and NIST SPHERE (including shorten-compressed).
     ///
     /// Parameters
     /// ----------
@@ -1678,7 +1678,7 @@ fn parse_pitch_unit(s: &str) -> PyResult<PitchUnit> {
         "semitones_re_440hz" | "st440" => Ok(PitchUnit::SemitonesRe440Hz),
         "erb" => Ok(PitchUnit::Erb),
         _ => Err(PyValueError::new_err(format!(
-            "Unknown pitch unit: '{}'. Valid options: hertz, mel, semitones, erb",
+            "Unknown pitch unit: '{}'. Valid options: hertz, mel, erb, semitones (re 1 Hz), semitones_re_100hz, semitones_re_200hz, semitones_re_440hz",
             s
         ))),
     }
@@ -1765,7 +1765,7 @@ impl PySpeechReference {
 /// Frames the signal, marks frames whose level is within ``speech_floor_db``
 /// of the 95th-percentile frame level as speech, and derives **frame-level**
 /// robust standards over those frames: ``std`` (median per-frame RMS), ``mean``
-/// (median per-frame mean), and ``reference_peak`` (``peak_percentile``-ile of
+/// (median per-frame mean), and ``reference_peak`` (``reference_percentile``-ile of
 /// per-frame peak |x| — a typical-speech peak). Frame-level statistics, unlike
 /// sample-level moments, are not dominated by a short loud burst.
 ///

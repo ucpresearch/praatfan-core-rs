@@ -9,11 +9,14 @@ description = "praatfan-gpl: WebAssembly bindings for praatfan-core-rs acoustic 
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["console_error_panic_hook"]
+default = ["console_error_panic_hook", "decode"]
+# Sound.from_bytes_channels: decode audio files with our own decoders, at the
+# file's own rate (the browser's decodeAudioData resamples).
+decode = ["praatfan-core-rs/decode"]
 # JSON pipe entry points (version, pipe_request_bytes, pipe_request_samples)
 # for the embedded-V8 bundle. Build that bundle without default features so
 # nothing touches `console`.
-pipe = ["praatfan-core-rs/pipe-core"]
+pipe = ["praatfan-core-rs/pipe-core", "decode"]
 
 [dependencies]
 wasm-bindgen = "0.2"

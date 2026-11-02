@@ -34,7 +34,7 @@ matches exactly one of our bit-exact candidates) and comparing Praat's
 
 There is no remaining FormantPath parity gap on this corpus.
 
-## Historical context (today's session)
+## Historical context (2026-04-23 session)
 
 | change | commit | net h95 impact |
 |---|---|---:|

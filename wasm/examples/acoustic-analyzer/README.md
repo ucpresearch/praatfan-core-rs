@@ -4,7 +4,9 @@ A browser-based acoustic analysis tool demonstrating praatfan-gpl.
 
 ## Features
 
-- **Drag & drop** audio file upload (WAV, FLAC, MP3, OGG)
+- **Drag & drop** audio file upload: WAV, FLAC, MP3, OGG and NIST SPHERE are
+  decoded by praatfan-gpl itself at the file's own rate (other formats fall
+  back to the browser, which may resample). The first channel is analysed.
 - **Real-time analysis** using praatfan-gpl
 - **Extracted features:**
   - Pitch (F0) in Hz
@@ -12,7 +14,8 @@ A browser-based acoustic analysis tool demonstrating praatfan-gpl.
   - HNR (Harmonics-to-Noise Ratio) in dB
   - Formants F1, F2, F3 in Hz
   - Bandwidths B1, B2, B3 in Hz
-  - Center of Gravity (CoG)
+  - Spectral Center of Gravity (CoG) of the whole file (per-frame CoG is
+    not computed)
 - **Export** results as CSV or JSON
 - **Configurable** analysis parameters
 
@@ -28,7 +31,7 @@ wasm-pack build --target web
 2. Copy (or symlink) the `pkg/` directory into this example directory:
 
 ```bash
-cd wasm/examples/acoustic-analyzer
+cd examples/acoustic-analyzer   # from wasm/
 ln -s ../../pkg pkg
 # Or copy: cp -r ../../pkg .
 ```

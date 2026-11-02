@@ -13,7 +13,7 @@
 #
 # Also runs praatfan-core-clean's response-shape checker (test-shape.mjs).
 # If a native praatfan-gpl-pipe is given, the smoke test also checks that the
-# bundle's output is byte-identical to it.
+# bundle's output matches it within rounding (smoke.mjs: power 1e-10, other values 1e-6 relative).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

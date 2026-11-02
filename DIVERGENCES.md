@@ -13,8 +13,8 @@ chosen *different* behaviour from Praat. Those clean-room choices are often
 defensible on the merits — but adopting them here would break our contract, so
 they are documented rather than applied.
 
-Last reviewed: 2026-11-01 (§1–2 and §4 re-measured after the 0.1.15 AC-HNR
-fix); 2026-10-16 (§7 added); §1–6 against praatfan-core-clean at 0.1.10.
+Last reviewed: 2026-11-02 (§8 re-measured with the `system-libm` feature);
+2026-11-01 (§1–2 and §4 re-measured after the 0.1.15 AC-HNR fix); 2026-10-16 (§7 added); §1–6 against praatfan-core-clean at 0.1.10.
 
 ---
 
@@ -29,7 +29,7 @@ fix); 2026-10-16 (§7 added); §1–6 against praatfan-core-clean at 0.1.10.
 | 5 | `Harmonicity: Get value at time` across a marker | interpolates the marker in | same as Praat (since 0.1.15; held the defined neighbour before) | returns the nearest frame | n/a — we match Praat |
 | 6 | HNR bandwidth on wideband (48 kHz) input | effectively band-limited | same as Praat | broadband | **No** |
 | 7 | Pipe `spectrogram`: too-short sound, `max_frequency <= 0` | errors | empty result / Nyquist (pipe only) | same as ours (shared spec) | **Yes** — interface choice, values unaffected |
-| 8 | Residual gaps found by `scripts/parity_sweep.py` | — | numerical floors + unported query semantics | n/a | documented, see §8 |
+| 8 | Residual gaps found by `scripts/parity_sweep.py` | — | numerical floors (mostly math-library last bits; see `system-libm`) + too-short sounds return empty objects | n/a | documented, see §8 |
 
 ---
 

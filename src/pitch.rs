@@ -1211,18 +1211,25 @@ impl Pitch {
     fn extremum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool, is_max: bool) -> Option<(f64, f64)> {
         let (v, t) = sampled_extremum(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
             from_time, to_time, interpolate, is_max, |i| self.unit_value(i, unit))?;
-        if v <= 0.0 && !Self::unit_allows_negative(unit) { None } else { Some((v, t)) }
+        Some((v, t))
+    }
+
+    /// `Pitch_getMinimumAndTime`: a value <= 0 in a non-negative unit is
+    /// undefined; the time of that extremum stays defined, as in Praat.
+    fn extremum_value(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool, is_max: bool) -> Option<f64> {
+        let (v, _) = self.extremum(from_time, to_time, unit, interpolate, is_max)?;
+        if v <= 0.0 && !Self::unit_allows_negative(unit) { None } else { Some(v) }
     }
 
     /// Praat's `Pitch: Get minimum...` (`interpolate`: Praat's "Parabolic"
     /// versus "None").
     pub fn get_minimum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool) -> Option<f64> {
-        self.extremum(from_time, to_time, unit, interpolate, false).map(|x| x.0)
+        self.extremum_value(from_time, to_time, unit, interpolate, false)
     }
 
     /// Praat's `Pitch: Get maximum...`.
     pub fn get_maximum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool) -> Option<f64> {
-        self.extremum(from_time, to_time, unit, interpolate, true).map(|x| x.0)
+        self.extremum_value(from_time, to_time, unit, interpolate, true)
     }
 
     /// Praat's `Pitch: Get time of minimum...`.

@@ -174,7 +174,7 @@
 </head>
 <body>
     <h1>Acoustic Analyzer</h1>
-    <p class="subtitle">Browser-based acoustic analysis using <a href="https://github.com/praatfan-core-rs">praatfan-gpl</a></p>
+    <p class="subtitle">Browser-based acoustic analysis using <a href="https://github.com/ucpresearch/praatfan-core-rs">praatfan-gpl</a></p>
 
     <div class="drop-zone" id="dropZone">
         <p>Drop an audio file here or click to select</p>
@@ -225,6 +225,7 @@
     </div>
 
     <script type="module">
+        const orNull = v => (v === undefined || v === null || Number.isNaN(v)) ? null : v;
         import init, { Sound, Pitch, Formant, Intensity, Harmonicity, Spectrum } from './pkg/praatfan_gpl.js';
 
         let wasmReady = false;
@@ -284,8 +285,8 @@
             return null;
         }
 
-        // Decode audio file to samples
-        async function decodeAudio(arrayBuffer) {
+        // Browser fallback, for formats our decoders do not read (AAC, ...).
+        async function decodeWithBrowser(arrayBuffer) {
             const rate = headerSampleRate(arrayBuffer);
             let audioContext;
             try {
@@ -305,6 +306,28 @@
             return { samples, sampleRate: audioBuffer.sampleRate };
         }
 
+        // Decode with praatfan-gpl's own decoders (WAV, FLAC, MP3, OGG, NIST
+        // SPHERE): samples arrive at the file's own rate, untouched, as in
+        // Praat. Falls back to the browser for other formats, or for a pkg/
+        // built before Sound.from_bytes_channels existed.
+        async function decodeAudio(arrayBuffer, fileName) {
+            if (typeof Sound.from_bytes_channels === 'function') {
+                const ext = (fileName.match(/\.([^.]+)$/) || [, ''])[1].toLowerCase();
+                try {
+                    const channels = Sound.from_bytes_channels(new Uint8Array(arrayBuffer), ext);
+                    const note = channels.length > 1
+                        ? `${channels.length} channels: analysing channel 1 only`
+                        : '';
+                    return { sound: channels[0], note };
+                } catch (e) {
+                    // Not a format we decode: let the browser try.
+                }
+            }
+            const { samples, sampleRate } = await decodeWithBrowser(arrayBuffer);
+            return { sound: new Sound(samples, sampleRate),
+                     note: 'decoded by the browser (may be resampled, channel 1 only)' };
+        }
+
         // Main analysis function
         async function analyzeAudio(file) {
             if (!wasmReady) {
@@ -316,10 +339,9 @@
 
             try {
                 const arrayBuffer = await file.arrayBuffer();
-                const { samples, sampleRate } = await decodeAudio(arrayBuffer);
-
-                showStatus('Creating Sound object...');
-                const sound = new Sound(samples, sampleRate);
+                const { sound, note } = await decodeAudio(arrayBuffer, file.name);
+                const sampleRate = sound.sample_rate;
+                if (note) showStatus(note);
                 const duration = sound.duration;
 
                 // Get parameters
@@ -381,14 +403,16 @@
                     results.push({
                         time: t,
                         f0: Number.isNaN(f0) ? null : f0,
-                        intensity: int_val,
-                        hnr: hnr,
-                        f1: f1,
-                        f2: f2,
-                        f3: f3,
-                        b1: b1,
-                        b2: b2,
-                        b3: b3,
+                        // wasm-bindgen returns undefined (not null) for missing values
+                        intensity: orNull(int_val),
+                        // -200 dB is Praat's "unvoiced" marker, not a measurement
+                        hnr: (hnr === -200) ? null : orNull(hnr),
+                        f1: orNull(f1),
+                        f2: orNull(f2),
+                        f3: orNull(f3),
+                        b1: orNull(b1),
+                        b2: orNull(b2),
+                        b3: orNull(b3),
                         cog: cog
                     });
                 }
@@ -431,7 +455,8 @@
             const meanF0 = voiced.length > 0
                 ? voiced.reduce((a, f) => a + f.f0, 0) / voiced.length
                 : null;
-            const meanIntensity = frames.reduce((a, f) => a + (f.intensity || 0), 0) / frames.length;
+            const withIntensity = frames.filter(f => f.intensity !== null);
+            const meanIntensity = withIntensity.reduce((a, f) => a + f.intensity, 0) / withIntensity.length;
             const meanHnr = frames.filter(f => f.hnr !== null).reduce((a, f) => a + f.hnr, 0) /
                            frames.filter(f => f.hnr !== null).length || null;
             const meanF1 = frames.filter(f => f.f1 !== null).reduce((a, f) => a + f.f1, 0) /

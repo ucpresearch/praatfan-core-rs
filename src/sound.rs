@@ -871,10 +871,10 @@ impl Sound {
         (min, max)
     }
 
-    /// Resample the sound to a new sample rate using sinc interpolation
+    /// Resample the sound to a new sample rate (Praat's `Sound_resample`)
     ///
-    /// This method uses windowed sinc interpolation matching Praat's Sound_resample
-    /// exactly. It's used internally for formant analysis where Praat resamples
+    /// FFT low-pass when downsampling, then windowed sinc interpolation; an
+    /// exact doubling uses Praat's FFT upsampler (`Sound_upsample`). It's used internally for formant analysis where Praat resamples
     /// to 2 × max_formant before LPC.
     ///
     /// # Arguments

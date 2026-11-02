@@ -13,6 +13,14 @@
 //! - [`Harmonicity`] - HNR (harmonics-to-noise ratio) contour
 //! - [`Spectrum`] - Single-frame FFT magnitude spectrum
 //! - [`Spectrogram`] - Time-frequency representation
+//! - [`PointProcess`] - Glottal pulses; jitter, shimmer, [`voice_report`]
+//!
+//! # Transcendentals
+//!
+//! All `sin`/`cos`/`exp`/`log`/... calls go through [`math`]: the pure-Rust
+//! `libm` crate by default (identical results on every platform, including
+//! wasm32), or the platform C library under the opt-in `system-libm` feature,
+//! which reproduces Praat's last bits on the same host.
 //!
 //! # Parallelism
 //!

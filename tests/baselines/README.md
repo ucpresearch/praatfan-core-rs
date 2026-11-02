@@ -25,7 +25,7 @@ both `vowdata.dat` and `timedata.dat` have entries.
 ### How the baseline was produced
 
 ```bash
-source ~/local/scr/commonpip/bin/activate
+source /path/to/venv-with-parselmouth/bin/activate
 python scripts/generate_h95_baseline.py
 ```
 
@@ -36,7 +36,7 @@ that could affect FormantPath numerics (resample, Burg LPC, root finding,
 stress computation, Viterbi):
 
 ```bash
-source ~/local/scr/commonpip/bin/activate
+source /path/to/venv-with-parselmouth/bin/activate
 python scripts/check_h95_regression.py                  # full run
 python scripts/check_h95_regression.py --limit 60       # quick smoke
 python scripts/check_h95_regression.py --fail-tol 1.0   # CI gate
@@ -49,13 +49,9 @@ relative to `praat_*`, and exits non-zero on any regression > `--fail-tol`.
 
 ### Provenance of this baseline
 
-Saved before switching root-finding to `faer` and tightening Burg LPC
-precision. Typical `|praat - ours|` at this baseline:
-
-| | median | max |
-|---:|---:|---:|
-| F1 | 0.012 Hz | ~4 Hz |
-| F2 | 0.032 Hz | ~3 Hz |
-| F3 | 0.032 Hz | ~31 Hz (one outlier) |
+Re-pinned 2026-11-01 for 0.1.15 (see `STATE.md`): all 1609 tokens agree
+with parselmouth 0.4.7 within 5e-7 Hz on F1-F3. (The first baseline, saved
+before the switch to `faer` root-finding, had medians of 0.01-0.03 Hz and
+outliers up to ~31 Hz.)
 
 Any future build should match or beat these numbers on every token.
