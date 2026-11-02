@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn test_fft_roundtrip() {
         let n = 32;
-        let original: Vec<f64> = (0..n).map(|i| libm::sin(i as f64 * 0.1)).collect();
+        let original: Vec<f64> = (0..n).map(|i| crate::math::sin(i as f64 * 0.1)).collect();
         let mut data = original.clone();
         let mut plan = RealFftPlan::new(n);
         plan.forward(&mut data);
@@ -181,7 +181,7 @@ mod tests {
     fn test_all_lengths_against_direct_dft() {
         for n in 1..=700usize {
             let x: Vec<f64> = (0..n)
-                .map(|i| libm::sin(0.37 * i as f64) + 0.5 * libm::cos(1.3 * i as f64 + 0.2))
+                .map(|i| crate::math::sin(0.37 * i as f64) + 0.5 * crate::math::cos(1.3 * i as f64 + 0.2))
                 .collect();
             let mut data = x.clone();
             let mut plan = RealFftPlan::new(n);
@@ -193,8 +193,8 @@ mod tests {
                 let (mut re, mut im) = (0.0, 0.0);
                 for (j, &v) in x.iter().enumerate() {
                     let a = -2.0 * std::f64::consts::PI * ((k * j) % n) as f64 / n as f64;
-                    re += v * libm::cos(a);
-                    im += v * libm::sin(a);
+                    re += v * crate::math::cos(a);
+                    im += v * crate::math::sin(a);
                 }
                 if k == 0 {
                     expected[0] = re;
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn test_praat_rotation_roundtrip() {
         let n = 32;
-        let original: Vec<f64> = (0..n).map(|i| libm::cos(i as f64 * 0.2)).collect();
+        let original: Vec<f64> = (0..n).map(|i| crate::math::cos(i as f64 * 0.2)).collect();
         let mut data = original.clone();
         let mut plan = RealFftPlan::new(n);
         realft_forward_praat(&mut plan, &mut data);

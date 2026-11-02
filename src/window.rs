@@ -51,19 +51,19 @@ impl WindowShape {
 
             WindowShape::Hanning => {
                 // Praat's Hanning: 0.5 + 0.5 * cos(2 * pi * position)
-                0.5 + 0.5 * libm::cos(2.0 * PI * position)
+                0.5 + 0.5 * crate::math::cos(2.0 * PI * position)
             }
 
             WindowShape::Hamming => {
                 // Praat's Hamming: 0.54 + 0.46 * cos(2 * pi * position)
-                0.54 + 0.46 * libm::cos(2.0 * PI * position)
+                0.54 + 0.46 * crate::math::cos(2.0 * PI * position)
             }
 
             WindowShape::Gaussian => {
                 // Gaussian window: exp(-0.5 * (position / sigma)^2)
                 // Default sigma for Praat's Gaussian spectrogram is ~0.4
                 let sigma = parameter.unwrap_or(0.4);
-                libm::exp(-0.5 * (position / sigma).powi(2))
+                crate::math::exp(-0.5 * (position / sigma).powi(2))
             }
 
             WindowShape::Kaiser => {
@@ -137,7 +137,7 @@ fn bessel_i0(x: f64) -> f64 {
     } else {
         // Asymptotic expansion for large arguments
         let y = 3.75 / ax;
-        (libm::exp(ax) / ax.sqrt())
+        (crate::math::exp(ax) / ax.sqrt())
             * (0.39894228
                 + y * (0.01328592
                     + y * (0.00225319
@@ -164,14 +164,14 @@ pub fn praat_formant_window(size: usize) -> Vec<f64> {
     // Praat (Sound_to_Formant.cpp, Sound_createGaussian), 1-based i:
     //   imid = 0.5 * (n + 1); (exp (-48 * (i - imid) * (i - imid) / (n + 1) / (n + 1)) - edge) / (1 - edge)
     // written in Praat's operation order.
-    let edge = libm::exp(-12.0_f64);
+    let edge = crate::math::exp(-12.0_f64);
     let imid = 0.5 * (size + 1) as f64;
     let np1 = (size + 1) as f64;
 
     (1..=size)
         .map(|i| {
             let d = i as f64 - imid;
-            let gaussian = libm::exp(-48.0 * d * d / np1 / np1);
+            let gaussian = crate::math::exp(-48.0 * d * d / np1 / np1);
             (gaussian - edge) / (1.0 - edge)
         })
         .collect()

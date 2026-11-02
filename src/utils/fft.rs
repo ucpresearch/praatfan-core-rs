@@ -165,7 +165,7 @@ impl Fft {
         let spectrum = self.real_fft(input, fft_size);
 
         let n_freqs = fft_size / 2 + 1;
-        spectrum[..n_freqs].iter().map(|c| libm::hypot(c.re, c.im)).collect()
+        spectrum[..n_freqs].iter().map(|c| crate::math::hypot(c.re, c.im)).collect()
     }
 
     /// Compute autocorrelation using FFT
@@ -432,7 +432,7 @@ mod tests {
 
         // Other components should be zero
         for i in 1..8 {
-            assert_relative_eq!(libm::hypot(spectrum[i].re, spectrum[i].im), 0.0, epsilon = 1e-10);
+            assert_relative_eq!(crate::math::hypot(spectrum[i].re, spectrum[i].im), 0.0, epsilon = 1e-10);
         }
     }
 
@@ -443,15 +443,15 @@ mod tests {
         // Pure sine wave at bin 1
         let n = 16;
         let input: Vec<f64> = (0..n)
-            .map(|i| libm::sin(2.0 * PI * i as f64 / n as f64))
+            .map(|i| crate::math::sin(2.0 * PI * i as f64 / n as f64))
             .collect();
 
         let spectrum = fft.real_fft(&input, n);
 
         // Energy should be at bin 1 (and n-1 for conjugate)
-        assert!(libm::hypot(spectrum[1].re, spectrum[1].im) > 1.0);
-        assert_relative_eq!(libm::hypot(spectrum[0].re, spectrum[0].im), 0.0, epsilon = 1e-10);
-        assert_relative_eq!(libm::hypot(spectrum[2].re, spectrum[2].im), 0.0, epsilon = 1e-10);
+        assert!(crate::math::hypot(spectrum[1].re, spectrum[1].im) > 1.0);
+        assert_relative_eq!(crate::math::hypot(spectrum[0].re, spectrum[0].im), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(crate::math::hypot(spectrum[2].re, spectrum[2].im), 0.0, epsilon = 1e-10);
     }
 
     #[test]

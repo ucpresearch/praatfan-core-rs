@@ -219,7 +219,7 @@ pub fn lpc_to_formants(coefficients: &[f64], sample_rate: f64) -> Vec<FormantCan
     // Praat: roots[i] = 1.0 / conj(roots[i]) = roots[i] / |roots[i]|^2
     // This keeps the sign of the imaginary part (important for formant extraction)
     for root in &mut roots {
-        let mag = libm::hypot(root.re, root.im);
+        let mag = crate::math::hypot(root.re, root.im);
         if mag > 1.0 {
             // Map to 1/conj(z) = z / |z|^2 (NOT conj(z) / |z|^2)
             *root = *root / (mag * mag);
@@ -237,7 +237,7 @@ pub fn lpc_to_formants(coefficients: &[f64], sample_rate: f64) -> Vec<FormantCan
         }
 
         // Frequency from angle: f = |atan2(im, re)| * nyquist / π
-        let frequency = libm::atan2(root.im, root.re).abs() * nyquist / PI;
+        let frequency = crate::math::atan2(root.im, root.re).abs() * nyquist / PI;
 
         // Apply safety margin (Praat: f >= 50 && f <= nyquist - 50)
         if frequency < safety_margin || frequency > nyquist - safety_margin {
@@ -251,7 +251,7 @@ pub fn lpc_to_formants(coefficients: &[f64], sample_rate: f64) -> Vec<FormantCan
         // is the fit weight for FormantPath stress and must match Praat.
         let norm_sq = root.re * root.re + root.im * root.im;
         let bandwidth = if norm_sq > 0.0 {
-            -(libm::log(norm_sq)) * nyquist / PI
+            -(crate::math::log(norm_sq)) * nyquist / PI
         } else {
             nyquist // Maximum bandwidth
         };
@@ -317,7 +317,7 @@ fn polish_complex_root(coefficients: &[f64], root: &mut Complex<f64>, max_iter: 
 
     for _ in 0..max_iter {
         let (p, dp) = evaluate_polynomial_with_derivative(coefficients, *root);
-        let residual = libm::hypot(p.re, p.im);
+        let residual = crate::math::hypot(p.re, p.im);
 
         // Stop if residual is increasing or not improving
         if residual >= min_residual || (min_residual - residual).abs() < eps {
@@ -329,7 +329,7 @@ fn polish_complex_root(coefficients: &[f64], root: &mut Complex<f64>, max_iter: 
         best = *root;
 
         // Stop if derivative is zero (can't continue)
-        if libm::hypot(dp.re, dp.im) == 0.0 {
+        if crate::math::hypot(dp.re, dp.im) == 0.0 {
             return;
         }
 
@@ -500,7 +500,7 @@ mod tests {
     fn test_lpc_burg_basic() {
         // Simple test signal
         let samples: Vec<f64> = (0..100)
-            .map(|i| libm::sin(2.0 * PI * 440.0 * i as f64 / 8000.0))
+            .map(|i| crate::math::sin(2.0 * PI * 440.0 * i as f64 / 8000.0))
             .collect();
 
         let result = lpc_burg(&samples, 10).unwrap();

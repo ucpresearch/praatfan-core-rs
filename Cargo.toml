@@ -24,6 +24,9 @@ parallel = ["dep:rayon"]
 # Pipe request handling without the filesystem (for the WASM bundle).
 pipe-core = ["dep:serde", "dep:serde_json", "decode"]
 pipe = ["pipe-core", "file-io", "parallel"]
+# Transcendentals from the platform C library instead of the pure-Rust libm
+# crate: last-bit agreement with Praat on the same host (see src/math.rs).
+system-libm = []
 
 [dependencies]
 ndarray = "0.15"
@@ -33,6 +36,7 @@ thiserror = "1.0"
 # Pure-Rust transcendentals (exp/log/pow/sin/cos/...): host-independent
 # results.  std's f64 methods call the platform C libm, whose code path glibc
 # picks per CPU (FMA/AVX2), so last bits differed between machines.
+# Routed through src/math.rs; feature `system-libm` swaps in the C library.
 libm = "0.2"
 nalgebra = "0.33"
 # High-precision Hessenberg + Francis QR eigendecomposition (pure Rust,

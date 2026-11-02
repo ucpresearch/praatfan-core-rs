@@ -155,12 +155,12 @@ impl Spectrogram {
             let w = match window_shape {
                 WindowShape::Gaussian => {
                     let imid = 0.5 * (nsamp_window as f64 + 1.0);
-                    let edge = libm::exp(-12.0_f64);
+                    let edge = crate::math::exp(-12.0_f64);
                     let phase_gauss = (i_1based - imid) / n_samples_per_window_f;
-                    (libm::exp(-48.0 * phase_gauss * phase_gauss) - edge) / (1.0 - edge)
+                    (crate::math::exp(-48.0 * phase_gauss * phase_gauss) - edge) / (1.0 - edge)
                 }
-                WindowShape::Hanning => 0.5 * (1.0 - libm::cos(2.0 * std::f64::consts::PI * phase)),
-                WindowShape::Hamming => 0.54 - 0.46 * libm::cos(2.0 * std::f64::consts::PI * phase),
+                WindowShape::Hanning => 0.5 * (1.0 - crate::math::cos(2.0 * std::f64::consts::PI * phase)),
+                WindowShape::Hamming => 0.54 - 0.46 * crate::math::cos(2.0 * std::f64::consts::PI * phase),
                 WindowShape::Triangular => 1.0 - (2.0 * phase - 1.0).abs(),
                 WindowShape::Parabolic => 1.0 - (2.0 * phase - 1.0).powi(2),
                 WindowShape::Rectangular | WindowShape::Kaiser => 1.0,
@@ -386,7 +386,7 @@ impl Spectrogram {
     pub fn get_power_db_at(&self, time: f64, frequency: f64) -> Option<f64> {
         self.get_power_at(time, frequency).map(|p| {
             if p > 0.0 {
-                10.0 * libm::log10(p)
+                10.0 * crate::math::log10(p)
             } else {
                 f64::NEG_INFINITY
             }

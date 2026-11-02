@@ -319,7 +319,7 @@ impl FormantPath {
         // Praat computes this unconditionally; with a zero-intensity frame in
         // the middle candidate it is -inf, which makes every positive-intensity
         // frame's weight sigmoid(+inf) = 1.
-        let db_mid = 0.5 * 10.0 * libm::log10(i_max * i_min);
+        let db_mid = 0.5 * 10.0 * crate::math::log10(i_max * i_min);
 
         // Pre-compute Q-sums (num_tracks_fit defaulting to max_num_formants when
         // parameters is empty — mirrors Praat's `numberOfTracks` fallback).
@@ -358,7 +358,7 @@ impl FormantPath {
             if has_intensity_difference && intensity_modulation_step_size > 0.0 {
                 let intensity = frame.intensity();
                 if intensity > 0.0 {
-                    let dbi = 10.0 * libm::log10(intensity / 2e-5);
+                    let dbi = 10.0 * crate::math::log10(intensity / 2e-5);
                     w_intensity = num_sigmoid((dbi - db_mid) / intensity_modulation_step_size);
                 } else {
                     w_intensity = 0.0;
@@ -718,8 +718,8 @@ fn generate_ceilings(
     let mid = number_of_steps_up_down;
     out[mid] = middle_ceiling;
     for istep in 1..=number_of_steps_up_down {
-        out[mid + istep] = middle_ceiling * libm::exp(step_size * istep as f64);
-        out[mid - istep] = middle_ceiling * libm::exp(-step_size * istep as f64);
+        out[mid + istep] = middle_ceiling * crate::math::exp(step_size * istep as f64);
+        out[mid - istep] = middle_ceiling * crate::math::exp(-step_size * istep as f64);
     }
     out
 }
@@ -734,7 +734,7 @@ fn resolve_track_range(from_formant: usize, to_formant: usize, n_params: usize) 
 }
 
 fn num_sigmoid(x: f64) -> f64 {
-    1.0 / (1.0 + libm::exp(-x))
+    1.0 / (1.0 + crate::math::exp(-x))
 }
 
 impl Sound {
@@ -786,8 +786,8 @@ mod tests {
         }
         // Geometric
         for i in 1..=4 {
-            assert!((c[4 + i] - 5500.0 * libm::exp(0.05 * i as f64)).abs() < 1e-9);
-            assert!((c[4 - i] - 5500.0 * libm::exp(-0.05 * i as f64)).abs() < 1e-9);
+            assert!((c[4 + i] - 5500.0 * crate::math::exp(0.05 * i as f64)).abs() < 1e-9);
+            assert!((c[4 - i] - 5500.0 * crate::math::exp(-0.05 * i as f64)).abs() < 1e-9);
         }
     }
 
@@ -844,7 +844,7 @@ mod tests {
                     .map(|k| {
                         let f = 120.0 * k as f64;
                         let a = 1.0 / (1.0 + ((f - 700.0) / 150.0).powi(2)) + 0.5 / (1.0 + ((f - 1200.0) / 200.0).powi(2));
-                        a * libm::sin(2.0 * std::f64::consts::PI * f * t)
+                        a * crate::math::sin(2.0 * std::f64::consts::PI * f * t)
                     })
                     .sum::<f64>()
             })

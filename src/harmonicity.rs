@@ -348,7 +348,7 @@ impl Harmonicity {
             } else if r > 1.0 - 1e-15 {
                 150.0
             } else {
-                10.0 * libm::log10(r / (1.0 - r))
+                10.0 * crate::math::log10(r / (1.0 - r))
             }
         }
     }
@@ -731,7 +731,7 @@ mod tests {
         for i in 0..n_samples {
             let t = i as f64 / sample_rate;
             // Tone + noise
-            let tone = 0.3 * libm::sin(2.0 * PI * 200.0 * t);
+            let tone = 0.3 * crate::math::sin(2.0 * PI * 200.0 * t);
 
             // Simple PRNG for noise
             rng_state = rng_state.wrapping_mul(1103515245).wrapping_add(12345);

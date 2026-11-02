@@ -54,6 +54,7 @@ pub mod speech_reference;
 pub mod pipe;
 
 pub mod utils;
+pub mod math;
 mod par;
 
 // Re-export main types at crate root
@@ -173,27 +174,27 @@ const SEMITONE_FACTOR: f64 = 12.0 / std::f64::consts::LN_2;
 
 /// `NUMhertzToMel`: 550 ln(1 + f/550)
 fn hz_to_mel(hz: f64) -> f64 {
-    if hz < 0.0 { f64::NAN } else { 550.0 * libm::log(1.0 + hz / 550.0) }
+    if hz < 0.0 { f64::NAN } else { 550.0 * crate::math::log(1.0 + hz / 550.0) }
 }
 
 /// `NUMmelToHertz`
 fn mel_to_hz(mel: f64) -> f64 {
-    if mel < 0.0 { f64::NAN } else { 550.0 * (libm::exp(mel / 550.0) - 1.0) }
+    if mel < 0.0 { f64::NAN } else { 550.0 * (crate::math::exp(mel / 550.0) - 1.0) }
 }
 
 /// Praat's Pitch semitones: (12 / ln 2) ln(f / ref); undefined for f <= 0
 fn hz_to_semitones(hz: f64, reference: f64) -> f64 {
-    if hz <= 0.0 { f64::NAN } else { SEMITONE_FACTOR * libm::log(hz / reference) }
+    if hz <= 0.0 { f64::NAN } else { SEMITONE_FACTOR * crate::math::log(hz / reference) }
 }
 
 /// ref * exp(st * ln 2 / 12)
 fn semitones_to_hz(semitones: f64, reference: f64) -> f64 {
-    reference * libm::exp(semitones * (std::f64::consts::LN_2 / 12.0))
+    reference * crate::math::exp(semitones * (std::f64::consts::LN_2 / 12.0))
 }
 
 /// `NUMhertzToErb`: 11.17 ln((f + 312) / (f + 14680)) + 43
 fn hz_to_erb(hz: f64) -> f64 {
-    if hz < 0.0 { f64::NAN } else { 11.17 * libm::log((hz + 312.0) / (hz + 14680.0)) + 43.0 }
+    if hz < 0.0 { f64::NAN } else { 11.17 * crate::math::log((hz + 312.0) / (hz + 14680.0)) + 43.0 }
 }
 
 /// `NUMerbToHertz`
@@ -201,7 +202,7 @@ fn erb_to_hz(erb: f64) -> f64 {
     if erb < 0.0 {
         return f64::NAN;
     }
-    let dum = libm::exp((erb - 43.0) / 11.17);
+    let dum = crate::math::exp((erb - 43.0) / 11.17);
     (14680.0 * dum - 312.0) / (1.0 - dum)
 }
 
@@ -211,12 +212,12 @@ fn hz_to_bark(hz: f64) -> f64 {
         return f64::NAN;
     }
     let r = hz / 650.0;
-    7.0 * libm::log(r + libm::sqrt(1.0 + r * r))
+    7.0 * crate::math::log(r + libm::sqrt(1.0 + r * r))
 }
 
 /// `NUMbarkToHertz`
 fn bark_to_hz(bark: f64) -> f64 {
-    if bark < 0.0 { f64::NAN } else { 650.0 * libm::sinh(bark / 7.0) }
+    if bark < 0.0 { f64::NAN } else { 650.0 * crate::math::sinh(bark / 7.0) }
 }
 
 #[cfg(test)]

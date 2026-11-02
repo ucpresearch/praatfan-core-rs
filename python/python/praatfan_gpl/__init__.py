@@ -57,6 +57,7 @@ from .praatfan_gpl import (
     estimate_speech_reference,
     PointProcess,
     voice_report,
+    math_backend,
 )
 
 # Compatibility layer for parselmouth API
@@ -75,6 +76,7 @@ __all__ = [
     "estimate_speech_reference",
     "PointProcess",
     "voice_report",
+    "math_backend",
     "compat",
 ]
 

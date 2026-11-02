@@ -147,7 +147,7 @@ impl Spectrum {
     /// Get the phase at a frequency bin (in radians)
     pub fn get_phase(&self, bin: usize) -> Option<f64> {
         if bin < self.real.len() {
-            Some(libm::atan2(self.imag[bin], self.real[bin]))
+            Some(crate::math::atan2(self.imag[bin], self.real[bin]))
         } else {
             None
         }
@@ -219,7 +219,7 @@ impl Spectrum {
     pub fn get_band_energy_db(&self, freq_min: f64, freq_max: f64) -> f64 {
         let energy = self.get_band_energy(freq_min, freq_max);
         if energy > 0.0 {
-            10.0 * libm::log10(energy)
+            10.0 * crate::math::log10(energy)
         } else {
             f64::NEG_INFINITY
         }
@@ -230,7 +230,7 @@ impl Spectrum {
     fn weighted_energy(&self, bin: usize, halfpower: f64) -> f64 {
         let (re, im) = (self.real[bin], self.imag[bin]);
         let energy = re * re + im * im;
-        if halfpower != 1.0 { libm::pow(energy, halfpower) } else { energy }
+        if halfpower != 1.0 { crate::math::pow(energy, halfpower) } else { energy }
     }
 
     /// Spectral centre of gravity: Praat's `Spectrum_getCentreOfGravity`,
@@ -261,7 +261,7 @@ impl Spectrum {
             let energy = self.weighted_energy(bin, halfpower);
             let f = bin as f64 * self.df;
             sum_e.add(energy);
-            sum_fe.add(libm::pow(f - fmean, moment) * energy);
+            sum_fe.add(crate::math::pow(f - fmean, moment) * energy);
         }
         sum_fe.value() / sum_e.value()
     }

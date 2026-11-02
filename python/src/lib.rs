@@ -2018,6 +2018,14 @@ fn voice_report<'py>(
     Ok(d)
 }
 
+/// Which transcendental-function backend this build uses: "libm" (pure Rust,
+/// identical on every platform) or "system" (the platform C library, which
+/// matches Praat's last bits on the same host).
+#[pyfunction]
+fn math_backend() -> &'static str {
+    praatfan_core::math::BACKEND
+}
+
 #[pymodule]
 fn praatfan_gpl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySound>()?;
@@ -2031,6 +2039,7 @@ fn praatfan_gpl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySpeechReference>()?;
     m.add_class::<PyPointProcess>()?;
     m.add_function(wrap_pyfunction!(voice_report, m)?)?;
+    m.add_function(wrap_pyfunction!(math_backend, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_speech_reference, m)?)?;
     Ok(())
 }

@@ -56,7 +56,7 @@ pub(crate) fn bessel_i0(x: f64) -> f64 {
     } else {
         // Formula 9.8.2 from Abramowitz & Stegun. Accuracy 1.9e-7.
         let t = 3.75 / x;
-        (libm::exp(x) / x.sqrt()) * (0.39894228 + t * (0.01328592
+        (crate::math::exp(x) / x.sqrt()) * (0.39894228 + t * (0.01328592
             + t * (0.00225319 + t * (-0.00157565 + t * (0.00916281
             + t * (-0.02057706 + t * (0.02635537 + t * (-0.01647633
             + t * 0.00392377))))))))
@@ -220,7 +220,7 @@ impl Intensity {
             if intensity_re_threshold < 1.0e-30 {
                 -300.0
             } else {
-                10.0 * libm::log10(intensity_re_threshold)
+                10.0 * crate::math::log10(intensity_re_threshold)
             }
         });
 
@@ -340,7 +340,7 @@ impl Intensity {
             if intensity_re_threshold < 1.0e-30 {
                 -300.0
             } else {
-                10.0 * libm::log10(intensity_re_threshold)
+                10.0 * crate::math::log10(intensity_re_threshold)
             }
         });
 
@@ -421,8 +421,8 @@ impl Intensity {
     /// in the chosen unit and returned in dB.
     pub fn get_average(&self, from_time: f64, to_time: f64, method: IntensityAveraging) -> Option<f64> {
         let conv = |v: f64| match method {
-            IntensityAveraging::Energy => libm::pow(10.0, 0.1 * v),
-            IntensityAveraging::Sones => libm::pow(2.0, 0.1 * v),
+            IntensityAveraging::Energy => crate::math::pow(10.0, 0.1 * v),
+            IntensityAveraging::Sones => crate::math::pow(2.0, 0.1 * v),
             IntensityAveraging::Db => v,
         };
         let mean = sampled_mean_interpolated(
@@ -436,8 +436,8 @@ impl Intensity {
             |i| conv(self.values[(i - 1) as usize]),
         )?;
         Some(match method {
-            IntensityAveraging::Energy => 10.0 * libm::log10(mean),
-            IntensityAveraging::Sones => 10.0 * libm::log2(mean),
+            IntensityAveraging::Energy => 10.0 * crate::math::log10(mean),
+            IntensityAveraging::Sones => 10.0 * crate::math::log2(mean),
             IntensityAveraging::Db => mean,
         })
     }

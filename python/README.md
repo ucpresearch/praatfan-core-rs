@@ -281,6 +281,32 @@ for t in np.arange(0, sound_pm.duration, 0.01):
         assert abs(f1_pm - f1_pc) < 1.0  # Within 1 Hz
 ```
 
+### Last-bit agreement: the `system-libm` build (opt-in)
+
+The published wheels compute `sin`, `cos`, `exp`, `log`, ... with a pure-Rust
+math library, so results are identical on every platform. Praat uses the C
+library of the machine it runs on, and its last bits follow that library
+(and, under glibc, the CPU). The two differ in the last bit on a small
+fraction of arguments, which is invisible in normal speech but decides the
+answer on frames that contain only numerical noise (resampled digital
+silence, very flat pitch peaks).
+
+If you need the same last bits as the parselmouth on *your* machine, build
+with the `system-libm` feature:
+
+```bash
+cd python
+maturin develop --release --features system-libm
+python -c "import praatfan_gpl; print(praatfan_gpl.math_backend())"   # system
+```
+
+Results then depend on the host library, exactly like Praat's. Tested once
+(2026-11-02) on Linux x86-64, glibc 2.43, against parselmouth 0.4.7: every
+pitch, spectrogram and formant case of the parameter sweep matched except a
+handful of noise-only formant frames (<= 0.05 Hz). macOS and Windows are
+untested. This is a convenience, not a guarantee: a different C library or
+glibc version may give different last bits, as it would for Praat.
+
 ## License
 
 GPL-3.0 (same as Praat).

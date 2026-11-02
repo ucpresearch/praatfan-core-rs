@@ -134,6 +134,20 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
 - Pipe: spectrum moments of an all-zero signal are `null` (Praat:
   undefined; were 0); segment extraction follows `extract_part` above.
 
+### Added (opt-in Praat last bits)
+
+- **`system-libm` feature** (crate and Python bindings; ignored on wasm32).
+  All transcendentals now go through `src/math.rs` (enforced by
+  `clippy.toml`): the pure-Rust `libm` crate by default, unchanged, or the
+  platform C library with the feature. Praat calls the C library, so on the
+  same host this reproduces its last bits. Measured on Linux x86-64 / glibc
+  2.43 against parselmouth 0.4.7: `Sound` resampling becomes bit-identical,
+  the sweep goes from 867 to 892 of 962 cases exact (no case worse), every
+  pitch case is exact (the flat-peak F0 floor is gone), and the noise-frame
+  formant differences on silence-padded speech drop from up to 248 Hz to
+  <= 0.05 Hz. Opt-in only: results then follow the host library, as Praat's
+  do. Python: `praatfan_gpl.math_backend()` reports `"libm"` or `"system"`.
+
 ### Added
 
 - **Voice quality** (Rust `point_process` module; Python): glottal pulses

@@ -468,7 +468,7 @@ fn shimmer_local_db(pts: &[(f64, f64)], pmin: f64, pmax: f64, maf: f64) -> Optio
         if pmin == pmax || (p >= pmin && p <= pmax) {
             let (a1, a2) = (pts[i - 1].1, pts[i].1);
             if amp_factor(a1, a2) <= maf {
-                sum.add(libm::log10(a1 / a2).abs());
+                sum.add(crate::math::log10(a1 / a2).abs());
                 n += 1;
             }
         }
@@ -544,7 +544,7 @@ fn hann_windowed_rms(s: &Sound, tmid: f64, width_left: f64, width_right: f64) ->
         let t = x1 + (i - 1) as f64 * dx;
         let width = if t < tmid { width_left } else { width_right };
         let phase = (t - tmid) / width;
-        let w = 0.5 + 0.5 * libm::cos(std::f64::consts::PI * phase);
+        let w = 0.5 + 0.5 * crate::math::cos(std::f64::consts::PI * phase);
         let v = y[(i - 1) as usize] * w;
         ss.add(v * v);
         ws.add(w * w);

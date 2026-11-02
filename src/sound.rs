@@ -703,7 +703,7 @@ impl Sound {
             return self.clone();
         }
 
-        let alpha = libm::exp(-2.0 * std::f64::consts::PI * from_frequency / self.sample_rate);
+        let alpha = crate::math::exp(-2.0 * std::f64::consts::PI * from_frequency / self.sample_rate);
 
         let mut filtered = Vec::with_capacity(self.samples.len());
         filtered.push(self.samples[0]);
@@ -730,7 +730,7 @@ impl Sound {
             return self.clone();
         }
 
-        let alpha = libm::exp(-2.0 * std::f64::consts::PI * from_frequency / self.sample_rate);
+        let alpha = crate::math::exp(-2.0 * std::f64::consts::PI * from_frequency / self.sample_rate);
 
         let mut filtered = Vec::with_capacity(self.samples.len());
         filtered.push(self.samples[0]);
@@ -820,7 +820,7 @@ impl Sound {
         let omega = 2.0 * std::f64::consts::PI * frequency / sample_rate;
 
         let samples: Vec<f64> = (0..n_samples)
-            .map(|i| amplitude * libm::sin(omega * i as f64 + phase))
+            .map(|i| amplitude * crate::math::sin(omega * i as f64 + phase))
             .collect();
 
         Sound {
@@ -1105,21 +1105,21 @@ fn multiply_by_window_praat(x: &mut [f64], shape: WindowShape) {
         WindowShape::Hanning => {
             for (i, v) in x.iter_mut().enumerate() {
                 let phase = (i + 1) as f64 / nf;
-                *v *= 0.5 * (1.0 - libm::cos(2.0 * PI * phase));
+                *v *= 0.5 * (1.0 - crate::math::cos(2.0 * PI * phase));
             }
         }
         WindowShape::Hamming => {
             for (i, v) in x.iter_mut().enumerate() {
                 let phase = (i + 1) as f64 / nf;
-                *v *= 0.54 - 0.46 * libm::cos(2.0 * PI * phase);
+                *v *= 0.54 - 0.46 * crate::math::cos(2.0 * PI * phase);
             }
         }
         WindowShape::Gaussian => {
-            let edge = libm::exp(-3.0);
+            let edge = crate::math::exp(-3.0);
             let onebyedge1 = 1.0 / (1.0 - edge);
             for (i, v) in x.iter_mut().enumerate() {
                 let phase = ((i + 1) as f64 - imid) / nf;
-                *v *= (libm::exp(-12.0 * phase * phase) - edge) * onebyedge1;
+                *v *= (crate::math::exp(-12.0 * phase * phase) - edge) * onebyedge1;
             }
         }
         WindowShape::Kaiser => {
@@ -1199,15 +1199,15 @@ pub(crate) fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize)
     {
         let left_depth = x - left as f64 + 1.0;
         let window_phase_step = std::f64::consts::PI / left_depth;
-        let sin_window_phase_step = libm::sin(window_phase_step);
-        let cos_window_phase_step = libm::cos(window_phase_step);
+        let sin_window_phase_step = crate::math::sin(window_phase_step);
+        let cos_window_phase_step = crate::math::cos(window_phase_step);
 
         let mut left_phase = std::f64::consts::PI * (x - midleft as f64);
-        let mut half_sin_left_phase = 0.5 * libm::sin(left_phase);
+        let mut half_sin_left_phase = 0.5 * crate::math::sin(left_phase);
 
         let window_phase = left_phase / left_depth;
-        let mut sin_window_phase = libm::sin(window_phase);
-        let mut cos_window_phase = libm::cos(window_phase);
+        let mut sin_window_phase = crate::math::sin(window_phase);
+        let mut cos_window_phase = crate::math::cos(window_phase);
 
         for ix in (left..=midleft).rev() {
             let sinc_times_window = half_sin_left_phase / left_phase * (1.0 + cos_window_phase);
@@ -1227,15 +1227,15 @@ pub(crate) fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize)
     {
         let right_depth = right as f64 - x + 1.0;
         let window_phase_step = std::f64::consts::PI / right_depth;
-        let sin_window_phase_step = libm::sin(window_phase_step);
-        let cos_window_phase_step = libm::cos(window_phase_step);
+        let sin_window_phase_step = crate::math::sin(window_phase_step);
+        let cos_window_phase_step = crate::math::cos(window_phase_step);
 
         let mut right_phase = std::f64::consts::PI * (midright as f64 - x);
-        let mut half_sin_right_phase = 0.5 * libm::sin(right_phase);
+        let mut half_sin_right_phase = 0.5 * crate::math::sin(right_phase);
 
         let window_phase = right_phase / right_depth;
-        let mut sin_window_phase = libm::sin(window_phase);
-        let mut cos_window_phase = libm::cos(window_phase);
+        let mut sin_window_phase = crate::math::sin(window_phase);
+        let mut cos_window_phase = crate::math::cos(window_phase);
 
         for ix in midright..=right {
             let sinc_times_window = half_sin_right_phase / right_phase * (1.0 + cos_window_phase);
@@ -1300,7 +1300,7 @@ mod tests {
     #[test]
     fn test_pre_emphasis() {
         // Create a simple test signal
-        let samples: Vec<f64> = (0..100).map(|i| libm::sin(i as f64 * 0.1)).collect();
+        let samples: Vec<f64> = (0..100).map(|i| crate::math::sin(i as f64 * 0.1)).collect();
         let sound = Sound::from_samples(&samples, 1000.0);
 
         let emphasized = sound.pre_emphasis(50.0);
