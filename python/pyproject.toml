@@ -9,6 +9,7 @@ description = "Praat-compatible acoustic analysis in Python (Rust implementation
 readme = "README.md"
 license = { text = "GPL-3.0" }
 requires-python = ">=3.9"
+authors = [{ name = "Uriel Cohen Priva", email = "uriel_cohen_priva@brown.edu" }]
 keywords = ["audio", "speech", "acoustics", "praat", "signal-processing", "formant", "pitch"]
 classifiers = [
     "Development Status :: 4 - Beta",

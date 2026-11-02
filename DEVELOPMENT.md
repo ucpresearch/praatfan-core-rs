@@ -686,7 +686,7 @@ autoHarmonicity Sound_to_Harmonicity_ac (Sound me, double dt, double minimumPitc
 
 ### FCC (Forward Cross-Correlation) Implementation
 
-The CC method uses time-domain forward cross-correlation (FCC_ACCURATE), which differs from AC in several ways:
+The CC method uses time-domain forward cross-correlation, which differs from AC in several ways. Two variants, as in Praat: FCC_NORMAL (`To Pitch (cc)` default, SINC70 peak refinement) and FCC_ACCURATE ("Very accurate", and `To Harmonicity (cc)`, SINC700); they differ only in that depth.
 
 **Key differences from AC:**
 1. **No window function** - Raw mean-subtracted samples are used

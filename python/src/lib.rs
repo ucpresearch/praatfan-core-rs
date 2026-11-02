@@ -233,7 +233,10 @@ impl PySound {
     ///     Octave jump cost (default 0.35).
     /// voiced_unvoiced_cost : float, optional
     ///     Voiced/unvoiced transition cost (default 0.14).
-    #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14))]
+    /// very_accurate : bool, keyword-only
+    ///     Praat's "Very accurate" option (default False, as in Praat):
+    ///     True refines peaks with SINC700 interpolation instead of SINC70.
+    #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14, *, very_accurate=false))]
     fn to_pitch_cc(
         &self,
         py: Python<'_>,
@@ -245,7 +248,9 @@ impl PySound {
         octave_cost: f64,
         octave_jump_cost: f64,
         voiced_unvoiced_cost: f64,
+        very_accurate: bool,
     ) -> PyPitch {
+        let method = if very_accurate { RustPitchMethod::FccAccurate } else { RustPitchMethod::FccNormal };
         let inner = py.allow_threads(|| {
             RustPitch::from_sound_with_method(
                 &self.inner,
@@ -259,7 +264,7 @@ impl PySound {
                 octave_jump_cost,
                 voiced_unvoiced_cost,
                 1.0,
-                RustPitchMethod::FccAccurate,
+                method,
             )
         });
         PyPitch { inner }
@@ -322,8 +327,8 @@ impl PySound {
     /// Cross-correlation pitch with a speech-referenced amplitude reference.
     ///
     /// Same analysis as :meth:`to_pitch_cc`; see
-    /// :meth:`to_pitch_ac_referenced` for the ``reference_peak`` semantics.
-    #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14, *, reference_peak=None))]
+    /// :meth:`to_pitch_ac_referenced` for the ``reference_peak`` semantics. ``very_accurate`` is as in :meth:`to_pitch_cc`.
+    #[pyo3(signature = (time_step, pitch_floor, pitch_ceiling, voicing_threshold=0.45, silence_threshold=0.03, octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14, *, reference_peak=None, very_accurate=false))]
     fn to_pitch_cc_referenced(
         &self,
         py: Python<'_>,
@@ -336,7 +341,9 @@ impl PySound {
         octave_jump_cost: f64,
         voiced_unvoiced_cost: f64,
         reference_peak: Option<f64>,
+        very_accurate: bool,
     ) -> PyResult<PyPitch> {
+        let method = if very_accurate { RustPitchMethod::FccAccurate } else { RustPitchMethod::FccNormal };
         let inner = py.allow_threads(|| {
             RustPitch::from_sound_with_method_referenced(
                 &self.inner,
@@ -350,7 +357,7 @@ impl PySound {
                 octave_jump_cost,
                 voiced_unvoiced_cost,
                 1.0,
-                RustPitchMethod::FccAccurate,
+                method,
                 reference_peak,
             )
         })
@@ -388,7 +395,7 @@ impl PySound {
     ///     Maximum number of formants (typically 5; fractional values such as
     ///     5.5 work as in Praat: LPC order = round(2 * max_num_formants))
     /// max_formant_hz : float
-    ///     Maximum formant frequency (Hz). Use ~5500 for male, ~5000 for female
+    ///     Maximum formant frequency (Hz). Use ~5000 for an adult male, ~5500 for an adult female
     /// window_length : float
     ///     Analysis window duration (typically 0.025)
     /// pre_emphasis_from : float

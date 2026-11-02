@@ -97,7 +97,7 @@ impl Formant {
     /// * `sound` - Input audio signal
     /// * `time_step` - Time between analysis frames (0.0 for automatic: 0.25 × window_length)
     /// * `max_num_formants` - Maximum number of formants to track (typically 5)
-    /// * `max_formant_hz` - Maximum formant frequency (Hz). Use ~5500 for male, ~5000 for female voices
+    /// * `max_formant_hz` - Maximum formant frequency (Hz). Use ~5000 for an adult male, ~5500 for an adult female voice
     /// * `window_length` - Analysis window duration in seconds (typically 0.025)
     /// * `pre_emphasis_from` - Pre-emphasis frequency (Hz), typically 50
     ///
@@ -809,7 +809,7 @@ impl Sound {
     /// # Arguments
     /// * `time_step` - Time between frames (0.0 for automatic)
     /// * `max_num_formants` - Maximum formants to find (typically 5)
-    /// * `max_formant_hz` - Maximum formant frequency (~5500 Hz for adult male, ~5000 Hz for female)
+    /// * `max_formant_hz` - Maximum formant frequency (~5000 Hz for an adult male, ~5500 Hz for an adult female)
     /// * `window_length` - Analysis window (typically 0.025 s)
     /// * `pre_emphasis_from` - Pre-emphasis frequency (typically 50 Hz)
     ///

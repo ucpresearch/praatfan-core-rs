@@ -126,7 +126,8 @@ def both(res, fp, fo):
 def pitch_cases():
     for ts, fl, ce in [(0.0, 75, 600), (0.005, 50, 800), (0.01, 100, 300), (0.02, 60, 500)]:
         yield "ac", dict(time_step=ts, floor=fl, ceiling=ce)
-        yield "cc", dict(time_step=ts, floor=fl, ceiling=ce)
+        for va in (False, True):   # Praat's "Very accurate" (FCC_NORMAL / FCC_ACCURATE)
+            yield "cc", dict(time_step=ts, floor=fl, ceiling=ce, va=va)
     yield "ac", dict(time_step=0.01, floor=75, ceiling=600, silence=0.0, voicing=0.3,
                      octave=0.05, jump=0.6, vuv=0.3)
     yield "cc", dict(time_step=0.01, floor=75, ceiling=600, silence=0.1, voicing=0.6,
@@ -147,12 +148,13 @@ def run_pitch(res, x, sr, method, c, tol):
                                   kw["silence"], kw["octave"], kw["jump"], kw["vuv"])
     else:
         fp = lambda: ps.to_pitch_cc(time_step=ts, pitch_floor=kw["floor"], pitch_ceiling=kw["ceiling"],
-                                    very_accurate=True,
+                                    very_accurate=c.get("va", False),
                                     silence_threshold=kw["silence"], voicing_threshold=kw["voicing"],
                                     octave_cost=kw["octave"], octave_jump_cost=kw["jump"],
                                     voiced_unvoiced_cost=kw["vuv"])
         fo = lambda: os_.to_pitch_cc(kw["time_step"], kw["floor"], kw["ceiling"], kw["voicing"],
-                                     kw["silence"], kw["octave"], kw["jump"], kw["vuv"])
+                                     kw["silence"], kw["octave"], kw["jump"], kw["vuv"],
+                                     very_accurate=c.get("va", False))
     r = both(res, fp, fo)
     if not r:
         return

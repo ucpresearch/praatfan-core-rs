@@ -2,6 +2,7 @@
 name = "praatfan-core-rs"
 version = "0.1.15"
 edition = "2021"
+authors = ["Uriel Cohen Priva <uriel_cohen_priva@brown.edu>"]
 license = "GPL-3.0"
 description = "Rust reimplementation of Praat's core acoustic analysis algorithms"
 repository = "https://github.com/ucpresearch/praatfan-core-rs"

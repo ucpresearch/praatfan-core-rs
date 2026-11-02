@@ -181,7 +181,7 @@ impl Sound {
                 0.35,
                 0.14,
                 1.0,
-                PitchMethod::FccAccurate,
+                PitchMethod::FccNormal,
             ),
         }
     }

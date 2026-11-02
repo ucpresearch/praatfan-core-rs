@@ -25,9 +25,18 @@ pub enum PitchMethod {
     AcHanning,
     /// Autocorrelation with Gaussian window (Praat's AC_GAUSS, method 1)
     AcGauss,
-    /// Forward cross-correlation, accurate (Praat's FCC_ACCURATE, method 3)
-    /// Used by Harmonicity CC - computes correlation in time domain without windowing
+    /// Forward cross-correlation (Praat's FCC_NORMAL, method 2): `To Pitch (cc)`
+    /// with "Very accurate" off, Praat's default. Peaks refined with SINC70.
+    FccNormal,
+    /// Forward cross-correlation, accurate (Praat's FCC_ACCURATE, method 3):
+    /// `To Pitch (cc)` with "Very accurate" on, and Harmonicity CC. SINC700.
     FccAccurate,
+}
+
+impl PitchMethod {
+    fn is_fcc(self) -> bool {
+        matches!(self, PitchMethod::FccNormal | PitchMethod::FccAccurate)
+    }
 }
 
 /// A pitch candidate for a single frame
@@ -300,14 +309,23 @@ impl Pitch {
         // - FCC uses interpolation_depth = 1.0
         // - brent_depth: sinc interpolation depth for Brent peak refinement
         //   (matches Praat's NUM_PEAK_INTERPOLATE_* → NUM_VALUE_INTERPOLATE_*)
+        // Time step: default is periods_per_window / pitch_floor / 4, from the
+        // periods per window as given (Praat computes it before AC_GAUSS doubles them).
+        let dt = if time_step <= 0.0 {
+            periods_per_window / pitch_floor / 4.0
+        } else {
+            time_step
+        };
+
         let (periods_per_window, interpolation_depth, brent_depth) = match method {
             PitchMethod::AcHanning => (periods_per_window, 0.5, 70_usize),   // SINC70
             PitchMethod::AcGauss => (periods_per_window * 2.0, 0.25, 700_usize), // SINC700
+            PitchMethod::FccNormal => (periods_per_window, 1.0, 70_usize),    // SINC70
             PitchMethod::FccAccurate => (periods_per_window, 1.0, 700_usize), // SINC700
         };
 
         // For FCC, use the FCC-specific implementation
-        if method == PitchMethod::FccAccurate {
+        if method.is_fcc() {
             return Self::from_sound_fcc(
                 sound,
                 time_step,
@@ -325,12 +343,6 @@ impl Pitch {
             );
         }
 
-        // Time step: default is periods_per_window / pitch_floor / 4
-        let dt = if time_step <= 0.0 {
-            periods_per_window / pitch_floor / 4.0
-        } else {
-            time_step
-        };
 
         let dx = sound.dx();
         let nx = sound.num_samples();
@@ -406,7 +418,7 @@ impl Pitch {
                     window[i] = 0.5 - 0.5 * crate::math::cos(2.0 * PI * i1 as f64 / (nsamp_window + 1) as f64);
                 }
             }
-            PitchMethod::FccAccurate => {
+            PitchMethod::FccNormal | PitchMethod::FccAccurate => {
                 // FCC is handled by early return above; this should be unreachable
                 unreachable!("FCC method should have been handled earlier")
             }
@@ -597,7 +609,7 @@ impl Pitch {
         }
 
         // For FCC (CC method), use the FCC-specific multi-channel implementation
-        if method == PitchMethod::FccAccurate {
+        if method.is_fcc() {
             return Self::from_channels_fcc(
                 sounds,
                 time_step,
@@ -610,7 +622,7 @@ impl Pitch {
                 octave_jump_cost,
                 voiced_unvoiced_cost,
                 periods_per_window,
-                700, // SINC700 for FCC_ACCURATE
+                if method == PitchMethod::FccNormal { 70 } else { 700 }, // SINC70 / SINC700
             );
         }
 
@@ -620,18 +632,20 @@ impl Pitch {
         let pitch_ceiling = pitch_ceiling.min(0.5 / sound.dx());
 
         // Method-specific parameters
-        let (periods_per_window, interpolation_depth, brent_depth) = match method {
-            PitchMethod::AcHanning => (periods_per_window, 0.5, 70_usize),
-            PitchMethod::AcGauss => (periods_per_window * 2.0, 0.25, 700_usize),
-            PitchMethod::FccAccurate => unreachable!(),
-        };
-
-        // Time step: default is periods_per_window / pitch_floor / 4
+        // Time step: default is periods_per_window / pitch_floor / 4, from the
+        // periods per window as given (Praat computes it before AC_GAUSS doubles them).
         let dt = if time_step <= 0.0 {
             periods_per_window / pitch_floor / 4.0
         } else {
             time_step
         };
+
+        let (periods_per_window, interpolation_depth, brent_depth) = match method {
+            PitchMethod::AcHanning => (periods_per_window, 0.5, 70_usize),
+            PitchMethod::AcGauss => (periods_per_window * 2.0, 0.25, 700_usize),
+            PitchMethod::FccNormal | PitchMethod::FccAccurate => unreachable!(),
+        };
+
 
         let dx = sound.dx();
         let nx = sound.num_samples();
@@ -694,7 +708,7 @@ impl Pitch {
                     window[i] = 0.5 - 0.5 * crate::math::cos(2.0 * PI * i1 as f64 / (nsamp_window + 1) as f64);
                 }
             }
-            PitchMethod::FccAccurate => unreachable!(),
+            PitchMethod::FccNormal | PitchMethod::FccAccurate => unreachable!(),
         }
 
         // Compute normalized autocorrelation of the window

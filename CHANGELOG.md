@@ -206,6 +206,25 @@ now follow Praat too (*Changed*); new API is under *Added*; one Rust removal is 
 
 ### Fixed
 
+- **Cross-correlation pitch now matches Praat's `To Pitch (cc)`** (default
+  "Very accurate" = no). New `PitchMethod::FccNormal` (Praat's FCC_NORMAL,
+  SINC70 peak refinement). Python `to_pitch_cc` / `to_pitch_cc_referenced`,
+  WASM `to_pitch_cc` and the pipe's `pitch_cc` use it; Python takes
+  `very_accurate=True` for FCC_ACCURATE (the previous behaviour, and still
+  what CC harmonicity uses, as in Praat). On the fixture: max 6e-9 Hz either
+  way (was 0.0065 Hz). Python users of `to_pitch_cc` see values change by
+  up to a few mHz.
+- **Pipe `pitch_cc` used 2 periods per window** instead of Praat's 1, so its
+  frame grid (and automatic time step, 0.5/floor instead of 0.25/floor)
+  never lined up with Praat's. Now grid and values match.
+- **Pipe `formant_burg` `n_formants`** reported the maximum number of
+  formants in every frame; it is now the per-frame count (Praat's
+  `Get number of formants`).
+- AC_GAUSS automatic time step (Rust `Pitch::from_sound_with_method` with
+  `time_step = 0`) is computed from the periods per window as given, before
+  the Gaussian doubling, as in Praat.
+- Formant ceiling hints in docstrings were swapped: Praat recommends
+  5000 Hz for an adult male and 5500 Hz for an adult female.
 - **Pitch and Formant `get_time_of_minimum/maximum` returned undefined
   whenever the parabolic extremum value was <= 0.** Praat sets only the
   *value* to undefined there and keeps its time (e.g. F1 time of minimum,

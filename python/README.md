@@ -115,7 +115,7 @@ sound.rms(), sound.peak()                # Amplitude measures
 # Analysis
 sound.to_pitch(dt, floor, ceil, voicing_threshold=0.45, silence_threshold=0.03,
                octave_cost=0.01, octave_jump_cost=0.35, voiced_unvoiced_cost=0.14)
-sound.to_pitch_cc(...)                   # same arguments, cross-correlation method
+sound.to_pitch_cc(...)                   # same arguments + very_accurate=False: To Pitch (cc)
 sound.to_formant_burg(dt, max_num_formants, max_formant_hz, window_length, pre_emphasis_from)
                                          # max_num_formants may be fractional (e.g. 5.5)
 sound.to_formant_burg_multi(dt, max_num_formants, [ceilings...], window_length, pre_emphasis_from)
@@ -131,7 +131,7 @@ sound.to_point_process_cc(pitch)         # pulses from an existing Pitch
 
 # Speech-referenced variants (robust on long recordings — see below)
 sound.to_pitch_ac_referenced(dt, floor, ceil, *, reference_peak=None)
-sound.to_pitch_cc_referenced(dt, floor, ceil, *, reference_peak=None)
+sound.to_pitch_cc_referenced(dt, floor, ceil, *, reference_peak=None, very_accurate=False)
 sound.to_harmonicity_ac_referenced(dt, min_pitch, silence, ppw, *, reference_peak=None)
 sound.to_harmonicity_cc_referenced(dt, min_pitch, silence, ppw, *, reference_peak=None)
 ```

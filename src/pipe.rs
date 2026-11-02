@@ -29,9 +29,9 @@
 //! ([`handle_request_bytes`], [`handle_request_samples`]); the WASM bundle
 //! exposes those. Responses may carry `"warnings": [...]`, omitted when empty.
 //!
-//! The wire protocol matches `praatfan-open-pipe` (praatfan-core-clean); the
-//! one semantic divergence is `pitch_cc`, which here runs the FCC_ACCURATE
-//! cross-correlation method (this crate's only CC pitch method).
+//! The wire protocol matches `praatfan-open-pipe` (praatfan-core-clean).
+//! `pitch_cc` is Praat's `To Pitch (cc)` with its defaults: 1 period per
+//! window, "Very accurate" off (FCC_NORMAL).
 
 use std::collections::BTreeMap;
 
@@ -416,7 +416,7 @@ fn run_analysis(
 
     let result = match atype.as_str() {
         "pitch_ac" => pitch_analysis(sound, params, PitchMethod::AcHanning, "pitch_ac"),
-        "pitch_cc" => pitch_analysis(sound, params, PitchMethod::FccAccurate, "pitch_cc"),
+        "pitch_cc" => pitch_analysis(sound, params, PitchMethod::FccNormal, "pitch_cc"),
         "formant_burg" => formant_analysis(sound, params),
         "intensity" => intensity_analysis(sound, params),
         "harmonicity_ac" => harmonicity_analysis(sound, params, true),
@@ -454,9 +454,10 @@ fn pitch_analysis(
             p.pitch_floor, p.pitch_ceiling
         ));
     }
+    // Praat's To Pitch (ac) / To Pitch (cc) defaults: 3 and 1 periods per window.
     let periods_per_window = match method {
         PitchMethod::AcHanning => 3.0,
-        _ => 2.0,
+        _ => 1.0,
     };
     let pitch = Pitch::from_sound_with_method(
         sound,
@@ -507,7 +508,7 @@ fn formant_analysis(sound: &Sound, params: serde_json::Value) -> Result<serde_js
     );
     let n = formant.num_frames();
     let times: Vec<f64> = (0..n).map(|i| formant.get_time_from_frame(i)).collect();
-    let n_formants: Vec<usize> = formant.frames().iter().map(|f| f.num_formants()).collect();
+    let n_formants: Vec<usize> = formant.frames().iter().map(|f| f.num_defined_formants()).collect();
     let mut tracks = BTreeMap::new();
     for fnum in 1..=p.max_num_formants {
         let freqs: Vec<f64> = (0..n)
