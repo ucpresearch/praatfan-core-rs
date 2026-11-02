@@ -299,8 +299,22 @@ GPL-3.0 (same as Praat).
 
 ## Citing
 
-If you use `praatfan-gpl` in published work, please cite Praat, Parselmouth,
-and — if you use `FormantPath` — Weenink (2015):
+If you use `praatfan-gpl` in published work, please cite **both
+praatfan-gpl and Praat** (the algorithms, and the numbers they produce, are
+Praat's), and also Parselmouth and, if you use `FormantPath`, Weenink (2015):
+
+- Cohen Priva, Uriel (2026). *Praatfan-gpl: a reimplementation in Rust of a
+  number of Praat functions.* <https://github.com/ucpresearch/praatfan-core-rs>
+
+```bibtex
+@misc{praatfan-gpl,
+  author       = {Cohen Priva, Uriel},
+  title        = {Praatfan-gpl: a reimplementation in {Rust} of a number of {Praat} functions},
+  year         = {2026},
+  howpublished = {\url{https://github.com/ucpresearch/praatfan-core-rs}},
+  note         = {Version 0.1.15}
+}
+```
 
 - Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer.*
   <https://www.fon.hum.uva.nl/praat/>

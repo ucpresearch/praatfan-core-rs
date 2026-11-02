@@ -525,6 +525,34 @@ If you use this library in published work, please cite Praat, Parselmouth, and
 - [Parselmouth docs](https://parselmouth.readthedocs.io/)
 
 
+## Citing
+
+If you use praatfan-gpl in published work, please cite **both praatfan-gpl
+and Praat**: the algorithms, and the numbers they produce, are Praat's.
+
+- Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer.*
+  <https://www.fon.hum.uva.nl/praat/>
+- Cohen Priva, Uriel (2026). *Praatfan-gpl: a reimplementation in Rust of a
+  number of Praat functions.* <https://github.com/ucpresearch/praatfan-core-rs>
+
+```bibtex
+@misc{praatfan-gpl,
+  author       = {Cohen Priva, Uriel},
+  title        = {Praatfan-gpl: a reimplementation in {Rust} of a number of {Praat} functions},
+  year         = {2026},
+  howpublished = {\url{https://github.com/ucpresearch/praatfan-core-rs}},
+  note         = {Version 0.1.15}
+}
+```
+
+Please also cite Parselmouth, against which every result is verified, and,
+if you use `FormantPath`, Weenink (2015):
+
+- Jadoul, Y., Thompson, B., & de Boer, B. (2018). "Introducing Parselmouth:
+  A Python interface to Praat." *Journal of Phonetics, 71*, 1–15.
+- Weenink, D. (2015). "Improved formant frequency measurements of short
+  segments." *Proceedings of ICPhS 2015*, Glasgow.
+
 ## Authors
 
 - Uriel Cohen Priva designed, tested, and vibe-coded
