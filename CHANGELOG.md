@@ -62,6 +62,17 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
     silence, DC offset), giving +48..+85 dB where Praat has -200 dB. CC pitch
     is ~2.6x slower and CC HNR ~1.2x (10-minute 24 kHz file, 20 threads:
     1.06 -> 2.8 s and 2.8 -> 3.3 s).
+- **AC pitch / AC HNR frames were one sample short**: the frame copy treated
+  Praat's inclusive `endSample` as exclusive, dropping the last (small-weight)
+  sample. Strengths were off by up to 1e-5 and F0 by up to 3e-5 Hz (7e-4 Hz
+  on 8 kHz input). Now strengths agree to ~1e-15 and F0 to ~3e-8 Hz, with
+  many frames bit-identical.
+- **Pitch peak refinement in Praat's coordinates**: the first-pass sinc
+  strength and the Brent refinement now run on the 1-based index of the
+  `-brent_ixmax..=brent_ixmax` slice, as Praat does (Brent's tolerance scales
+  with |x|), and Brent uses Praat's machine epsilon 2^-53 (`dlamch`), not
+  `f64::EPSILON`. Most CC frames are now bit-identical to Praat. Gaussian
+  windows (AC_GAUSS, formant) use Praat's operation order.
 - **Pitch with `silence_threshold = 0`**: the unvoiced candidate's strength
   was 0 instead of Praat's `voicing_threshold`, flipping voicing on ~25% of
   frames (F0 off by up to 289 Hz on octave errors).

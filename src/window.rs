@@ -161,14 +161,17 @@ pub fn praat_formant_window(size: usize) -> Vec<f64> {
         return Vec::new();
     }
 
+    // Praat (Sound_to_Formant.cpp, Sound_createGaussian), 1-based i:
+    //   imid = 0.5 * (n + 1); (exp (-48 * (i - imid) * (i - imid) / (n + 1) / (n + 1)) - edge) / (1 - edge)
+    // written in Praat's operation order.
     let edge = libm::exp(-12.0_f64);
-    let imid = (size as f64 - 1.0) / 2.0;
-    let denom = (size + 1) as f64;
+    let imid = 0.5 * (size + 1) as f64;
+    let np1 = (size + 1) as f64;
 
-    (0..size)
+    (1..=size)
         .map(|i| {
-            let diff = i as f64 - imid;
-            let gaussian = libm::exp(-48.0 * diff * diff / (denom * denom));
+            let d = i as f64 - imid;
+            let gaussian = libm::exp(-48.0 * d * d / np1 / np1);
             (gaussian - edge) / (1.0 - edge)
         })
         .collect()

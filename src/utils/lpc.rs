@@ -311,7 +311,7 @@ fn evaluate_polynomial_with_derivative(
 ///
 /// This matches Praat's Polynomial_polish_complexroot_nr from Roots.cpp
 fn polish_complex_root(coefficients: &[f64], root: &mut Complex<f64>, max_iter: usize) {
-    let eps = 1e-15; // Machine epsilon approximation
+    let eps = crate::utils::PRAAT_EPS; // Praat: NUMfpp -> eps
     let mut best = *root;
     let mut min_residual = f64::MAX;
 
@@ -342,7 +342,7 @@ fn polish_complex_root(coefficients: &[f64], root: &mut Complex<f64>, max_iter: 
 ///
 /// This matches Praat's Polynomial_polish_realroot from Roots.cpp
 fn polish_real_root(coefficients: &[f64], root: &mut f64, max_iter: usize) {
-    let eps = 1e-15;
+    let eps = crate::utils::PRAAT_EPS; // Praat: NUMfpp -> eps
     let mut best = *root;
     let mut min_residual = f64::MAX;
 

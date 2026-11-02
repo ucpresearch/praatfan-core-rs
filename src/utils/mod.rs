@@ -10,6 +10,11 @@ pub mod lpc;
 pub use fft::{Fft, FftDirection};
 pub use lpc::{lpc_burg, lpc_to_formants};
 
+/// Praat's `NUMfpp -> eps`: LAPACK `dlamch ("Epsilon")`, the relative
+/// machine precision 2^-53 (half of `f64::EPSILON`) on IEEE doubles with
+/// rounding. Used by Brent's method and root polishing.
+pub(crate) const PRAAT_EPS: f64 = f64::EPSILON / 2.0;
+
 /// Neumaier-compensated accumulator: stands in for Praat's `longdouble`
 /// (80-bit on x86-64) running sums. Terms are f64 (Praat rounds each product
 /// to double before adding it to the long-double sum); the accumulation error

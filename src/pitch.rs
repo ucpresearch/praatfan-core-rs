@@ -382,8 +382,9 @@ impl Pitch {
                 let edge = libm::exp(-12.0_f64);
                 for i in 0..nsamp_window {
                     let i1 = (i + 1) as f64; // 1-based
-                    let exponent = -48.0 * (i1 - imid).powi(2)
-                        / ((nsamp_window + 1) as f64).powi(2);
+                    // Praat's operation order: -48 * d * d / (n+1) / (n+1)
+                    let np1 = (nsamp_window + 1) as f64;
+                    let exponent = -48.0 * (i1 - imid) * (i1 - imid) / np1 / np1;
                     window[i] = (libm::exp(exponent) - edge) / (1.0 - edge);
                 }
             }
@@ -671,7 +672,8 @@ impl Pitch {
                 let edge = libm::exp(-12.0_f64);
                 for i in 0..nsamp_window {
                     let i1 = (i + 1) as f64;
-                    let exponent = -48.0 * (i1 - imid).powi(2) / ((nsamp_window + 1) as f64).powi(2);
+                    let np1 = (nsamp_window + 1) as f64;
+                    let exponent = -48.0 * (i1 - imid) * (i1 - imid) / np1 / np1; // Praat's order
                     window[i] = (libm::exp(exponent) - edge) / (1.0 - edge);
                 }
             }
@@ -1274,7 +1276,9 @@ fn compute_pitch_frame(
 
     // Copy window to frame and subtract local mean
     let start_sample = (right_sample - halfnsamp_window as isize).max(0) as usize;
-    let end_sample = ((left_sample + halfnsamp_window as isize) as usize).min(nx);
+    // Praat: endSample = leftSample + halfnsamp_window, *inclusive*, so the
+    // frame holds exactly nsamp_window = 2 * halfnsamp_window samples.
+    let end_sample = ((left_sample + halfnsamp_window as isize + 1) as usize).min(nx);
 
     // Clear frame_data and fill with windowed samples
     for x in frame_data.iter_mut() {
@@ -1366,7 +1370,7 @@ fn compute_pitch_frame(
                 // r[offset+1], size 2*brent_ixmax+1), and NUM_interpolate_sinc clips its
                 // depth to that slice's edges. Passing all of `r` let SINC700 reach
                 // further (AC_GAUSS: brent_ixmax = nsamp_window/4) and moved r by ~1e-4.
-                let strength_of_maximum = sinc_interpolate(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, 1.0 / dx / frequency_of_maximum, 30);
+                let strength_of_maximum = praat_peak_strength(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, dx, frequency_of_maximum);
                 let strength_of_maximum = if strength_of_maximum > 1.0 {
                     1.0 / strength_of_maximum
                 } else {
@@ -1416,8 +1420,8 @@ fn compute_pitch_frame(
             // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
             let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
             let (refined_lag, refined_strength) =
-                improve_maximum(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, imax[i] as f64, brent_ixmax, depth);
-            if refined_lag > 0.0 {
+                praat_refine_peak(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], imax[i] as isize, brent_ixmax, depth);
+            {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
                     1.0 / refined_strength
@@ -1491,7 +1495,9 @@ fn compute_pitch_frame_multichannel(
 
     // Copy window to frame and subtract local mean for each channel (into pre-allocated buffers)
     let start_sample = (right_sample - halfnsamp_window as isize).max(0) as usize;
-    let end_sample = ((left_sample + halfnsamp_window as isize) as usize).min(nx);
+    // Praat: endSample = leftSample + halfnsamp_window, *inclusive*, so the
+    // frame holds exactly nsamp_window = 2 * halfnsamp_window samples.
+    let end_sample = ((left_sample + halfnsamp_window as isize + 1) as usize).min(nx);
 
     for (ch, samples) in channel_samples.iter().enumerate() {
         let frame_data = &mut frame_data_pool[ch];
@@ -1577,7 +1583,7 @@ fn compute_pitch_frame_multichannel(
                 // r[offset+1], size 2*brent_ixmax+1), and NUM_interpolate_sinc clips its
                 // depth to that slice's edges. Passing all of `r` let SINC700 reach
                 // further (AC_GAUSS: brent_ixmax = nsamp_window/4) and moved r by ~1e-4.
-                let strength_of_maximum = sinc_interpolate(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, 1.0 / dx / frequency_of_maximum, 30);
+                let strength_of_maximum = praat_peak_strength(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, dx, frequency_of_maximum);
                 let strength_of_maximum = if strength_of_maximum > 1.0 {
                     1.0 / strength_of_maximum
                 } else {
@@ -1623,8 +1629,9 @@ fn compute_pitch_frame_multichannel(
         if candidates[i].frequency > 0.0 {
             // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
             let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
-            let (refined_lag, refined_strength) = improve_maximum(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, imax[i] as f64, brent_ixmax, depth);
-            if refined_lag > 0.0 {
+            let (refined_lag, refined_strength) =
+                praat_refine_peak(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], imax[i] as isize, brent_ixmax, depth);
+            {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
                     1.0 / refined_strength
@@ -1637,6 +1644,34 @@ fn compute_pitch_frame_multichannel(
     }
 
     PitchFrame { candidates, intensity, raw_ac_peak }
+}
+
+/// Praat's first-pass candidate strength (Sound_to_Pitch.cpp):
+/// `NUM_interpolate_sinc (r [offset + 1 ..], 1 / dx / f - offset, 30)` with
+/// `offset = -brent_ixmax - 1`, i.e. evaluated in the 1-based index of the
+/// `-brent_ixmax ..= brent_ixmax` slice, exactly as Praat rounds it.
+fn praat_peak_strength(slice: &[f64], brent_ixmax: usize, dx: f64, frequency: f64) -> f64 {
+    let offset = -(brent_ixmax as f64) - 1.0;
+    crate::interpolation::num_interpolate_sinc(slice, 1.0 / dx / frequency - offset, 30)
+}
+
+/// Praat's second pass: `NUMimproveMaximum (r [offset + 1 ..], imax - offset,
+/// depth, & xmid); xmid += offset`. Brent runs in the slice's 1-based index
+/// coordinates (its tolerance scales with |x|, so the coordinate system
+/// matters at the 1e-8 level). `depth` is 70 / 700 for SINC70 / SINC700 (or
+/// 0 / 1 for none / parabolic). Returns `(lag, value)`.
+fn praat_refine_peak(slice: &[f64], imax: isize, brent_ixmax: usize, depth: usize) -> (f64, f64) {
+    use crate::interpolation::{num_improve_extremum, PeakInterpolation};
+    let offset = -(brent_ixmax as isize) - 1;
+    let peak = match depth {
+        0 => PeakInterpolation::None,
+        1 => PeakInterpolation::Parabolic,
+        2 => PeakInterpolation::Cubic,
+        70 => PeakInterpolation::Sinc70,
+        _ => PeakInterpolation::Sinc700,
+    };
+    let (value, x) = num_improve_extremum(slice, imax - offset, peak, true);
+    (x + offset as f64, value)
 }
 
 /// Compensated dot product: 4 independent branch-free TwoSum lanes (so the
@@ -1855,7 +1890,7 @@ fn compute_pitch_frame_fcc_multichannel(
 
             if d2r > 0.0 {
                 let frequency_of_maximum = 1.0 / dx / (i as f64 + dr / d2r);
-                let strength_of_maximum = sinc_interpolate(&r, r_offset, 1.0 / dx / frequency_of_maximum, 30);
+                let strength_of_maximum = praat_peak_strength(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, dx, frequency_of_maximum);
                 let strength_of_maximum = if strength_of_maximum > 1.0 {
                     1.0 / strength_of_maximum
                 } else {
@@ -1895,15 +1930,11 @@ fn compute_pitch_frame_fcc_multichannel(
     // Second pass: for extra precision, maximize sinc interpolation (matches Praat)
     for i in 1..candidates.len() {
         if candidates[i].frequency > 0.0 {
-            let ixmid = if i < imax.len() && imax[i] > 0 {
-                imax[i] as f64
-            } else {
-                1.0 / dx / candidates[i].frequency
-            };
             // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
             let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
-            let (refined_lag, refined_strength) = improve_maximum(&r, r_offset, ixmid, brent_ixmax, depth);
-            if refined_lag > 0.0 {
+            let (refined_lag, refined_strength) =
+                praat_refine_peak(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], imax[i] as isize, brent_ixmax, depth);
+            {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 candidates[i].strength = if refined_strength > 1.0 {
                     1.0 / refined_strength
@@ -2076,7 +2107,7 @@ fn compute_pitch_frame_fcc(
 
                 // Sinc interpolation for strength
                 let strength_of_maximum =
-                    sinc_interpolate(&r, r_offset, 1.0 / dx / frequency_of_maximum, 30);
+                    praat_peak_strength(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], brent_ixmax, dx, frequency_of_maximum);
                 let strength_of_maximum = if strength_of_maximum > 1.0 {
                     1.0 / strength_of_maximum
                 } else {
@@ -2125,16 +2156,11 @@ fn compute_pitch_frame_fcc(
     // Refine candidates with sinc interpolation + Brent optimization (matches Praat)
     for i in 1..candidates.len() {
         if candidates[i].frequency > 0.0 {
-            let ixmid = if i < imax.len() && imax[i] > 0 {
-                imax[i] as f64
-            } else {
-                1.0 / dx / candidates[i].frequency
-            };
             // Adaptive depth: use SINC700 for high frequencies (Praat line 254)
             let depth = if candidates[i].frequency > 0.3 / dx { 700 } else { brent_depth };
             let (refined_lag, refined_strength) =
-                improve_maximum(&r, r_offset, ixmid, brent_ixmax, depth);
-            if refined_lag > 0.0 {
+                praat_refine_peak(&r[r_offset - brent_ixmax..=r_offset + brent_ixmax], imax[i] as isize, brent_ixmax, depth);
+            {
                 candidates[i].frequency = 1.0 / dx / refined_lag;
                 let strength = if refined_strength > 1.0 {
                     1.0 / refined_strength
@@ -2309,7 +2335,8 @@ pub static BRENT_TOTAL_CALLS: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn minimize_brent<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64) -> (f64, f64) {
     const GOLDEN: f64 = 1.0 - 0.6180339887498948482; // 1 - golden ratio
-    let sqrt_epsilon = f64::EPSILON.sqrt();
+    // Praat: sqrt (NUMfpp -> eps), with eps = 2^-53 (not f64::EPSILON).
+    let sqrt_epsilon = crate::utils::PRAAT_EPS.sqrt();
     const ITERMAX: usize = 60;
 
     let mut a = a;

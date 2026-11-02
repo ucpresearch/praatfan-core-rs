@@ -304,15 +304,19 @@ two groups.
 fixable without reproducing x87 `long double` and glibc's `exp`/`sin`
 bit for bit):
 
-- Pitch F0: <= 3e-5 Hz on the fixtures, <= 1.3e-3 Hz on the 8 kHz
-  resampled signal (Brent/sinc refinement), voicing identical.
+- Pitch F0: most frames bit-identical; the rest agree to ~1e-8 Hz, except
+  one or two frames per file on very flat, high-correlation peaks (up to
+  ~1e-5 Hz, ~6e-8 relative). Strengths agree to ~1e-15 everywhere, so the
+  correlation is right; Brent's stopping point inside its ~sqrt(eps) bracket
+  is steered by last-bit `sin`/`cos` differences. Measured: the `libm` crate
+  differs from glibc 2.43 in the last bit on ~1.6% of the sinc's arguments
+  (glibc itself is not correctly rounded: 0.07%), and glibc picks FMA or
+  non-FMA paths per CPU, so Praat's own last bits here depend on the host.
 - Frames that contain only numerical noise: digital silence after
   resampling (FFT ringing ~1e-13), or a constant DC stretch (centring
-  residue ~1e-16). Formants, pitch candidates and HNR of such frames are
-  noise-determined in Praat as in ours. Formant frames inside 0.2 s of
-  zero padding differ by up to 248 Hz; that is the whole effect.
-- HNR CC where `r` is within ~1e-9 of 1 (near-silent resampled stretches,
-  85-112 dB): `10 log10(r/(1-r))` amplifies the last bits.
+  residue ~1e-16). Formants of such frames are noise-determined in Praat as
+  in ours; formant frames inside 0.2 s of zero padding differ by up to
+  248 Hz.
 - Spectrogram bins 15-20 orders of magnitude below the frame's peak
   (relative error up to 5e-7; absolute ~1e-33).
 
