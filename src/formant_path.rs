@@ -88,6 +88,22 @@ pub struct FormantPath {
     max_num_formants: usize,
 }
 
+/// Opt-in departures from Praat 6.1.38's `FormantPath_getOptimumPath`.
+/// `Default` (all `false`) reproduces Praat exactly.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PathFinderCorrections {
+    /// Praat ends the backtrack at the candidate with the *largest*
+    /// accumulated cost in the last frame (`NUMmaxPos` over a minimum-cost
+    /// trellis). With this set, the path ends at the smallest one, i.e. the
+    /// path is the true minimum-cost path.
+    pub minimum_final_cost: bool,
+    /// From the second frame on, Praat adds the stress and Q terms twice per
+    /// frame: once weighted by the intensity modulation and once unweighted.
+    /// With this set they are added once, intensity-weighted (as in the first
+    /// frame), so the intensity modulation applies fully.
+    pub single_static_cost: bool,
+}
+
 impl FormantPath {
     /// Build a FormantPath from a Sound using Praat's `To FormantPath (burg)`.
     ///
@@ -235,6 +251,40 @@ impl FormantPath {
         window_length: f64,
         parameters: &[i64],
         power: f64,
+    ) {
+        self.path_finder_with_corrections(
+            q_weight,
+            frequency_change_weight,
+            stress_weight,
+            ceiling_change_weight,
+            intensity_modulation_step_size,
+            window_length,
+            parameters,
+            power,
+            PathFinderCorrections::default(),
+        )
+    }
+
+    /// [`FormantPath::path_finder`] with opt-in corrections of two Praat
+    /// 6.1.38 behaviours that look unintended (see [`PathFinderCorrections`]).
+    /// With the default (all `false`) this is exactly Praat's path finder.
+    ///
+    /// To leave F4 out of the path search entirely, pass three entries in
+    /// `parameters` (e.g. `[3, 3, 3]`): the stress, Q and frequency-change
+    /// terms then use F1-F3 only (Praat's own rule: tracks =
+    /// min(max formants, parameters.len())).
+    #[allow(clippy::too_many_arguments)]
+    pub fn path_finder_with_corrections(
+        &mut self,
+        q_weight: f64,
+        frequency_change_weight: f64,
+        stress_weight: f64,
+        ceiling_change_weight: f64,
+        intensity_modulation_step_size: f64,
+        window_length: f64,
+        parameters: &[i64],
+        power: f64,
+        corrections: PathFinderCorrections,
     ) {
         let n_cand = self.num_candidates();
         if n_cand == 0 || self.num_frames == 0 {
@@ -412,8 +462,9 @@ impl FormantPath {
                 // Add static-cost components for (iformant, itime). Note Praat
                 // adds these twice at t > 0 — once already embedded in static
                 // cost via intensity-scaled stress/q and once unscaled below —
-                // we reproduce that exactly so numbers match.
-                if stress_weight > 0.0 {
+                // we reproduce that exactly so numbers match (unless
+                // `single_static_cost`, which keeps only the weighted copy).
+                if stress_weight > 0.0 && !corrections.single_static_cost {
                     if let Some(ref s) = stresses {
                         let v = s[iformant][itime];
                         if v.is_finite() {
@@ -421,7 +472,7 @@ impl FormantPath {
                         }
                     }
                 }
-                if q_weight > 0.0 {
+                if q_weight > 0.0 && !corrections.single_static_cost {
                     if let Some(ref q) = qsums {
                         deltamin -= q_weight * praat_min(q[iformant][itime] / Q_CUTOFF, 1.0);
                     }
@@ -442,7 +493,12 @@ impl FormantPath {
         let mut best = 0usize;
         let mut best_val = delta[0][last];
         for iformant in 1..n_cand {
-            if delta[iformant][last] > best_val {
+            let better = if corrections.minimum_final_cost {
+                delta[iformant][last] < best_val
+            } else {
+                delta[iformant][last] > best_val
+            };
+            if better {
                 best_val = delta[iformant][last];
                 best = iformant;
             }
@@ -774,6 +830,38 @@ mod tests {
         for &c in fp.path() {
             assert!(c < fp.num_candidates());
         }
+    }
+
+    #[test]
+    fn test_default_corrections_are_praat() {
+        // A vowel-like signal: harmonics of 120 Hz shaped by two resonances.
+        let sr = 16000.0;
+        let n = (0.4 * sr) as usize;
+        let samples: Vec<f64> = (0..n)
+            .map(|i| {
+                let t = i as f64 / sr;
+                (1..40)
+                    .map(|k| {
+                        let f = 120.0 * k as f64;
+                        let a = 1.0 / (1.0 + ((f - 700.0) / 150.0).powi(2)) + 0.5 / (1.0 + ((f - 1200.0) / 200.0).powi(2));
+                        a * libm::sin(2.0 * std::f64::consts::PI * f * t)
+                    })
+                    .sum::<f64>()
+            })
+            .collect();
+        let sound = Sound::from_samples(&samples, sr);
+        let mut a = sound.to_formant_path_burg(0.005, 5, 5500.0, 0.025, 50.0, 0.05, 4);
+        let mut b = a.clone();
+        a.path_finder(0.5, 0.5, 0.5, 0.5, 5.0, 0.035, &[3, 3, 3, 3], 1.25);
+        b.path_finder_with_corrections(0.5, 0.5, 0.5, 0.5, 5.0, 0.035, &[3, 3, 3, 3], 1.25, PathFinderCorrections::default());
+        assert_eq!(a.path(), b.path());
+        let mut c = a.clone();
+        c.path_finder_with_corrections(
+            0.5, 0.5, 0.5, 0.5, 5.0, 0.035, &[3, 3, 3], 1.25,
+            PathFinderCorrections { minimum_final_cost: true, single_static_cost: true },
+        );
+        assert_eq!(c.path().len(), a.path().len());
+        assert!(c.path().iter().all(|&i| i < c.num_candidates()));
     }
 }
 

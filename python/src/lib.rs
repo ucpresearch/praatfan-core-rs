@@ -1150,7 +1150,18 @@ impl PyFormantPath {
     ///     ``[3, 3, 3, 3]``. Use an empty list to skip stress.
     /// power : float
     ///     Stress formula exponent. Praat default 1.25.
-    #[pyo3(signature = (q_weight, frequency_change_weight, stress_weight, ceiling_change_weight, intensity_modulation_step_size, path_window_length, parameters, power))]
+    ///
+    /// Keyword-only corrections (both default ``False`` = exactly Praat):
+    ///
+    /// minimum_final_cost : bool
+    ///     End the path at the cheapest final candidate (Praat ends it at the
+    ///     most expensive one).
+    /// single_static_cost : bool
+    ///     Count the stress and Q terms once per frame, intensity-weighted
+    ///     (Praat adds them a second, unweighted time from frame 2 on).
+    ///
+    /// To exclude F4 from the path search, pass ``parameters=[3, 3, 3]``.
+    #[pyo3(signature = (q_weight, frequency_change_weight, stress_weight, ceiling_change_weight, intensity_modulation_step_size, path_window_length, parameters, power, *, minimum_final_cost = false, single_static_cost = false))]
     fn path_finder(
         &mut self,
         py: Python<'_>,
@@ -1162,9 +1173,12 @@ impl PyFormantPath {
         path_window_length: f64,
         parameters: Vec<i64>,
         power: f64,
+        minimum_final_cost: bool,
+        single_static_cost: bool,
     ) {
+        let corrections = ::praatfan_core::PathFinderCorrections { minimum_final_cost, single_static_cost };
         py.allow_threads(|| {
-            self.inner.path_finder(
+            self.inner.path_finder_with_corrections(
                 q_weight,
                 frequency_change_weight,
                 stress_weight,
@@ -1173,6 +1187,7 @@ impl PyFormantPath {
                 path_window_length,
                 &parameters,
                 power,
+                corrections,
             );
         });
     }

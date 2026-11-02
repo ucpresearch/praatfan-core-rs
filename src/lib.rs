@@ -63,7 +63,7 @@ pub use intensity::{Intensity, IntensityAveraging, intensity_from_channels};
 pub use spectrum::Spectrum;
 pub use pitch::{Pitch, PitchMethod, pitch_from_channels, sinc_interpolate, improve_maximum, BRENT_TOTAL_ITERS, BRENT_TOTAL_CALLS};
 pub use formant::Formant;
-pub use formant_path::FormantPath;
+pub use formant_path::{FormantPath, PathFinderCorrections};
 pub use harmonicity::{Harmonicity, harmonicity_from_channels_ac, harmonicity_from_channels_cc};
 pub use spectrogram::{Spectrogram, spectrogram_from_channels};
 pub use speech_reference::{SpeechReference, estimate_speech_reference, estimate_speech_reference_default};

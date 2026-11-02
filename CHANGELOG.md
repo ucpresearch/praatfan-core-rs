@@ -144,6 +144,13 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
   ranged, unit-aware versions.
   Verified against parselmouth over the sweep (ranges, Hz/mel/ERB/semitones,
   Hz/Bark); where frame values match, the summaries match exactly.
+- **Opt-in FormantPath path-finder corrections**
+  (`FormantPath::path_finder_with_corrections`, Python keyword-only
+  `minimum_final_cost=`, `single_static_cost=`; both off = exactly Praat):
+  end the path at the cheapest final candidate (Praat takes the most
+  expensive), and count the stress/Q terms once per frame,
+  intensity-weighted (Praat adds an unweighted copy from frame 2 on).
+  `parameters=[3, 3, 3]` already leaves F4 out of the search.
 - `Formant::from_sound_burg_f` (Rust) and a float `max_num_formants` in
   Python `Sound.to_formant_burg` (e.g. 5.5, as in Praat: LPC order
   `round(2 x n)`).
