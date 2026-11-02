@@ -3,7 +3,7 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
-## [0.1.15] - unreleased
+## [0.1.15] - 2026-11-02
 
 Bug-fix release: AC harmonicity now matches Praat exactly, pitch and CC
 harmonicity lose their last residual error, and a parameter sweep against

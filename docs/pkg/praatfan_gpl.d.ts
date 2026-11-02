@@ -30,7 +30,7 @@ export class Formant {
      * @param formant_number - Formant number (1 for F1, 2 for F2, etc.)
      * @param time - Time to query
      * @param unit - Unit: "hertz", "bark", "mel", "erb"
-     * @param interpolation - Interpolation: "nearest", "linear", "cubic"
+     * @param interpolation - Interpolation: "nearest" or "linear" (Praat has only these for Formant; other choices are linear)
      */
     get_value_at_time(formant_number: number, time: number, unit: string, interpolation: string): number | undefined;
     /**
@@ -166,8 +166,8 @@ export class Pitch {
      * Get pitch value at a specific time
      *
      * @param time - Time to query
-     * @param unit - Unit: "hertz", "mel", "semitones", "erb"
-     * @param interpolation - Interpolation: "nearest", "linear", "cubic"
+     * @param unit - Unit: "hertz", "mel", "erb", "semitones" (re 1 Hz), "semitones_re_100hz", "semitones_re_200hz", "semitones_re_440hz"
+     * @param interpolation - Interpolation: "nearest" or "linear" (Praat has only these for Pitch; other choices are linear)
      * @returns Pitch value or undefined if unvoiced
      */
     get_value_at_time(time: number, unit: string, interpolation: string): number | undefined;
@@ -210,11 +210,24 @@ export class Sound {
      */
     static create_tone(frequency: number, duration: number, sample_rate: number, amplitude: number, phase: number): Sound;
     /**
-     * Apply de-emphasis filter
+     * Apply de-emphasis filter, then rescale to a 0.99 peak (as Praat)
      */
     de_emphasis(from_frequency: number): Sound;
     /**
-     * Get the sample value at a specific time using linear interpolation
+     * Decode an audio file from its bytes with this library's own decoders
+     * (WAV, FLAC, MP3, OGG, NIST SPHERE), one Sound per channel, at the
+     * file's own sample rate. Unlike the browser's `decodeAudioData`, which
+     * resamples to the AudioContext's rate, the samples reach the analysis
+     * unchanged, as they would in Praat.
+     *
+     * @param bytes - Uint8Array with the file's contents
+     * @param extension - Format hint such as "wav" or "flac" (may be empty)
+     * @returns Array of Sound, one per channel
+     */
+    static from_bytes_channels(bytes: Uint8Array, extension: string): Array<any>;
+    /**
+     * Sample value at a time, Sinc70-interpolated (Praat's default for
+     * `Sound: Get value at time`)
      */
     get_value_at_time(time: number): number | undefined;
     /**
@@ -229,15 +242,16 @@ export class Sound {
      */
     peak(): number;
     /**
-     * Apply pre-emphasis filter
+     * Apply pre-emphasis filter, then rescale to a 0.99 peak as Praat's
+     * "Filter (pre-emphasis)" does
      */
     pre_emphasis(from_frequency: number): Sound;
     /**
      * Resample to a new sample rate.
      *
-     * Uses Praat's FFT-based windowed-sinc algorithm. If `new_sample_rate` is
-     * greater than or equal to the current rate, returns a copy without
-     * upsampling (matching Praat's Sound_resample behavior).
+     * Praat's `Sound_resample`: FFT low-pass (when downsampling) and sinc
+     * interpolation; an exact doubling uses Praat's FFT upsampler. Returns a
+     * copy when the rate is unchanged.
      *
      * @param new_sample_rate - Target sample rate in Hz
      */
@@ -333,7 +347,7 @@ export class Sound {
      * @param max_frequency - Maximum frequency (Hz), 0 for Nyquist
      * @param time_step - Time between frames (0 for automatic)
      * @param frequency_step - Frequency resolution (Hz), 0 for automatic
-     * @param window_shape - Window function: "gaussian", "hanning", "hamming", "rectangular"
+     * @param window_shape - Window: "gaussian" (Praat default), "hanning", "hamming", "rectangular"/"square", "triangular"/"bartlett", "parabolic"/"welch"
      */
     to_spectrogram(effective_analysis_width: number, max_frequency: number, time_step: number, frequency_step: number, window_shape: string): Spectrogram;
     /**
@@ -496,6 +510,7 @@ export interface InitOutput {
     readonly sound_de_emphasis: (a: number, b: number) => number;
     readonly sound_duration: (a: number) => number;
     readonly sound_end_time: (a: number) => number;
+    readonly sound_from_bytes_channels: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly sound_get_value_at_time: (a: number, b: number) => [number, number];
     readonly sound_new: (a: any, b: number) => number;
     readonly sound_num_samples: (a: number) => number;

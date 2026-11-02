@@ -79,7 +79,7 @@ The wheels are `abi3` (built against the stable ABI), so one wheel per platform
 covers **Python 3.9 and newer** — pick by platform, not by interpreter version:
 
 ```bash
-V=0.1.14
+V=0.1.15
 BASE=https://github.com/ucpresearch/praatfan-core-rs/releases/download/v$V
 
 # Linux x86_64
@@ -484,13 +484,13 @@ GPL-3.0 - This project reimplements algorithms from [Praat](https://github.com/p
 
 ## References
 
-If you use this library in published work, please cite Praat, Parselmouth, and
-— if you use FormantPath — Weenink (2015).
+Background for the algorithms. For what to cite in published work, see
+[Citing](#citing) below.
 
 **Praat** (the algorithms this library reimplements; GPL-3):
 
-> Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer*
-> \[Computer program\]. <https://www.fon.hum.uva.nl/praat/>
+> Boersma, P. & Weenink, D. *Praat: doing phonetics by computer*
+> \[Computer program\]. <https://www.praat.org>
 
 **Parselmouth** (the Python interface to Praat we validate against):
 
@@ -528,10 +528,12 @@ If you use this library in published work, please cite Praat, Parselmouth, and
 ## Citing
 
 If you use praatfan-gpl in published work, please cite **both praatfan-gpl
-and Praat**: the algorithms, and the numbers they produce, are Praat's.
+and Praat**. praatfan-gpl reimplements Praat's analyses from Praat's source
+code, and was made to match Praat as exposed by parselmouth 0.4.7, which
+bundles Praat 6.1.38. Its results are verified against that version.
 
-- Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer.*
-  <https://www.fon.hum.uva.nl/praat/>
+- Boersma, P. & Weenink, D. *Praat: doing phonetics by computer*
+  [Computer program]. <https://www.praat.org>
 - Cohen Priva, Uriel (2026). *Praatfan-gpl: a reimplementation in Rust of a
   number of Praat functions.* <https://github.com/ucpresearch/praatfan-core-rs>
 
@@ -545,11 +547,11 @@ and Praat**: the algorithms, and the numbers they produce, are Praat's.
 }
 ```
 
-Please also cite Parselmouth, against which every result is verified, and,
-if you use `FormantPath`, Weenink (2015):
+Please also cite Parselmouth and, if you use `FormantPath`, Weenink (2015):
 
-- Jadoul, Y., Thompson, B., & de Boer, B. (2018). "Introducing Parselmouth:
-  A Python interface to Praat." *Journal of Phonetics, 71*, 1–15.
+- Jadoul, Y., Thompson, B., & de Boer, B. (2018). Introducing Parselmouth:
+  A Python interface to Praat. *Journal of Phonetics, 71*, 1–15.
+  <https://doi.org/10.1016/j.wocn.2018.07.001>
 - Weenink, D. (2015). "Improved formant frequency measurements of short
   segments." *Proceedings of ICPhS 2015*, Glasgow.
 

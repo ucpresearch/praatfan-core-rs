@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: >-
+  If you use praatfan-gpl in published work, please cite it, and please also
+  cite Praat (Boersma & Weenink, "Praat: doing phonetics by computer",
+  https://www.praat.org): praatfan-gpl reimplements Praat's analyses from
+  Praat's source code, and was made to match Praat as exposed by parselmouth
+  0.4.7 (Praat 6.1.38).
+type: software
+title: "Praatfan-gpl: a reimplementation in Rust of a number of Praat functions"
+authors:
+  - family-names: Cohen Priva
+    given-names: Uriel
+repository-code: "https://github.com/ucpresearch/praatfan-core-rs"
+url: "https://pypi.org/project/praatfan-gpl/"
+license: GPL-3.0-only
+keywords:
+  - Praat
+  - phonetics
+  - acoustic analysis
+  - pitch
+  - formants

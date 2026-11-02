@@ -65,6 +65,7 @@ export const sound_create_tone: (a: number, b: number, c: number, d: number, e: 
 export const sound_de_emphasis: (a: number, b: number) => number;
 export const sound_duration: (a: number) => number;
 export const sound_end_time: (a: number) => number;
+export const sound_from_bytes_channels: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const sound_get_value_at_time: (a: number, b: number) => [number, number];
 export const sound_new: (a: any, b: number) => number;
 export const sound_num_samples: (a: number) => number;

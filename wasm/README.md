@@ -299,10 +299,13 @@ GPL-3.0 (same as Praat).
 
 ## Citing
 
-If you use `praatfan-gpl` in published work, please cite **both
-praatfan-gpl and Praat** (the algorithms, and the numbers they produce, are
-Praat's), and also Parselmouth and, if you use `FormantPath`, Weenink (2015):
+If you use praatfan-gpl in published work, please cite **both praatfan-gpl
+and Praat**. praatfan-gpl reimplements Praat's analyses from Praat's source
+code, and was made to match Praat as exposed by parselmouth 0.4.7, which
+bundles Praat 6.1.38. Its results are verified against that version.
 
+- Boersma, P. & Weenink, D. *Praat: doing phonetics by computer*
+  [Computer program]. <https://www.praat.org>
 - Cohen Priva, Uriel (2026). *Praatfan-gpl: a reimplementation in Rust of a
   number of Praat functions.* <https://github.com/ucpresearch/praatfan-core-rs>
 
@@ -316,9 +319,10 @@ Praat's), and also Parselmouth and, if you use `FormantPath`, Weenink (2015):
 }
 ```
 
-- Boersma, P. & Weenink, D. (2024). *Praat: doing phonetics by computer.*
-  <https://www.fon.hum.uva.nl/praat/>
-- Jadoul, Y., Thompson, B., & de Boer, B. (2018). "Introducing Parselmouth:
-  A Python interface to Praat." *Journal of Phonetics, 71*, 1–15.
+Please also cite Parselmouth and, if you use `FormantPath`, Weenink (2015):
+
+- Jadoul, Y., Thompson, B., & de Boer, B. (2018). Introducing Parselmouth:
+  A Python interface to Praat. *Journal of Phonetics, 71*, 1–15.
+  <https://doi.org/10.1016/j.wocn.2018.07.001>
 - Weenink, D. (2015). "Improved formant frequency measurements of short
   segments." *Proceedings of ICPhS 2015*, Glasgow.
