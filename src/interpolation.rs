@@ -385,10 +385,28 @@ pub(crate) fn sampled_mean_interpolated(
     dx: f64,
     dom_xmin: f64,
     dom_xmax: f64,
+    xmin: f64,
+    xmax: f64,
+    get: impl Fn(isize) -> f64,
+) -> Option<f64> {
+    let (s, r) = sampled_sum_and_range(n, x1, dx, dom_xmin, dom_xmax, xmin, xmax, get)?;
+    if r <= 0.0 { None } else { Some(s / r) }
+}
+
+/// `Sampled_getSumAndDefinitionRange` (interpolate = true): area under the
+/// linearly interpolated curve and the length over which it is defined, in
+/// frame units. None if the range does not intersect the domain.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sampled_sum_and_range(
+    n: usize,
+    x1: f64,
+    dx: f64,
+    dom_xmin: f64,
+    dom_xmax: f64,
     mut xmin: f64,
     mut xmax: f64,
     get: impl Fn(isize) -> f64,
-) -> Option<f64> {
+) -> Option<(f64, f64)> {
     use crate::utils::CompSum;
     let value_at = |i: isize| if i < 1 || i > n as isize { f64::NAN } else { get(i) };
     if xmin >= xmax {
@@ -488,8 +506,193 @@ pub(crate) fn sampled_mean_interpolated(
             }
         }
     }
-    let (s, r) = (sum.value(), range.value());
-    if r <= 0.0 { None } else { Some(s / r) }
+    Some((sum.value(), range.value()))
+}
+
+/// Praat's `Function_unidirectionalAutowindow` + `Function_intersectRangeWithDomain`
+/// + `Sampled_getWindowSamples` (`autoWindowDomainSamples`). Returns the 1-based
+/// frame range and the clipped `[xmin, xmax]`, or None if nothing intersects.
+pub(crate) fn sampled_window_in_domain(
+    n: usize,
+    x1: f64,
+    dx: f64,
+    dom_xmin: f64,
+    dom_xmax: f64,
+    mut xmin: f64,
+    mut xmax: f64,
+) -> Option<(isize, isize, f64, f64)> {
+    if xmin >= xmax {
+        xmin = dom_xmin;
+        xmax = dom_xmax;
+    }
+    if xmin < dom_xmin {
+        xmin = dom_xmin;
+    }
+    if xmax > dom_xmax {
+        xmax = dom_xmax;
+    }
+    if xmax <= xmin {
+        return None;
+    }
+    let (imin, imax) = sampled_window_samples(n, x1, dx, xmin, xmax);
+    Some((imin, imax, xmin, xmax))
+}
+
+/// `Sampled_countDefinedSamples`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sampled_count_defined(
+    n: usize, x1: f64, dx: f64, dom_xmin: f64, dom_xmax: f64, xmin: f64, xmax: f64,
+    get: impl Fn(isize) -> f64,
+) -> usize {
+    match sampled_window_in_domain(n, x1, dx, dom_xmin, dom_xmax, xmin, xmax) {
+        Some((imin, imax, _, _)) if imin <= imax => (imin..=imax).filter(|&i| !get(i).is_nan()).count(),
+        _ => 0,
+    }
+}
+
+/// Praat's `NUMquantile` on sorted values.
+pub(crate) fn num_quantile(a: &[f64], factor: f64) -> f64 {
+    let n = a.len();
+    if n < 1 {
+        return 0.0;
+    }
+    if n == 1 {
+        return a[0];
+    }
+    let place = factor * n as f64 + 0.5;
+    let mut left = libm::floor(place) as isize;
+    if left < 1 {
+        left = 1;
+    }
+    if left >= n as isize {
+        left = n as isize - 1;
+    }
+    let (l, r) = (a[(left - 1) as usize], a[left as usize]);
+    if r == l {
+        return l;
+    }
+    l + (place - left as f64) * (r - l)
+}
+
+/// `Sampled_getQuantile`: quantile of the defined frame values in the range.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sampled_quantile(
+    n: usize, x1: f64, dx: f64, dom_xmin: f64, dom_xmax: f64, xmin: f64, xmax: f64, quantile: f64,
+    get: impl Fn(isize) -> f64,
+) -> Option<f64> {
+    let (imin, imax, _, _) = sampled_window_in_domain(n, x1, dx, dom_xmin, dom_xmax, xmin, xmax)?;
+    let mut v: Vec<f64> = (imin..=imax).map(&get).filter(|x| !x.is_nan()).collect();
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    Some(num_quantile(&v, quantile))
+}
+
+/// `Sampled_getStandardDeviation` (interpolate = true).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sampled_stdev_interpolated(
+    n: usize, x1: f64, dx: f64, dom_xmin: f64, dom_xmax: f64, xmin: f64, xmax: f64,
+    get: impl Fn(isize) -> f64,
+) -> Option<f64> {
+    let (sum, range) = sampled_sum_and_range(n, x1, dx, dom_xmin, dom_xmax, xmin, xmax, &get)?;
+    if range < 2.0 {
+        return None;
+    }
+    let mean = sum / range;
+    // Sampled_getSum2AndDefinitionRange: the same integral over (v - mean)^2
+    let (sum2, range2) = sampled_sum_and_range(n, x1, dx, dom_xmin, dom_xmax, xmin, xmax, |i| {
+        let v = get(i);
+        let d = v - mean;
+        d * d
+    })?;
+    Some(libm::sqrt(sum2 / (range2 - 1.0)))
+}
+
+/// `Sampled_getMinimumAndX` / `Sampled_getMaximumAndX`: extremum of the
+/// defined frames in the range, optionally refined parabolically (also using a
+/// frame just outside the range), compared with the interpolated values at
+/// the range ends. Returns `(value, time)`; None if nothing is defined.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sampled_extremum(
+    n: usize, x1: f64, dx: f64, dom_xmin: f64, dom_xmax: f64, xmin: f64, xmax: f64,
+    interpolate: bool, is_max: bool,
+    get: impl Fn(isize) -> f64,
+) -> Option<(f64, f64)> {
+    if xmin.is_nan() || xmax.is_nan() {
+        return None;
+    }
+    let (imin, imax, xmin, xmax) = sampled_window_in_domain(n, x1, dx, dom_xmin, dom_xmax, xmin, xmax)?;
+    let sentinel = if is_max { -1e301 } else { 1e301 };
+    let better = |a: f64, b: f64| if is_max { a > b } else { a < b };
+    let mut ext = sentinel;
+    let mut xext = 0.0;
+    let at = |i: isize| if i < 1 || i > n as isize { f64::NAN } else { get(i) };
+    let value_at_x = |x: f64, interp: bool| -> f64 {
+        if x < dom_xmin || x > dom_xmax {
+            return f64::NAN;
+        }
+        sampled_value_at_x(n, x1, dx, x, interp, |i| Some(get(i as isize + 1))).unwrap_or(f64::NAN)
+    };
+    if imin > imax {
+        let fl = value_at_x(xmin, interpolate);
+        let fr = value_at_x(xmax, interpolate);
+        if !fl.is_nan() && better(fl, ext) {
+            ext = fl;
+            xext = xmin;
+        }
+        if !fr.is_nan() && better(fr, ext) {
+            ext = fr;
+            xext = xmax;
+        }
+    } else {
+        for i in imin..=imax {
+            let fmid = at(i);
+            if fmid.is_nan() {
+                continue;
+            }
+            if !interpolate {
+                if better(fmid, ext) {
+                    ext = fmid;
+                    xext = i as f64;
+                }
+            } else {
+                let fl = if i <= 1 { f64::NAN } else { at(i - 1) };
+                let fr = if i >= n as isize { f64::NAN } else { at(i + 1) };
+                if fl.is_nan() || fr.is_nan() {
+                    if better(fmid, ext) {
+                        ext = fmid;
+                        xext = i as f64;
+                    }
+                } else if (is_max && fmid > fl && fmid >= fr) || (!is_max && fmid < fl && fmid <= fr) {
+                    let (local, i_real) = num_improve_extremum(&[fl, fmid, fr], 2, PeakInterpolation::Parabolic, is_max);
+                    if better(local, ext) {
+                        ext = local;
+                        xext = i_real + i as f64 - 2.0;
+                    }
+                }
+            }
+        }
+        xext = x1 + (xext - 1.0) * dx;
+        if interpolate {
+            let fl = value_at_x(xmin, true);
+            let fr = value_at_x(xmax, true);
+            if !fl.is_nan() && better(fl, ext) {
+                ext = fl;
+                xext = xmin;
+            }
+            if !fr.is_nan() && better(fr, ext) {
+                ext = fr;
+                xext = xmax;
+            }
+        }
+        xext = xext.clamp(xmin, xmax);
+    }
+    if ext == sentinel {
+        None
+    } else {
+        Some((ext, xext))
+    }
 }
 
 /// Linear interpolation between two values

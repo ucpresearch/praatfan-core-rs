@@ -8,7 +8,7 @@
 //! corresponding to pitch candidates, and uses dynamic programming to select
 //! the optimal pitch path.
 
-use crate::interpolation::{sampled_value_at_x, Interpolation};
+use crate::interpolation::{sampled_count_defined, sampled_extremum, sampled_mean_interpolated, sampled_quantile, sampled_stdev_interpolated, sampled_value_at_x, Interpolation};
 use crate::utils::{CompSum, Fft};
 use crate::{PitchUnit, Sound};
 use num_complex::Complex;
@@ -1158,43 +1158,96 @@ impl Pitch {
         }
     }
 
-    /// Get minimum pitch value (over voiced frames)
+    /// Frame `i` (1-based) in `unit`; NaN when unvoiced (Praat's
+    /// `v_getValueAtSample` for the frequency level).
+    fn unit_value(&self, i: isize, unit: PitchUnit) -> f64 {
+        self.frames
+            .get((i - 1) as usize)
+            .and_then(|f| self.frame_frequency(f))
+            .map(|hz| unit.from_hertz(hz))
+            .unwrap_or(f64::NAN)
+    }
+
+    /// Praat's `doesUnitAllowNegativeValues`.
+    fn unit_allows_negative(unit: PitchUnit) -> bool {
+        matches!(
+            unit,
+            PitchUnit::Semitones | PitchUnit::SemitonesRe100Hz | PitchUnit::SemitonesRe200Hz | PitchUnit::SemitonesRe440Hz
+        )
+    }
+
+    /// Praat's `Pitch: Get mean...`: mean of the linearly interpolated
+    /// contour over the voiced parts of `[from_time, to_time]`
+    /// (`from_time >= to_time`: the whole domain), averaged in `unit`.
+    pub fn get_mean(&self, from_time: f64, to_time: f64, unit: PitchUnit) -> Option<f64> {
+        sampled_mean_interpolated(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, |i| self.unit_value(i, unit))
+    }
+
+    /// Praat's `Pitch: Get standard deviation...` (interpolated, in `unit`).
+    pub fn get_standard_deviation(&self, from_time: f64, to_time: f64, unit: PitchUnit) -> Option<f64> {
+        sampled_stdev_interpolated(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, |i| self.unit_value(i, unit))
+    }
+
+    /// Praat's `Pitch: Get quantile...` (voiced frames in the range).
+    pub fn get_quantile(&self, from_time: f64, to_time: f64, quantile: f64, unit: PitchUnit) -> Option<f64> {
+        let v = sampled_quantile(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, quantile, |i| self.unit_value(i, unit))?;
+        if v <= 0.0 && !Self::unit_allows_negative(unit) { None } else { Some(v) }
+    }
+
+    fn extremum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool, is_max: bool) -> Option<(f64, f64)> {
+        let (v, t) = sampled_extremum(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, interpolate, is_max, |i| self.unit_value(i, unit))?;
+        if v <= 0.0 && !Self::unit_allows_negative(unit) { None } else { Some((v, t)) }
+    }
+
+    /// Praat's `Pitch: Get minimum...` (`interpolate`: Praat's "Parabolic"
+    /// versus "None").
+    pub fn get_minimum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool) -> Option<f64> {
+        self.extremum(from_time, to_time, unit, interpolate, false).map(|x| x.0)
+    }
+
+    /// Praat's `Pitch: Get maximum...`.
+    pub fn get_maximum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool) -> Option<f64> {
+        self.extremum(from_time, to_time, unit, interpolate, true).map(|x| x.0)
+    }
+
+    /// Praat's `Pitch: Get time of minimum...`.
+    pub fn get_time_of_minimum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool) -> Option<f64> {
+        self.extremum(from_time, to_time, unit, interpolate, false).map(|x| x.1)
+    }
+
+    /// Praat's `Pitch: Get time of maximum...`.
+    pub fn get_time_of_maximum(&self, from_time: f64, to_time: f64, unit: PitchUnit, interpolate: bool) -> Option<f64> {
+        self.extremum(from_time, to_time, unit, interpolate, true).map(|x| x.1)
+    }
+
+    /// Praat's `Pitch: Count voiced frames` (whole domain).
+    pub fn count_voiced_frames(&self) -> usize {
+        sampled_count_defined(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            0.0, 0.0, |i| self.unit_value(i, PitchUnit::Hertz))
+    }
+
+    /// Minimum F0 (Hz) over the whole domain, parabolic (Praat's defaults).
     pub fn min(&self) -> Option<f64> {
-        self.frames
-            .iter()
-            .filter_map(|f| self.frame_frequency(f))
-            .reduce(f64::min)
+        self.get_minimum(0.0, 0.0, PitchUnit::Hertz, true)
     }
 
-    /// Get maximum pitch value (over voiced frames)
+    /// Maximum F0 (Hz) over the whole domain, parabolic (Praat's defaults).
     pub fn max(&self) -> Option<f64> {
-        self.frames
-            .iter()
-            .filter_map(|f| self.frame_frequency(f))
-            .reduce(f64::max)
+        self.get_maximum(0.0, 0.0, PitchUnit::Hertz, true)
     }
 
-    /// Get mean pitch value (over voiced frames)
+    /// Mean F0 (Hz) over the whole domain (Praat's `Get mean`).
     pub fn mean(&self) -> Option<f64> {
-        let voiced: Vec<f64> = self
-            .frames
-            .iter()
-            .filter_map(|f| self.frame_frequency(f))
-            .collect();
-
-        if voiced.is_empty() {
-            None
-        } else {
-            Some(voiced.iter().sum::<f64>() / voiced.len() as f64)
-        }
+        self.get_mean(0.0, 0.0, PitchUnit::Hertz)
     }
 
-    /// Count voiced frames
+    /// Number of voiced frames (same as [`Pitch::count_voiced_frames`]).
     pub fn count_voiced(&self) -> usize {
-        self.frames
-            .iter()
-            .filter(|f| self.frame_frequency(f).is_some())
-            .count()
+        self.count_voiced_frames()
     }
 
     fn frame_frequency(&self, frame: &PitchFrame) -> Option<f64> {

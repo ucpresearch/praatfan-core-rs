@@ -841,6 +841,80 @@ impl PyPitch {
     fn pitch_ceiling(&self) -> f64 {
         self.inner.pitch_ceiling()
     }
+
+    /// Time domain start (Praat's xmin)
+    #[getter]
+    fn xmin(&self) -> f64 {
+        self.inner.xmin()
+    }
+
+    /// Time domain end (Praat's xmax)
+    #[getter]
+    fn xmax(&self) -> f64 {
+        self.inner.xmax()
+    }
+
+    /// Praat's "Get mean..." (``from_time == to_time``: whole domain).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, unit = "hertz"))]
+    fn get_mean(&self, from_time: f64, to_time: f64, unit: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_mean(from_time, to_time, parse_pitch_unit(unit)?))
+    }
+
+    /// Praat's "Get standard deviation...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, unit = "hertz"))]
+    fn get_standard_deviation(&self, from_time: f64, to_time: f64, unit: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_standard_deviation(from_time, to_time, parse_pitch_unit(unit)?))
+    }
+
+    /// Praat's "Get quantile..." (``quantile`` in 0..1).
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, quantile = 0.5, unit = "hertz"))]
+    fn get_quantile(&self, from_time: f64, to_time: f64, quantile: f64, unit: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_quantile(from_time, to_time, quantile, parse_pitch_unit(unit)?))
+    }
+
+    /// Praat's "Get minimum..." (``interpolation``: "parabolic" or "none").
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, unit = "hertz", interpolation = "parabolic"))]
+    fn get_minimum(&self, from_time: f64, to_time: f64, unit: &str, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_minimum(from_time, to_time, parse_pitch_unit(unit)?, parse_parabolic(interpolation)?))
+    }
+
+    /// Praat's "Get maximum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, unit = "hertz", interpolation = "parabolic"))]
+    fn get_maximum(&self, from_time: f64, to_time: f64, unit: &str, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_maximum(from_time, to_time, parse_pitch_unit(unit)?, parse_parabolic(interpolation)?))
+    }
+
+    /// Praat's "Get time of minimum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, unit = "hertz", interpolation = "parabolic"))]
+    fn get_time_of_minimum(&self, from_time: f64, to_time: f64, unit: &str, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_time_of_minimum(from_time, to_time, parse_pitch_unit(unit)?, parse_parabolic(interpolation)?))
+    }
+
+    /// Praat's "Get time of maximum...".
+    #[pyo3(signature = (from_time = 0.0, to_time = 0.0, unit = "hertz", interpolation = "parabolic"))]
+    fn get_time_of_maximum(&self, from_time: f64, to_time: f64, unit: &str, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_time_of_maximum(from_time, to_time, parse_pitch_unit(unit)?, parse_parabolic(interpolation)?))
+    }
+
+    /// Praat's "Count voiced frames".
+    fn count_voiced_frames(&self) -> usize {
+        self.inner.count_voiced_frames()
+    }
+
+    /// Mean F0 in Hz over the whole sound (Praat's "Get mean" defaults).
+    fn mean(&self) -> Option<f64> {
+        self.inner.mean()
+    }
+
+    /// Minimum F0 in Hz, parabolic (Praat's "Get minimum" defaults).
+    fn min(&self) -> Option<f64> {
+        self.inner.min()
+    }
+
+    /// Maximum F0 in Hz, parabolic (Praat's "Get maximum" defaults).
+    fn max(&self) -> Option<f64> {
+        self.inner.max()
+    }
 }
 
 /// Python wrapper for Formant
@@ -941,6 +1015,66 @@ impl PyFormant {
     #[getter]
     fn max_num_formants(&self) -> usize {
         self.inner.max_num_formants()
+    }
+
+    /// Time domain start (Praat's xmin)
+    #[getter]
+    fn xmin(&self) -> f64 {
+        self.inner.xmin()
+    }
+
+    /// Time domain end (Praat's xmax)
+    #[getter]
+    fn xmax(&self) -> f64 {
+        self.inner.xmax()
+    }
+
+    /// Praat's "Get mean..." for formant ``formant_number``.
+    #[pyo3(signature = (formant_number, from_time = 0.0, to_time = 0.0, unit = "hertz"))]
+    fn get_mean(&self, formant_number: usize, from_time: f64, to_time: f64, unit: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_mean(formant_number, from_time, to_time, parse_frequency_unit(unit)?))
+    }
+
+    /// Praat's "Get standard deviation...".
+    #[pyo3(signature = (formant_number, from_time = 0.0, to_time = 0.0, unit = "hertz"))]
+    fn get_standard_deviation(&self, formant_number: usize, from_time: f64, to_time: f64, unit: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_standard_deviation(formant_number, from_time, to_time, parse_frequency_unit(unit)?))
+    }
+
+    /// Praat's "Get quantile...".
+    #[pyo3(signature = (formant_number, from_time = 0.0, to_time = 0.0, quantile = 0.5, unit = "hertz"))]
+    fn get_quantile(&self, formant_number: usize, from_time: f64, to_time: f64, quantile: f64, unit: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_quantile(formant_number, from_time, to_time, quantile, parse_frequency_unit(unit)?))
+    }
+
+    /// Praat's "Get quantile of bandwidth...".
+    #[pyo3(signature = (formant_number, from_time = 0.0, to_time = 0.0, quantile = 0.5, unit = "hertz"))]
+    fn get_quantile_of_bandwidth(&self, formant_number: usize, from_time: f64, to_time: f64, quantile: f64, unit: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_quantile_of_bandwidth(formant_number, from_time, to_time, quantile, parse_frequency_unit(unit)?))
+    }
+
+    /// Praat's "Get minimum..." (``interpolation``: "parabolic" or "none").
+    #[pyo3(signature = (formant_number, from_time = 0.0, to_time = 0.0, unit = "hertz", interpolation = "parabolic"))]
+    fn get_minimum(&self, formant_number: usize, from_time: f64, to_time: f64, unit: &str, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_minimum(formant_number, from_time, to_time, parse_frequency_unit(unit)?, parse_parabolic(interpolation)?))
+    }
+
+    /// Praat's "Get maximum...".
+    #[pyo3(signature = (formant_number, from_time = 0.0, to_time = 0.0, unit = "hertz", interpolation = "parabolic"))]
+    fn get_maximum(&self, formant_number: usize, from_time: f64, to_time: f64, unit: &str, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_maximum(formant_number, from_time, to_time, parse_frequency_unit(unit)?, parse_parabolic(interpolation)?))
+    }
+
+    /// Praat's "Get time of minimum...".
+    #[pyo3(signature = (formant_number, from_time = 0.0, to_time = 0.0, unit = "hertz", interpolation = "parabolic"))]
+    fn get_time_of_minimum(&self, formant_number: usize, from_time: f64, to_time: f64, unit: &str, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_time_of_minimum(formant_number, from_time, to_time, parse_frequency_unit(unit)?, parse_parabolic(interpolation)?))
+    }
+
+    /// Praat's "Get time of maximum...".
+    #[pyo3(signature = (formant_number, from_time = 0.0, to_time = 0.0, unit = "hertz", interpolation = "parabolic"))]
+    fn get_time_of_maximum(&self, formant_number: usize, from_time: f64, to_time: f64, unit: &str, interpolation: &str) -> PyResult<Option<f64>> {
+        Ok(self.inner.get_time_of_maximum(formant_number, from_time, to_time, parse_frequency_unit(unit)?, parse_parabolic(interpolation)?))
     }
 }
 
@@ -1450,6 +1584,16 @@ impl PyHarmonicity {
 }
 
 // Helper functions for parsing string arguments
+
+/// Praat's Pitch/Formant extremum queries take "None" or "Parabolic".
+fn parse_parabolic(s: &str) -> PyResult<bool> {
+    match s.to_lowercase().as_str() {
+        "parabolic" => Ok(true),
+        "none" => Ok(false),
+        _ => Err(PyValueError::new_err(format!(
+            "Unknown interpolation: '{}'. Valid options: parabolic, none", s))),
+    }
+}
 
 fn parse_peak_interpolation(s: &str) -> PyResult<PeakInterpolation> {
     match s.to_lowercase().as_str() {

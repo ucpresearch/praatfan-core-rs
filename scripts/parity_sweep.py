@@ -174,15 +174,25 @@ def run_pitch(res, x, sr, method, c, tol):
             b = [o.get_value_at_time(t, unit_o, io) for t in times]
             b = [np.nan if v is None else v for v in b]
             cmp_arrays(res, f"q[{unit_o},{io}]", a, b, tol)
-    for stat, args in [("Get mean", (0, 0, "Hertz")), ("Get minimum", (0, 0, "Hertz", "Parabolic")),
-                       ("Get maximum", (0, 0, "Hertz", "Parabolic")),
-                       ("Get standard deviation", (0, 0, "Hertz")),
-                       ("Count voiced frames", ())]:
-        try:
-            v = call(p, stat, *args)
-            res.add(f"(info) {stat}={v:.6g} — no binding to compare") if False else None
-        except Exception:
-            pass
+    d = p.xmax - p.xmin
+    ranges = [(0, 0), (p.xmin + 0.13 * d, p.xmin + 0.71 * d), (p.xmin + 0.4 * d, p.xmin + 0.4 * d + 0.3 * p.dx)]
+    units = [("Hertz", "hertz"), ("semitones re 100 Hz", "semitones_re_100hz"), ("mel", "mel"), ("ERB", "erb")]
+    checks = [("count", call(p, "Count voiced frames"), o.count_voiced_frames())]
+    for (a0, a1) in ranges:
+        for up, uo in units:
+            checks.append((f"mean[{uo},{a0:.2f}]", call(p, "Get mean", a0, a1, up), o.get_mean(a0, a1, uo)))
+            # Praat's stdev takes reference-free units ("semitones")
+            sd_unit = "semitones" if up.startswith("semitones") else up
+            checks.append((f"sd[{uo},{a0:.2f}]", call(p, "Get standard deviation", a0, a1, sd_unit), o.get_standard_deviation(a0, a1, uo)))
+            for q in (0.1, 0.5, 0.9):
+                checks.append((f"q{q}[{uo},{a0:.2f}]", call(p, "Get quantile", a0, a1, q, up), o.get_quantile(a0, a1, q, uo)))
+            for ip in ("None", "Parabolic"):
+                checks.append((f"min[{uo},{ip},{a0:.2f}]", call(p, "Get minimum", a0, a1, up, ip), o.get_minimum(a0, a1, uo, ip.lower())))
+                checks.append((f"max[{uo},{ip},{a0:.2f}]", call(p, "Get maximum", a0, a1, up, ip), o.get_maximum(a0, a1, uo, ip.lower())))
+                checks.append((f"tmin[{uo},{ip},{a0:.2f}]", call(p, "Get time of minimum", a0, a1, up, ip), o.get_time_of_minimum(a0, a1, uo, ip.lower())))
+    for name, a, b in checks:
+        a = np.nan if a is None else a
+        cmp_arrays(res, name, [a], [np.nan if b is None else b], max(tol, 1e-6))
 
 
 def formant_cases():
@@ -226,6 +236,23 @@ def run_formant(res, x, sr, c, tol):
         ob[~np.isfinite(of)] = np.nan
         cmp_arrays(res, f"F{k}", pf_, of, tol)
         cmp_arrays(res, f"B{k}", pb, ob, max(tol, 1e-6), rel=True)
+    d = p.xmax - p.xmin
+    checks = []
+    for (a0, a1) in [(0, 0), (p.xmin + 0.13 * d, p.xmin + 0.71 * d)]:
+        for k in (1, 2, 3):
+            for up, uo in (("hertz", "hertz"), ("bark", "bark")):
+                checks.append((f"mean F{k}[{uo},{a0:.2f}]", call(p, "Get mean", k, a0, a1, up), o.get_mean(k, a0, a1, uo)))
+                checks.append((f"sd F{k}[{uo},{a0:.2f}]", call(p, "Get standard deviation", k, a0, a1, up), o.get_standard_deviation(k, a0, a1, uo)))
+                for q in (0.1, 0.5, 0.9):
+                    checks.append((f"q{q} F{k}[{uo}]", call(p, "Get quantile", k, a0, a1, up, q), o.get_quantile(k, a0, a1, q, uo)))
+                    checks.append((f"qbw{q} F{k}[{uo}]", call(p, "Get quantile of bandwidth", k, a0, a1, up, q), o.get_quantile_of_bandwidth(k, a0, a1, q, uo)))
+                for ip in ("None", "Parabolic"):
+                    checks.append((f"min F{k}[{uo},{ip}]", call(p, "Get minimum", k, a0, a1, up, ip), o.get_minimum(k, a0, a1, uo, ip.lower())))
+                    checks.append((f"max F{k}[{uo},{ip}]", call(p, "Get maximum", k, a0, a1, up, ip), o.get_maximum(k, a0, a1, uo, ip.lower())))
+                    checks.append((f"tmax F{k}[{uo},{ip}]", call(p, "Get time of maximum", k, a0, a1, up, ip), o.get_time_of_maximum(k, a0, a1, uo, ip.lower())))
+    for name, a, b in checks:
+        a = np.nan if a is None else a
+        cmp_arrays(res, name, [a], [np.nan if b is None else b], max(tol, 1e-6))
 
 
 def run_intensity(res, x, sr, c, tol):

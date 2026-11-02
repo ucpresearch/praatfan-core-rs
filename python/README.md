@@ -163,6 +163,10 @@ computed by one package is interchangeable with the others.
 
 ```python
 pitch.get_value_at_time(time, unit, interp)  # Query pitch
+pitch.get_mean(t0, t1, "hertz"), pitch.get_standard_deviation(t0, t1, "hertz")
+pitch.get_quantile(t0, t1, 0.5, "hertz")          # Praat "Get quantile"
+pitch.get_minimum(t0, t1, "hertz", "parabolic")   # get_maximum, get_time_of_*
+pitch.count_voiced_frames(), pitch.mean(), pitch.min(), pitch.max()
 pitch.values()                               # All values (NaN=unvoiced)
 pitch.times()                                # Frame times
 pitch.num_frames, pitch.time_step           # Frame info
@@ -173,6 +177,9 @@ pitch.pitch_floor, pitch.pitch_ceiling      # Analysis parameters
 
 ```python
 formant.get_value_at_time(n, time, unit, interp)      # Fn frequency
+formant.get_mean(n, t0, t1, "hertz"), formant.get_standard_deviation(n, t0, t1, "hertz")
+formant.get_quantile(n, t0, t1, 0.5, "hertz")     # also get_quantile_of_bandwidth
+formant.get_minimum(n, t0, t1, "hertz", "parabolic")  # get_maximum, get_time_of_*
 formant.get_bandwidth_at_time(n, time, unit, interp)  # Fn bandwidth
 formant.formant_values(n)                             # All Fn values
 formant.bandwidth_values(n)                           # All Bn values

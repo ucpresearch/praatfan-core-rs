@@ -130,6 +130,20 @@ now follow Praat too (*Changed*); everything else is additive (*Added*).
 
 ### Added
 
+- **Pitch summaries** (Rust and Python), Praat's commands with time ranges
+  and units: `get_mean`, `get_standard_deviation`, `get_quantile`,
+  `get_minimum` / `get_maximum` / `get_time_of_minimum` /
+  `get_time_of_maximum` (interpolation "parabolic" or "none"),
+  `count_voiced_frames`; `xmin` / `xmax`. `Pitch.mean()/min()/max()` now
+  return Praat's whole-sound defaults (interpolated mean; parabolic extrema)
+  instead of plain frame statistics.
+- **Formant summaries** per formant: `get_mean`, `get_standard_deviation`,
+  `get_quantile`, `get_quantile_of_bandwidth`, `get_minimum` /
+  `get_maximum` / `get_time_of_*`; `xmin` / `xmax`. The Rust
+  `Formant::get_mean(n)` / `get_min(n)` / `get_max(n)` are replaced by these
+  ranged, unit-aware versions.
+  Verified against parselmouth over the sweep (ranges, Hz/mel/ERB/semitones,
+  Hz/Bark); where frame values match, the summaries match exactly.
 - `Formant::from_sound_burg_f` (Rust) and a float `max_num_formants` in
   Python `Sound.to_formant_burg` (e.g. 5.5, as in Praat: LPC order
   `round(2 x n)`).

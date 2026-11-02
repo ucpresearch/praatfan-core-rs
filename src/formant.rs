@@ -11,7 +11,7 @@
 //! 4. Find formants as roots of the LPC polynomial
 //! 5. Track formants across frames
 
-use crate::interpolation::{sampled_value_at_x, Interpolation};
+use crate::interpolation::{sampled_extremum, sampled_mean_interpolated, sampled_quantile, sampled_value_at_x, sampled_window_samples, Interpolation};
 use crate::utils::lpc::{lpc_burg, lpc_to_formants, FormantCandidate};
 use crate::window::praat_formant_window;
 use crate::{FrequencyUnit, Sound};
@@ -85,6 +85,9 @@ pub struct Formant {
     max_num_formants: usize,
     /// Maximum formant frequency used for analysis
     max_formant_hz: f64,
+    /// Time domain (Praat's xmin/xmax: the analysed sound's)
+    xmin: f64,
+    xmax: f64,
 }
 
 impl Formant {
@@ -288,6 +291,8 @@ impl Formant {
                 time_step,
                 max_num_formants,
                 max_formant_hz,
+                xmin: sound.start_time(),
+                xmax: sound.end_time(),
             };
         }
 
@@ -448,6 +453,8 @@ impl Formant {
             time_step,
             max_num_formants,
             max_formant_hz,
+            xmin: sound.start_time(),
+            xmax: sound.end_time(),
         }
     }
 
@@ -627,59 +634,132 @@ impl Formant {
         }
     }
 
-    /// Get mean value for a formant across all frames
-    pub fn get_mean(&self, formant_number: usize) -> Option<f64> {
-        if formant_number == 0 || formant_number > self.max_num_formants {
-            return None;
-        }
-
-        let values: Vec<f64> = self
-            .frames
-            .iter()
-            .filter_map(|f| {
-                f.get_formant(formant_number)
-                    .map(|p| p.frequency)
-                    .filter(|&freq| freq.is_finite())
-            })
-            .collect();
-
-        if values.is_empty() {
-            None
-        } else {
-            Some(values.iter().sum::<f64>() / values.len() as f64)
-        }
+    /// Start of the time domain (Praat's xmin)
+    pub fn xmin(&self) -> f64 {
+        self.xmin
     }
 
-    /// Get minimum value for a formant
-    pub fn get_min(&self, formant_number: usize) -> Option<f64> {
-        if formant_number == 0 || formant_number > self.max_num_formants {
-            return None;
-        }
-
-        self.frames
-            .iter()
-            .filter_map(|f| {
-                f.get_formant(formant_number)
-                    .map(|p| p.frequency)
-                    .filter(|&freq| freq.is_finite())
-            })
-            .reduce(f64::min)
+    /// End of the time domain (Praat's xmax)
+    pub fn xmax(&self) -> f64 {
+        self.xmax
     }
 
-    /// Get maximum value for a formant
-    pub fn get_max(&self, formant_number: usize) -> Option<f64> {
-        if formant_number == 0 || formant_number > self.max_num_formants {
+    /// Formant `n` of frame `i` (1-based) in `unit`; NaN if absent.
+    fn unit_value(&self, n: usize, i: isize, unit: FrequencyUnit) -> f64 {
+        self.frames
+            .get((i - 1) as usize)
+            .and_then(|f| if n <= f.num_defined_formants() { f.get_formant(n) } else { None })
+            .map(|p| unit.from_hertz(p.frequency))
+            .unwrap_or(f64::NAN)
+    }
+
+    /// Bandwidth `n` of frame `i` in `unit` (Praat: in Bark, the Bark width
+    /// of [f - b/2, f + b/2], lower edge floored at 0 Hz).
+    fn unit_bandwidth(&self, n: usize, i: isize, unit: FrequencyUnit) -> f64 {
+        self.frames
+            .get((i - 1) as usize)
+            .and_then(|f| if n <= f.num_defined_formants() { f.get_formant(n) } else { None })
+            .map(|p| {
+                if unit == FrequencyUnit::Hertz {
+                    p.bandwidth
+                } else {
+                    let fl = p.frequency - 0.5 * p.bandwidth;
+                    let fl = if fl <= 0.0 { 0.0 } else { unit.from_hertz(fl) };
+                    unit.from_hertz(p.frequency + 0.5 * p.bandwidth) - fl
+                }
+            })
+            .unwrap_or(f64::NAN)
+    }
+
+    fn n_ok(&self, n: usize) -> bool {
+        n >= 1 && n <= self.max_num_formants
+    }
+
+    /// Praat's `Formant: Get mean...`: mean of the linearly interpolated
+    /// track of formant `n` over `[from_time, to_time]` (`from >= to`:
+    /// whole domain), in `unit`.
+    pub fn get_mean(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit) -> Option<f64> {
+        if !self.n_ok(n) {
             return None;
         }
+        sampled_mean_interpolated(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, |i| self.unit_value(n, i, unit))
+    }
 
-        self.frames
-            .iter()
-            .filter_map(|f| {
-                f.get_formant(formant_number)
-                    .map(|p| p.frequency)
-                    .filter(|&freq| freq.is_finite())
-            })
-            .reduce(f64::max)
+    fn extremum(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit, interpolate: bool, is_max: bool) -> Option<(f64, f64)> {
+        if !self.n_ok(n) {
+            return None;
+        }
+        let (v, t) = sampled_extremum(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, interpolate, is_max, |i| self.unit_value(n, i, unit))?;
+        if v <= 0.0 { None } else { Some((v, t)) }
+    }
+
+    /// Praat's `Formant: Get minimum...` (`interpolate`: "Parabolic" vs "None").
+    pub fn get_minimum(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit, interpolate: bool) -> Option<f64> {
+        self.extremum(n, from_time, to_time, unit, interpolate, false).map(|x| x.0)
+    }
+
+    /// Praat's `Formant: Get maximum...`.
+    pub fn get_maximum(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit, interpolate: bool) -> Option<f64> {
+        self.extremum(n, from_time, to_time, unit, interpolate, true).map(|x| x.0)
+    }
+
+    /// Praat's `Formant: Get time of minimum...`.
+    pub fn get_time_of_minimum(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit, interpolate: bool) -> Option<f64> {
+        self.extremum(n, from_time, to_time, unit, interpolate, false).map(|x| x.1)
+    }
+
+    /// Praat's `Formant: Get time of maximum...`.
+    pub fn get_time_of_maximum(&self, n: usize, from_time: f64, to_time: f64, unit: FrequencyUnit, interpolate: bool) -> Option<f64> {
+        self.extremum(n, from_time, to_time, unit, interpolate, true).map(|x| x.1)
+    }
+
+    /// Praat's `Formant: Get quantile...` (frames with formant `n` in the range).
+    pub fn get_quantile(&self, n: usize, from_time: f64, to_time: f64, quantile: f64, unit: FrequencyUnit) -> Option<f64> {
+        if !self.n_ok(n) {
+            return None;
+        }
+        sampled_quantile(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, quantile, |i| self.unit_value(n, i, unit))
+    }
+
+    /// Praat's `Formant: Get quantile of bandwidth...`.
+    pub fn get_quantile_of_bandwidth(&self, n: usize, from_time: f64, to_time: f64, quantile: f64, unit: FrequencyUnit) -> Option<f64> {
+        if !self.n_ok(n) {
+            return None;
+        }
+        sampled_quantile(self.frames.len(), self.start_time, self.time_step, self.xmin, self.xmax,
+            from_time, to_time, quantile, |i| self.unit_bandwidth(n, i, unit))
+    }
+
+    /// Praat's `Formant: Get standard deviation...` (`Formant_getStandardDeviation`):
+    /// spread of the frame values around the interpolated mean, n - 1
+    /// denominator.
+    pub fn get_standard_deviation(&self, n: usize, mut from_time: f64, mut to_time: f64, unit: FrequencyUnit) -> Option<f64> {
+        if !self.n_ok(n) || from_time.is_nan() || to_time.is_nan() {
+            return None;
+        }
+        if from_time >= to_time {
+            from_time = self.xmin;
+            to_time = self.xmax;
+        }
+        let (imin, imax) = sampled_window_samples(self.frames.len(), self.start_time, self.time_step, from_time, to_time);
+        if imin > imax {
+            return None;
+        }
+        let mean = self.get_mean(n, from_time, to_time, unit).unwrap_or(f64::NAN);
+        let mut sum = crate::utils::CompSum::default();
+        let mut count = 0usize;
+        for i in imin..=imax {
+            let f = self.unit_value(n, i, unit);
+            if f.is_nan() || f == 0.0 {
+                continue;
+            }
+            count += 1;
+            sum.add((f - mean) * (f - mean));
+        }
+        if count > 1 { Some(libm::sqrt(sum.value() / (count - 1) as f64)) } else { None }
     }
 
     /// Get the maximum formant frequency setting used for analysis
@@ -714,6 +794,8 @@ impl Formant {
             time_step: template.time_step,
             max_num_formants: template.max_num_formants,
             max_formant_hz: template.max_formant_hz,
+            xmin: template.xmin,
+            xmax: template.xmax,
         }
     }
 }
@@ -795,13 +877,13 @@ mod tests {
         let formant = sound.to_formant_burg(0.0, 5, 5500.0, 0.025, 50.0);
 
         // Statistics functions should not crash
-        let _mean_f1 = formant.get_mean(1);
-        let _min_f1 = formant.get_min(1);
-        let _max_f1 = formant.get_max(1);
+        let _mean_f1 = formant.get_mean(1, 0.0, 0.0, FrequencyUnit::Hertz);
+        let _min_f1 = formant.get_minimum(1, 0.0, 0.0, FrequencyUnit::Hertz, true);
+        let _max_f1 = formant.get_maximum(1, 0.0, 0.0, FrequencyUnit::Hertz, true);
 
         // Invalid formant number should return None
-        assert!(formant.get_mean(0).is_none());
-        assert!(formant.get_mean(10).is_none());
+        assert!(formant.get_mean(0, 0.0, 0.0, FrequencyUnit::Hertz).is_none());
+        assert!(formant.get_mean(10, 0.0, 0.0, FrequencyUnit::Hertz).is_none());
     }
 
     #[test]
