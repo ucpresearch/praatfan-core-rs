@@ -315,7 +315,7 @@ bundles Praat 6.1.38. Its results are verified against that version.
   title        = {Praatfan-gpl: a reimplementation in {Rust} of a number of {Praat} functions},
   year         = {2026},
   howpublished = {\url{https://github.com/ucpresearch/praatfan-core-rs}},
-  note         = {Version 0.1.15}
+  note         = {Version 0.1.16}
 }
 ```
 

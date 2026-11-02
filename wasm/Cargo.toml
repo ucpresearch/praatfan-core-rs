@@ -1,6 +1,6 @@
 [package]
 name = "praatfan-gpl"
-version = "0.1.15"
+version = "0.1.16"
 edition = "2021"
 authors = ["Uriel Cohen Priva <uriel_cohen_priva@brown.edu>"]
 license = "GPL-3.0"

@@ -79,7 +79,7 @@ The wheels are `abi3` (built against the stable ABI), so one wheel per platform
 covers **Python 3.9 and newer** — pick by platform, not by interpreter version:
 
 ```bash
-V=0.1.15
+V=0.1.16
 BASE=https://github.com/ucpresearch/praatfan-core-rs/releases/download/v$V
 
 # Linux x86_64
@@ -543,7 +543,7 @@ bundles Praat 6.1.38. Its results are verified against that version.
   title        = {Praatfan-gpl: a reimplementation in {Rust} of a number of {Praat} functions},
   year         = {2026},
   howpublished = {\url{https://github.com/ucpresearch/praatfan-core-rs}},
-  note         = {Version 0.1.15}
+  note         = {Version 0.1.16}
 }
 ```
 
