@@ -1389,7 +1389,7 @@ fn compute_pitch_frame(
     let r_offset = nsamp_window;
 
     // Sample indices (matching Praat's Sampled_xToLowIndex)
-    let left_sample = ((time - x1) / dx).floor() as isize;
+    let left_sample = crate::utils::praat_low_index0(time, x1, dx);
     let right_sample = left_sample + 1;
 
     // Compute local mean (looking one longest period to both sides)
@@ -1606,7 +1606,7 @@ fn compute_pitch_frame_multichannel(
     let r_offset = nsamp_window;
 
     // Sample indices
-    let left_sample = ((time - x1) / dx).floor() as isize;
+    let left_sample = crate::utils::praat_low_index0(time, x1, dx);
     let right_sample = left_sample + 1;
 
     // Compute local mean for each channel
@@ -1911,7 +1911,7 @@ fn compute_pitch_frame_fcc_multichannel(
     r: &mut [f64],
 ) -> PitchFrame {
     let r_offset = nsamp_window;
-    let left_sample = ((time - x1) / dx).floor() as isize;
+    let left_sample = crate::utils::praat_low_index0(time, x1, dx);
     let right_sample = left_sample + 1;
 
     // Compute local mean for each channel
@@ -1931,7 +1931,7 @@ fn compute_pitch_frame_fcc_multichannel(
 
     // FCC start position (uses original dt_window, not truncated nsamp_window * dx)
     let start_time = time - 0.5 * (1.0 / pitch_floor + dt_window);
-    let start_sample_fcc = ((start_time - x1) / dx).floor() as isize;
+    let start_sample_fcc = crate::utils::praat_low_index0(start_time, x1, dx);
     let start_sample_fcc = start_sample_fcc.max(0) as usize;
 
     let local_span = maximum_lag + nsamp_window;
@@ -2110,7 +2110,7 @@ fn compute_pitch_frame_fcc(
     let r_offset = nsamp_window;
 
     // Sample indices (matching Praat's Sampled_xToLowIndex)
-    let left_sample = ((time - x1) / dx).floor() as isize;
+    let left_sample = crate::utils::praat_low_index0(time, x1, dx);
     let right_sample = left_sample + 1;
 
     // Compute local mean (looking one longest period to both sides)
@@ -2125,7 +2125,7 @@ fn compute_pitch_frame_fcc(
 
     // FCC start position (uses original dt_window, not truncated nsamp_window * dx)
     let start_time = time - 0.5 * (1.0 / pitch_floor + dt_window);
-    let start_sample_fcc = ((start_time - x1) / dx).floor() as isize;
+    let start_sample_fcc = crate::utils::praat_low_index0(start_time, x1, dx);
     let start_sample_fcc = start_sample_fcc.max(0) as usize;
 
     // Local span for FCC

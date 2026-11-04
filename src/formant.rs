@@ -303,7 +303,7 @@ impl Formant {
             // Sample extraction semantics differ between Praat's two code paths:
             //
             // * `Sound_to_Formant.cpp` (standalone To Formant (burg)) uses
-            //   `Sampled_xToLowIndex` = `floor((t-x1)/dx) + 1` (1-based), giving
+            //   `Sampled_xToLowIndex` = `floor((t-x1)/dx + 1.0)` (1-based), giving
             //   startSample = leftSample + 1 - halfnsamp_window (our default).
             //
             // * `Sound_into_LPC` (used by FormantPath) uses `Sound_into_Sound`
@@ -321,7 +321,7 @@ impl Formant {
                 let start0 = index_1based - 1;
                 (start0, start0 + frame_window_len as isize - 1)
             } else {
-                let left_sample = ((frame_time - x1_sound) / dx).floor() as isize;
+                let left_sample = crate::utils::praat_low_index0(frame_time, x1_sound, dx);
                 let right_sample = left_sample + 1;
                 (
                     right_sample - halfnsamp_window as isize,

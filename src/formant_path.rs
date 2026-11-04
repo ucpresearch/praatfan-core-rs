@@ -33,7 +33,7 @@
 //! 3. **Nearest-index sample extraction.** `Sound_into_LPC` copies the frame
 //!    starting at `round((t - 0.5*windowDuration - x1)/dx)` (via
 //!    `Sampled_xToNearestIndex`), while standalone uses
-//!    `floor((t - x1)/dx) + 1 - halfnsamp_window` (via `Sampled_xToLowIndex`).
+//!    `floor((t - x1)/dx + 1.0) - halfnsamp_window` (via `Sampled_xToLowIndex`).
 //! 4. **Zero-padded out-of-bounds samples.** `Sound_into_Sound` zero-pads any
 //!    samples outside `[1, my nx]`, and the zero-padded samples are included
 //!    in the subsequent mean calculation.

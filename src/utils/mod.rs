@@ -81,3 +81,15 @@ mod mean_tests {
         }
     }
 }
+
+/// Praat's `Sampled_xToLowIndex` as a 0-based index:
+/// `Melder_ifloor ((x - x1) / dx + 1.0) - 1`.
+///
+/// The `+ 1.0` comes before the floor on purpose. When `(x - x1) / dx`
+/// falls a few ulps below an integer (a frame centre on a sample tie),
+/// adding 1.0 rounds it up, and Praat takes the next sample.
+/// `floor((x - x1) / dx)` would take the one before.
+#[inline]
+pub fn praat_low_index0(x: f64, x1: f64, dx: f64) -> isize {
+    libm::floor((x - x1) / dx + 1.0) as isize - 1
+}

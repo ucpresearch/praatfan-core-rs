@@ -5,9 +5,22 @@ Python bindings).
 
 ## [0.1.16] - 2026-11-02
 
-Version-alignment release: no code changes from 0.1.15 (as reissued at
-aae89ae). The praatfan engines go to PyPI together at 0.1.16. Results,
-the Python/WASM APIs and the pipe's JSON protocol are unchanged.
+One fix on top of 0.1.15 (as reissued at aae89ae). The praatfan engines go
+to PyPI together at 0.1.16. The Python/WASM APIs and the pipe's JSON
+protocol are unchanged.
+
+### Fixed
+
+- **Frame-to-sample index on ties** (formant, pitch AC/CC and so HNR,
+  spectrogram): when a frame centre fell a few ulps below a sample boundary,
+  we took the sample before it and Praat the one after (Praat's
+  `Sampled_xToLowIndex` adds 1.0 *before* the floor, which rounds up). That
+  frame then differed, e.g. F2 by 0.4 Hz and F3 by 9 Hz on two VTR files
+  (automatic time step, 5000 Hz ceiling, frame at sample ~16384), up to
+  88 Hz on TIMIT with a 6000 Hz ceiling. All such frames now match Praat
+  (F1-F5, B1-B5 within 2e-9 Hz). Rare: no output changed on 40 TIMIT files
+  x 11 configurations, and the parameter sweep is unchanged (914/1014 exact).
+  Shared helper `utils::praat_low_index0`.
 
 ## [0.1.15] - 2026-11-02
 

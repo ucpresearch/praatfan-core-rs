@@ -180,9 +180,9 @@ impl Spectrogram {
             let t = t1 + iframe as f64 * time_step;
 
             // Find sample indices
-            // leftSample = floor((t - x1) / dx), rightSample = leftSample + 1 (1-based)
+            // leftSample = Sampled_xToLowIndex(t) = floor((t - x1) / dx + 1.0), 1-based
             let x1 = sound.x1();
-            let left_sample_1based = ((t - x1) / dx).floor() as i64 + 1;
+            let left_sample_1based = crate::utils::praat_low_index0(t, x1, dx) as i64 + 1;
             let right_sample_1based = left_sample_1based + 1;
 
             let start_sample_1based = right_sample_1based - halfnsamp_window;
