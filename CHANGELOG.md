@@ -3,7 +3,7 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
-## [0.1.16] - 2026-11-02
+## [0.1.16] - 2026-11-08
 
 One fix on top of 0.1.15 (as reissued at aae89ae). The praatfan engines go
 to PyPI together at 0.1.16. The Python/WASM APIs and the pipe's JSON

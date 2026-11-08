@@ -302,6 +302,16 @@ praatfan_gpl.voice_report(sound, pitch, pulses, from_time=0.0, to_time=0.0,
     # periods in seconds, "shimmer" a nested dict
 ```
 
+`fraction_of_locally_unvoiced_frames` (with `unvoiced_frames` / `total_frames`)
+is Praat's measure, not the share of unvoiced frames in `pitch`. The frames are
+the same, but a frame counts as locally voiced when *any* of its pitch
+candidates is below `pitch_ceiling` with strength >= `voicing_threshold`, and
+the frame's intensity is >= `silence_threshold`. The pitch track itself
+voices a frame only when the path finder picks a voiced candidate there, and
+its voiced/unvoiced cost favours runs, so counting unvoiced `pitch` frames
+gives more all-voiced and all-unvoiced intervals than the Voice report does.
+Praat prints a zero as `0   (0 / n)` without `%`; here it is just `0.0`.
+
 ### Other
 
 ```python
