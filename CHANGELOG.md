@@ -3,6 +3,20 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
+## [Unreleased] (planned 2026-11-29)
+
+### Fixed
+
+- **NIST SPHERE files named `.wav`** (TIMIT and other LDC corpora) failed
+  in `Sound.from_file` / `from_file_channels` with `Ill-formed WAVE file:
+  no RIFF tag found`: hound's error was returned before the desphere
+  fallback ran. They now decode; a `.wav` that is neither RIFF nor SPHERE
+  still reports hound's error. `.sph` files and in-memory decoding were
+  not affected.
+- **Web demo file picker** now offers SPHERE files (`.sph`, `.nist`,
+  `.wv1`, `.wv2`); `accept="audio/*"` hid them. Drag and drop already
+  worked.
+
 ## [0.1.16] - 2026-11-08
 
 One fix on top of 0.1.15 (as reissued at aae89ae). The praatfan engines go

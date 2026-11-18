@@ -97,17 +97,21 @@ impl Sound {
         let path = path.as_ref();
 
         // Try symphonia first (supports more formats)
-        match Self::from_file_symphonia(path) {
-            Ok(sound) => return Ok(sound),
-            Err(_) => {
-                // Fall back to hound for WAV files
-                if let Some(ext) = path.extension() {
-                    if ext.to_string_lossy().to_lowercase() == "wav" {
-                        return Self::from_file_wav(path);
-                    }
-                }
-            }
+        if let Ok(sound) = Self::from_file_symphonia(path) {
+            return Ok(sound);
         }
+
+        // Fall back to hound for WAV files. A failure here must not return early:
+        // TIMIT and other corpora name NIST SPHERE files `.wav`, so desphere still
+        // gets its turn below. Hound's error is kept for `.wav` if that fails too.
+        let wav_err = if Self::has_wav_extension(path) {
+            match Self::from_file_wav(path) {
+                Ok(sound) => return Ok(sound),
+                Err(e) => Some(e),
+            }
+        } else {
+            None
+        };
 
         // Fall back to desphere for NIST SPHERE (incl. shorten-compressed), which
         // symphonia/hound cannot decode. Only attempted on the error path, so
@@ -117,8 +121,11 @@ impl Sound {
             return Ok(sound);
         }
 
-        // If symphonia failed and the fallbacks didn't apply, return the symphonia error
-        Self::from_file_symphonia(path)
+        // Nothing decoded it: report hound's error for `.wav`, symphonia's otherwise.
+        match wav_err {
+            Some(e) => Err(e),
+            None => Self::from_file_symphonia(path),
+        }
     }
 
     /// Load a Sound from an audio file, keeping channels separate
@@ -137,23 +144,35 @@ impl Sound {
         let path = path.as_ref();
 
         // Try symphonia first
-        match Self::from_file_symphonia_channels(path) {
-            Ok(sounds) => return Ok(sounds),
-            Err(_) => {
-                if let Some(ext) = path.extension() {
-                    if ext.to_string_lossy().to_lowercase() == "wav" {
-                        return Self::from_file_wav_channels(path);
-                    }
-                }
-            }
+        if let Ok(sounds) = Self::from_file_symphonia_channels(path) {
+            return Ok(sounds);
         }
+
+        // Hound for `.wav`, without returning early on failure (SPHERE named `.wav`).
+        let wav_err = if Self::has_wav_extension(path) {
+            match Self::from_file_wav_channels(path) {
+                Ok(sounds) => return Ok(sounds),
+                Err(e) => Some(e),
+            }
+        } else {
+            None
+        };
 
         // NIST SPHERE (incl. shorten-compressed) fallback via desphere.
         if let Ok(sounds) = Self::from_file_desphere_channels(path) {
             return Ok(sounds);
         }
 
-        Self::from_file_symphonia_channels(path)
+        match wav_err {
+            Some(e) => Err(e),
+            None => Self::from_file_symphonia_channels(path),
+        }
+    }
+
+    #[cfg(feature = "file-io")]
+    fn has_wav_extension(path: &Path) -> bool {
+        path.extension()
+            .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("wav"))
     }
 
     /// Load a Sound from any supported format using symphonia

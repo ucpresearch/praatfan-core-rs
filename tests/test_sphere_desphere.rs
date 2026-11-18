@@ -74,3 +74,31 @@ fn sphere_shorten_decodes_per_channel() {
     assert_eq!(channels[0].samples().len(), N, "channel sample count");
     assert_eq!(channels[0].sample_rate(), SR, "channel sample rate");
 }
+
+/// TIMIT (and other LDC corpora) name SPHERE files `.wav`. hound rejects them
+/// ("no RIFF tag"), and that failure must fall through to desphere instead of
+/// being returned (the 0.1.16 bug).
+#[test]
+fn sphere_named_wav_decodes_via_desphere_fallback() {
+    let dir = std::env::temp_dir().join(format!("pfgpl-sphere-wav-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("tone_mono_shorten.wav");
+    std::fs::copy(FIXTURE, &path).unwrap();
+
+    let sound = Sound::from_file(&path).expect("SPHERE named .wav should decode via desphere");
+    let reference = Sound::from_file(FIXTURE).unwrap();
+    assert_eq!(sound.sample_rate(), SR);
+    assert_eq!(sound.samples(), reference.samples(), "same samples as the .sph original");
+
+    let channels = Sound::from_file_channels(&path).expect("per-channel SPHERE named .wav");
+    assert_eq!(channels.len(), 1);
+    assert_eq!(channels[0].samples(), reference.samples());
+
+    // A .wav that is neither RIFF nor SPHERE still reports hound's WAV error.
+    let junk = dir.join("junk.wav");
+    std::fs::write(&junk, b"not audio at all").unwrap();
+    let err = Sound::from_file(&junk).unwrap_err().to_string();
+    assert!(err.contains("WAV"), "expected hound's WAV error, got: {err}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
