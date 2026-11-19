@@ -23,6 +23,32 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 use crate::window::WindowShape;
+
+/// Options for decoding audio files ([`Sound::from_file_with`] and friends).
+///
+/// Ogg Vorbis and other formats that record encoder delay/padding are always
+/// decoded gaplessly, so they line up with the original recording.
+///
+/// **MP3 keeps a known timing bug by default, for Praat compatibility.** An MP3
+/// carries the encoder's delay (e.g. 1105 samples for LAME/ffmpeg) and end
+/// padding; by default we keep them, so the audio starts that much late and
+/// runs long, as in all earlier releases. Praat's own MP3 reader is also late
+/// (by a different, rate-dependent amount), and the default stays closer to it.
+/// Set [`DecodeOptions::exact_mp3_timing`] to trim the delay and padding and
+/// get the original recording's timestamps.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DecodeOptions {
+    exact_mp3_timing: bool,
+}
+
+impl DecodeOptions {
+    /// Trim the MP3 encoder delay and padding (gapless), so MP3 timestamps
+    /// match the original recording instead of the (delayed) legacy timing.
+    pub fn exact_mp3_timing(mut self, on: bool) -> Self {
+        self.exact_mp3_timing = on;
+        self
+    }
+}
 use crate::{PraatError, Result};
 
 /// Audio samples with associated sample rate and timing information
@@ -94,10 +120,16 @@ impl Sound {
     /// Returns an error if the file cannot be read or format is not supported.
     #[cfg(feature = "file-io")]
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::from_file_with(path, &DecodeOptions::default())
+    }
+
+    /// [`Sound::from_file`] with explicit [`DecodeOptions`] (e.g. exact MP3 timing).
+    #[cfg(feature = "file-io")]
+    pub fn from_file_with<P: AsRef<Path>>(path: P, opts: &DecodeOptions) -> Result<Self> {
         let path = path.as_ref();
 
         // Try symphonia first (supports more formats)
-        if let Ok(sound) = Self::from_file_symphonia(path) {
+        if let Ok(sound) = Self::from_file_symphonia(path, opts) {
             return Ok(sound);
         }
 
@@ -124,7 +156,7 @@ impl Sound {
         // Nothing decoded it: report hound's error for `.wav`, symphonia's otherwise.
         match wav_err {
             Some(e) => Err(e),
-            None => Self::from_file_symphonia(path),
+            None => Self::from_file_symphonia(path, opts),
         }
     }
 
@@ -141,10 +173,16 @@ impl Sound {
     /// A Vec of Sound objects, one per channel. For mono files, returns a Vec with one element.
     #[cfg(feature = "file-io")]
     pub fn from_file_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
+        Self::from_file_channels_with(path, &DecodeOptions::default())
+    }
+
+    /// [`Sound::from_file_channels`] with explicit [`DecodeOptions`].
+    #[cfg(feature = "file-io")]
+    pub fn from_file_channels_with<P: AsRef<Path>>(path: P, opts: &DecodeOptions) -> Result<Vec<Self>> {
         let path = path.as_ref();
 
         // Try symphonia first
-        if let Ok(sounds) = Self::from_file_symphonia_channels(path) {
+        if let Ok(sounds) = Self::from_file_symphonia_channels(path, opts) {
             return Ok(sounds);
         }
 
@@ -165,7 +203,7 @@ impl Sound {
 
         match wav_err {
             Some(e) => Err(e),
-            None => Self::from_file_symphonia_channels(path),
+            None => Self::from_file_symphonia_channels(path, opts),
         }
     }
 
@@ -179,25 +217,9 @@ impl Sound {
     ///
     /// Supports WAV, MP3, FLAC, OGG Vorbis, and other formats.
     #[cfg(feature = "file-io")]
-    fn from_file_symphonia<P: AsRef<Path>>(path: P) -> Result<Self> {
+    fn from_file_symphonia<P: AsRef<Path>>(path: P, opts: &DecodeOptions) -> Result<Self> {
         let path = path.as_ref();
-        let file = File::open(path).map_err(PraatError::Io)?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-        // Create a hint based on file extension
-        let mut hint = Hint::new();
-        if let Some(ext) = path.extension() {
-            hint.with_extension(&ext.to_string_lossy());
-        }
-
-        // Probe the format
-        let format_opts = FormatOptions::default();
-        let metadata_opts = MetadataOptions::default();
-        let probed = symphonia::default::get_probe()
-            .format(&hint, mss, &format_opts, &metadata_opts)
-            .map_err(|e| PraatError::Analysis(format!("Failed to probe audio format: {}", e)))?;
-
-        let mut format = probed.format;
+        let mut format = Self::symphonia_open(&|| Self::file_stream(path), &|| Self::file_hint(path), opts)?;
 
         // Get the default track
         let track = format
@@ -364,28 +386,68 @@ impl Sound {
 
     /// Load channels separately using symphonia
     #[cfg(feature = "file-io")]
-    fn from_file_symphonia_channels<P: AsRef<Path>>(path: P) -> Result<Vec<Self>> {
+    fn from_file_symphonia_channels<P: AsRef<Path>>(path: P, opts: &DecodeOptions) -> Result<Vec<Self>> {
         let path = path.as_ref();
-        let file = File::open(path).map_err(PraatError::Io)?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        Self::symphonia_channels(&|| Self::file_stream(path), &|| Self::file_hint(path), opts)
+    }
 
+    #[cfg(feature = "file-io")]
+    fn file_stream(path: &Path) -> Result<MediaSourceStream> {
+        let file = File::open(path).map_err(PraatError::Io)?;
+        Ok(MediaSourceStream::new(Box::new(file), Default::default()))
+    }
+
+    #[cfg(feature = "file-io")]
+    fn file_hint(path: &Path) -> Hint {
         let mut hint = Hint::new();
         if let Some(ext) = path.extension() {
             hint.with_extension(&ext.to_string_lossy());
         }
-        Self::symphonia_channels(mss, hint)
+        hint
+    }
+
+    /// Probe a stream with symphonia, honouring [`DecodeOptions`].
+    ///
+    /// Gapless decoding (dropping the encoder delay and padding recorded in the
+    /// stream) is on, except for MPEG audio (MP1/MP2/MP3) unless
+    /// `exact_mp3_timing` is set: that keeps the MP3 timing of earlier releases,
+    /// which is closer to Praat's own (also delayed) MP3 reading. The stream is
+    /// reopened for that second probe, so `open` must be callable twice.
+    #[cfg(feature = "decode")]
+    fn symphonia_open(
+        open: &dyn Fn() -> Result<MediaSourceStream>,
+        hint: &dyn Fn() -> Hint,
+        opts: &DecodeOptions,
+    ) -> Result<Box<dyn symphonia::core::formats::FormatReader>> {
+        use symphonia::core::codecs::{CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3};
+        let probe = |gapless: bool| -> Result<Box<dyn symphonia::core::formats::FormatReader>> {
+            let format_opts = FormatOptions {
+                enable_gapless: gapless,
+                ..Default::default()
+            };
+            symphonia::default::get_probe()
+                .format(&hint(), open()?, &format_opts, &MetadataOptions::default())
+                .map(|probed| probed.format)
+                .map_err(|e| PraatError::Analysis(format!("Failed to probe audio format: {}", e)))
+        };
+        let format = probe(true)?;
+        let is_mpeg = format.default_track().is_some_and(|t| {
+            matches!(t.codec_params.codec, CODEC_TYPE_MP1 | CODEC_TYPE_MP2 | CODEC_TYPE_MP3)
+        });
+        if is_mpeg && !opts.exact_mp3_timing {
+            return probe(false);
+        }
+        Ok(format)
     }
 
     /// Decode per-channel Sounds from any symphonia media stream (file or memory).
     #[cfg(feature = "decode")]
-    fn symphonia_channels(mss: MediaSourceStream, hint: Hint) -> Result<Vec<Self>> {
-        let format_opts = FormatOptions::default();
-        let metadata_opts = MetadataOptions::default();
-        let probed = symphonia::default::get_probe()
-            .format(&hint, mss, &format_opts, &metadata_opts)
-            .map_err(|e| PraatError::Analysis(format!("Failed to probe audio format: {}", e)))?;
-
-        let mut format = probed.format;
+    fn symphonia_channels(
+        open: &dyn Fn() -> Result<MediaSourceStream>,
+        hint: &dyn Fn() -> Hint,
+        opts: &DecodeOptions,
+    ) -> Result<Vec<Self>> {
+        let mut format = Self::symphonia_open(open, hint, opts)?;
 
         let track = format
             .default_track()
@@ -471,6 +533,16 @@ impl Sound {
     /// filesystem. `extension` (e.g. `"flac"`) is only a format hint.
     #[cfg(feature = "decode")]
     pub fn from_bytes_channels(bytes: &[u8], extension: Option<&str>) -> Result<Vec<Self>> {
+        Self::from_bytes_channels_with(bytes, extension, &DecodeOptions::default())
+    }
+
+    /// [`Sound::from_bytes_channels`] with explicit [`DecodeOptions`].
+    #[cfg(feature = "decode")]
+    pub fn from_bytes_channels_with(
+        bytes: &[u8],
+        extension: Option<&str>,
+        opts: &DecodeOptions,
+    ) -> Result<Vec<Self>> {
         let make_hint = || {
             let mut hint = Hint::new();
             if let Some(ext) = extension {
@@ -478,9 +550,11 @@ impl Sound {
             }
             hint
         };
-        let cursor = std::io::Cursor::new(bytes.to_vec());
-        let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
-        let symphonia_err = match Self::symphonia_channels(mss, make_hint()) {
+        let open = || {
+            let cursor = std::io::Cursor::new(bytes.to_vec());
+            Ok(MediaSourceStream::new(Box::new(cursor), Default::default()))
+        };
+        let symphonia_err = match Self::symphonia_channels(&open, &make_hint, opts) {
             Ok(sounds) => return Ok(sounds),
             Err(e) => e,
         };

@@ -670,6 +670,9 @@ export class Sound {
      * @param bytes - Uint8Array with the file's contents
      * @param extension - Format hint such as "wav" or "flac" (may be empty)
      * @returns Array of Sound, one per channel
+     *
+     * MP3 keeps the legacy (encoder-delayed) timing; see
+     * `from_bytes_channels_with` for exact MP3 timestamps.
      * @param {Uint8Array} bytes
      * @param {string} extension
      * @returns {Array<any>}
@@ -680,6 +683,30 @@ export class Sound {
         const ptr1 = passStringToWasm0(extension, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
         const ret = wasm.sound_from_bytes_channels(ptr0, len0, ptr1, len1);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * `from_bytes_channels` with decode options.
+     *
+     * @param exact_mp3_timing - Trim the MP3 encoder delay and padding so
+     *   timestamps match the original recording. With `false` (the
+     *   `from_bytes_channels` default) MP3 keeps the legacy timing, e.g.
+     *   1105 samples late for LAME/ffmpeg: a known bug kept for Praat
+     *   compatibility. Ogg Vorbis is always trimmed.
+     * @param {Uint8Array} bytes
+     * @param {string} extension
+     * @param {boolean} exact_mp3_timing
+     * @returns {Array<any>}
+     */
+    static from_bytes_channels_with(bytes, extension, exact_mp3_timing) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(extension, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.sound_from_bytes_channels_with(ptr0, len0, ptr1, len1, exact_mp3_timing);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }

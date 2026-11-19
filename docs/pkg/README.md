@@ -81,6 +81,8 @@ async function main() {
   const response = await fetch('speech.wav');
   const bytes = new Uint8Array(await response.arrayBuffer());
   const [sound] = Sound.from_bytes_channels(bytes, 'wav');  // first channel
+  // MP3: Sound.from_bytes_channels_with(bytes, 'mp3', true) trims the
+  // encoder delay; the default keeps it (known bug, kept for Praat parity).
 
   // Or from samples you already have: new Sound(Float64Array, sampleRate)
   console.log(`Duration: ${sound.duration}s`);

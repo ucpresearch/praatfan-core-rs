@@ -5,7 +5,7 @@
     "Uriel Cohen Priva <uriel_cohen_priva@brown.edu>"
   ],
   "description": "praatfan-gpl: WebAssembly bindings for praatfan-core-rs acoustic analysis library",
-  "version": "0.1.17-rc1",
+  "version": "0.1.17-rc2",
   "license": "GPL-3.0",
   "files": [
     "praatfan_gpl_bg.wasm",

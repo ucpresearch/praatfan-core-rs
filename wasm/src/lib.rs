@@ -69,10 +69,30 @@ impl Sound {
     /// @param bytes - Uint8Array with the file's contents
     /// @param extension - Format hint such as "wav" or "flac" (may be empty)
     /// @returns Array of Sound, one per channel
+    ///
+    /// MP3 keeps the legacy (encoder-delayed) timing; see
+    /// `from_bytes_channels_with` for exact MP3 timestamps.
     #[cfg(feature = "decode")]
     pub fn from_bytes_channels(bytes: &[u8], extension: &str) -> Result<js_sys::Array, JsError> {
+        Self::from_bytes_channels_with(bytes, extension, false)
+    }
+
+    /// `from_bytes_channels` with decode options.
+    ///
+    /// @param exact_mp3_timing - Trim the MP3 encoder delay and padding so
+    ///   timestamps match the original recording. With `false` (the
+    ///   `from_bytes_channels` default) MP3 keeps the legacy timing, e.g.
+    ///   1105 samples late for LAME/ffmpeg: a known bug kept for Praat
+    ///   compatibility. Ogg Vorbis is always trimmed.
+    #[cfg(feature = "decode")]
+    pub fn from_bytes_channels_with(
+        bytes: &[u8],
+        extension: &str,
+        exact_mp3_timing: bool,
+    ) -> Result<js_sys::Array, JsError> {
         let hint = if extension.is_empty() { None } else { Some(extension) };
-        let sounds = praatfan_core::Sound::from_bytes_channels(bytes, hint)
+        let opts = praatfan_core::DecodeOptions::default().exact_mp3_timing(exact_mp3_timing);
+        let sounds = praatfan_core::Sound::from_bytes_channels_with(bytes, hint, &opts)
             .map_err(|e| JsError::new(&e.to_string()))?;
         let out = js_sys::Array::new();
         for inner in sounds {

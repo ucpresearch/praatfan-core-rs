@@ -3,10 +3,39 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
+## [0.1.17-rc2] - 2026-11-19
+
+Release candidate: a GitHub pre-release, not on PyPI. The final 0.1.17 is
+planned for 2026-11-29. Includes everything in 0.1.17-rc1 below.
+
+### Fixed
+
+- **Ogg Vorbis decodes are no longer too long.** The end padding recorded
+  in the stream was kept (128 samples on the test fixture); it is now
+  trimmed, so the length matches the original recording. Timestamps do not
+  move (the padding was at the end). Praat cannot read Ogg, so there is no
+  Praat behaviour to keep.
+
+### Added
+
+- **Exact MP3 timing, opt-in.** An MP3 carries the encoder's delay and end
+  padding (1105 samples late and 1152 samples long for an ffmpeg/LAME
+  encode); we decode them as audio, so every MP3 timestamp is late by the
+  delay. That is a known bug, **kept as the default for Praat
+  compatibility**: Praat's own MP3 reader is late too (1056 samples at
+  24 kHz, 1632 at 44.1 kHz in our test), and fixing ours would move it
+  further from Praat. Ask for the original recording's timing with
+  `DecodeOptions::default().exact_mp3_timing(true)` and
+  `Sound::from_file_with` / `from_file_channels_with` /
+  `from_bytes_channels_with` (Rust), `Sound.from_file(path,
+  exact_mp3_timing=True)` (Python), or
+  `Sound.from_bytes_channels_with(bytes, ext, true)` (WASM). The default
+  output is unchanged for MP3, WAV, FLAC and SPHERE (verified bit for bit
+  on all fixtures). The pipe keeps the default (DIVERGENCES.md §10).
+
 ## [0.1.17-rc1] - 2026-11-18
 
-Release candidate, tagged but not released (no GitHub release, not on
-PyPI). The final 0.1.17 is planned for 2026-11-29.
+Release candidate, tagged only (no GitHub release, not on PyPI).
 
 ### Fixed
 

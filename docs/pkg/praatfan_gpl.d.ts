@@ -223,8 +223,21 @@ export class Sound {
      * @param bytes - Uint8Array with the file's contents
      * @param extension - Format hint such as "wav" or "flac" (may be empty)
      * @returns Array of Sound, one per channel
+     *
+     * MP3 keeps the legacy (encoder-delayed) timing; see
+     * `from_bytes_channels_with` for exact MP3 timestamps.
      */
     static from_bytes_channels(bytes: Uint8Array, extension: string): Array<any>;
+    /**
+     * `from_bytes_channels` with decode options.
+     *
+     * @param exact_mp3_timing - Trim the MP3 encoder delay and padding so
+     *   timestamps match the original recording. With `false` (the
+     *   `from_bytes_channels` default) MP3 keeps the legacy timing, e.g.
+     *   1105 samples late for LAME/ffmpeg: a known bug kept for Praat
+     *   compatibility. Ogg Vorbis is always trimmed.
+     */
+    static from_bytes_channels_with(bytes: Uint8Array, extension: string, exact_mp3_timing: boolean): Array<any>;
     /**
      * Sample value at a time, Sinc70-interpolated (Praat's default for
      * `Sound: Get value at time`)
@@ -511,6 +524,7 @@ export interface InitOutput {
     readonly sound_duration: (a: number) => number;
     readonly sound_end_time: (a: number) => number;
     readonly sound_from_bytes_channels: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly sound_from_bytes_channels_with: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly sound_get_value_at_time: (a: number, b: number) => [number, number];
     readonly sound_new: (a: any, b: number) => number;
     readonly sound_num_samples: (a: number) => number;

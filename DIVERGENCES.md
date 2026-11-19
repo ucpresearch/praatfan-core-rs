@@ -30,6 +30,7 @@ Last reviewed: 2026-11-02 (§8 re-measured with the `system-libm` feature);
 | 6 | HNR bandwidth on wideband (48 kHz) input | effectively band-limited | same as Praat | broadband | **No** |
 | 7 | Pipe `spectrogram`: too-short sound, `max_frequency <= 0` | errors | empty result / Nyquist (pipe only) | same as ours (shared spec) | **Yes** — interface choice, values unaffected |
 | 8 | Residual gaps found by `scripts/parity_sweep.py` | — | numerical floors (mostly math-library last bits; see `system-libm`) + too-short sounds return empty objects | n/a | documented, see §8 |
+| 10 | MP3 encoder delay and padding | kept (reader is late by its own, rate-dependent amount) | kept by default (late by the encoder delay, as before); trimmed with `exact_mp3_timing` | n/a | **No** by default — known bug kept for compatibility (see §10) |
 | 9 | Resampling sounds too long for wasm32 memory (browser WASM only, ~2^26+ samples) | whole-sound FFT low-pass | browser WASM: low-pass in overlapping chunks, < 1 16-bit LSB from Praat; native and V8 bundle: whole-sound like Praat | n/a | **Yes** — only where the whole-sound filter cannot run (see §9) |
 
 ---
@@ -360,6 +361,22 @@ signal's broadband level at the cutoff (measured ≤ 2.7e-5 on periodic tiled
 speech and on harmonics + white noise 37 dB down, under one 16-bit LSB).
 Native builds and the embedded-V8 bundle always use the whole-sound filter
 (user decision, 2026-11-18).
+
+## 10. MP3 encoder delay (0.1.17-rc2)
+
+An MP3 stream starts with the encoder's delay and ends with padding: an
+ffmpeg/LAME encode of a 39168-sample recording at 24 kHz decodes to 40320
+samples, the speech 1105 samples (46 ms) late. Gapless decoding trims both
+using the stream's own header and matches the original exactly. Praat does
+not trim them either, and its reader's offset differs from ours (1056 samples
+late at 24 kHz, 1632 at 44.1 kHz on the same test encodes). **By default we
+keep the untrimmed timing, a known bug kept for Praat compatibility**: it is
+the behaviour of all earlier releases and the closer of the two to Praat.
+`exact_mp3_timing` (Rust `DecodeOptions`, Python `from_file` keyword, WASM
+`from_bytes_channels_with`) trims instead (user decision, 2026-11-19). The
+pipe has no switch, because its request keys are shared with the clean
+engine; it uses the default. Ogg Vorbis, which Praat cannot read, is always
+trimmed.
 
 ## Related documents
 

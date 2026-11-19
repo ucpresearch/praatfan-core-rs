@@ -54,9 +54,17 @@ impl PySound {
     /// ----------
     /// path : str
     ///     Path to the audio file
+    /// exact_mp3_timing : bool, keyword-only, default False
+    ///     Trim the MP3 encoder delay and padding so timestamps match the
+    ///     original recording. Off by default: MP3 then keeps the legacy
+    ///     timing (e.g. 1105 samples late for LAME/ffmpeg), a known bug kept
+    ///     for Praat compatibility (Praat's MP3 reader is also late). Ogg
+    ///     Vorbis is always trimmed; other formats are unaffected.
     #[staticmethod]
-    fn from_file(path: &str) -> PyResult<Self> {
-        RustSound::from_file(path)
+    #[pyo3(signature = (path, *, exact_mp3_timing = false))]
+    fn from_file(path: &str, exact_mp3_timing: bool) -> PyResult<Self> {
+        let opts = praatfan_core::DecodeOptions::default().exact_mp3_timing(exact_mp3_timing);
+        RustSound::from_file_with(path, &opts)
             .map(|s| PySound { inner: s })
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }

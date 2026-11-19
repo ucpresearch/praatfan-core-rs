@@ -91,6 +91,7 @@ hnr_cc = sound.to_harmonicity_cc(0.01, 75.0, 0.1, 1.0)
 ```python
 # Loading and creating
 Sound.from_file(path)                    # WAV, FLAC, MP3, OGG, NIST SPHERE (incl. shorten)
+Sound.from_file(path, exact_mp3_timing=True)  # MP3 without the encoder delay (see below)
 Sound(samples, sample_rate)              # From a numpy array
 Sound.create_tone(frequency, duration, sample_rate, amplitude, phase)
 Sound.create_silence(duration, sample_rate)
@@ -135,6 +136,16 @@ sound.to_pitch_cc_referenced(dt, floor, ceil, *, reference_peak=None, very_accur
 sound.to_harmonicity_ac_referenced(dt, min_pitch, silence, ppw, *, reference_peak=None)
 sound.to_harmonicity_cc_referenced(dt, min_pitch, silence, ppw, *, reference_peak=None)
 ```
+
+### MP3 timing (known bug, kept for Praat compatibility)
+
+MP3 files carry the encoder's delay and end padding. By default they are
+decoded as audio, as in every earlier release, so MP3 timestamps are late by
+the delay (1105 samples for an ffmpeg/LAME encode). Praat's own MP3 reader is
+late as well, and the default stays closer to it. Pass
+`exact_mp3_timing=True` to trim the delay and padding and get the original
+recording's timing. Ogg Vorbis is always trimmed, and other formats have no
+delay. See DIVERGENCES.md §10.
 
 ### Speech-referenced normalization (long recordings)
 

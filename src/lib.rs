@@ -71,7 +71,7 @@ pub mod math;
 mod par;
 
 // Re-export main types at crate root
-pub use sound::Sound;
+pub use sound::{DecodeOptions, Sound};
 pub use window::{praat_formant_window, WindowShape};
 pub use interpolation::{Interpolation, PeakInterpolation};
 pub use intensity::{Intensity, IntensityAveraging, intensity_from_channels};
