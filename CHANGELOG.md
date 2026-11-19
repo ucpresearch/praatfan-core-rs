@@ -16,6 +16,15 @@ Python bindings).
 - **Web demo file picker** now offers SPHERE files (`.sph`, `.nist`,
   `.wv1`, `.wv2`); `accept="audio/*"` hid them. Drag and drop already
   worked.
+- **Long sounds in the browser WASM build**: resampling, and so formant
+  analysis, crashed past about 2^26 samples (~25 min at 44.1 kHz) with a
+  "capacity overflow" panic, because the whole-sound FFT low-pass did not fit
+  in wasm32 memory. The browser build now falls back to a chunked low-pass
+  only when the whole-sound one cannot be allocated: sounds that worked keep
+  exactly their output, longer ones (tested to 1 h at 48 kHz) work and differ
+  from Praat by under one 16-bit LSB (DIVERGENCES.md §9). Native builds and
+  the embedded-V8 bundle are unchanged. New features: core
+  `chunked-lowpass`, enabled by the wasm crate's defaults.
 
 ## [0.1.16] - 2026-11-08
 

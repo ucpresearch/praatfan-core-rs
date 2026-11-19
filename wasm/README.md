@@ -25,6 +25,16 @@ is bit-identical to the default native build (measured 2026-11-02 on the
 spectrogram). A native build with the opt-in `system-libm` feature differs
 from it in the last bits, by design.
 
+**Long sounds (browser build only).** Resampling (and so formant analysis)
+low-passes the whole sound with one FFT, as Praat does. In wasm32 memory
+that fails past roughly 2^26 samples (about 25 min at 44.1 kHz). The
+browser build tries the whole-sound filter first and, only if its memory
+cannot be allocated, filters in overlapping chunks instead. Every sound that
+fits keeps exactly the result above, and longer sounds (tested to 1 h at
+48 kHz) differ from Praat by less than one 16-bit LSB in the resampled
+samples. The embedded-V8 bundle below does not do this: it keeps the
+whole-sound filter and its size limit.
+
 If loading the module fails with `CompileError: ... Invalid prefixed opcode
 263`, your local `wasm/Cargo.lock` has `pulp` 0.22.2, which emits relaxed-SIMD
 instructions. Run `cargo update -p pulp` in `wasm/` and rebuild.

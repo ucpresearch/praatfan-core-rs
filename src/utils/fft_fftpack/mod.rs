@@ -43,6 +43,14 @@ pub mod dradb;
 pub mod dradf;
 pub mod smallft;
 
+/// A zero-filled `Vec<f64>` of `len`, or `None` if it cannot be allocated.
+pub(crate) fn try_zeros(len: usize) -> Option<Vec<f64>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len).ok()?;
+    v.resize(len, 0.0);
+    Some(v)
+}
+
 /// Reusable trigonometric cache for real-FFT calls on a fixed length `n`.
 /// Computing the cache is ~O(n); amortize across multiple FFTs of same size.
 pub struct RealFftPlan {
@@ -58,15 +66,23 @@ pub struct RealFftPlan {
 
 impl RealFftPlan {
     pub fn new(n: usize) -> Self {
+        Self::try_new(n).expect("FFT plan: out of memory")
+    }
+
+    /// Like [`RealFftPlan::new`], but returns `None` instead of aborting when
+    /// the plan's buffers (5n doubles) cannot be allocated.
+    pub fn try_new(n: usize) -> Option<Self> {
         let mut plan = Self {
             n,
-            trigcache: vec![0.0_f64; 3 * n.max(1)],
+            trigcache: try_zeros(3 * n.max(1))?,
             wa: Vec::new(),
             splitcache: vec![0_i32; 32],
         };
         smallft::fdrffti(n, &mut plan.trigcache, &mut plan.splitcache);
-        plan.wa = plan.trigcache[n.min(plan.trigcache.len())..].to_vec();
-        plan
+        let twiddles = &plan.trigcache[n.min(plan.trigcache.len())..];
+        plan.wa.try_reserve_exact(twiddles.len()).ok()?;
+        plan.wa.extend_from_slice(twiddles);
+        Some(plan)
     }
 
     pub fn len(&self) -> usize {

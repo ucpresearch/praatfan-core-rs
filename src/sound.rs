@@ -1040,18 +1040,74 @@ impl Sound {
     }
 
     fn fft_lowpass_filter(&self, upfactor: f64) -> Vec<f64> {
+        // wasm32 cannot hold the whole-file FFT for long sounds (past ~2^26
+        // samples; the exact limit depends on what else is on the heap). The
+        // browser build (`chunked-lowpass`) therefore tries Praat's
+        // whole-file filter with fallible allocations and filters in
+        // overlapping chunks only if they fail, so every sound that fits
+        // keeps exactly the whole-file result. Native builds and the
+        // embedded-V8 bundle always use the whole-file filter.
+        #[cfg(all(target_arch = "wasm32", feature = "chunked-lowpass"))]
+        let filtered = lowpass_whole_try(&self.samples, upfactor)
+            .unwrap_or_else(|| lowpass_chunked(&self.samples, upfactor));
+        #[cfg(not(all(target_arch = "wasm32", feature = "chunked-lowpass")))]
+        let filtered = lowpass_whole(&self.samples, upfactor);
+        filtered
+    }
+}
+
+/// Output samples each chunk contributes when the low-pass is chunked.
+const LOWPASS_CHUNK_CORE: usize = 1 << 20;
+/// Extra input on each side of a chunk: as much as fits in the chunk's
+/// 2^21-point FFT. A chunk differs from the whole-file filter mainly because
+/// its smaller FFT puts Praat's brick-wall cutoff on a coarser frequency
+/// grid, so a ~0.01 Hz sliver at the cutoff is kept in one and dropped in
+/// the other: the difference is ~1e-3 of the signal's broadband level at
+/// the cutoff, below one 16-bit LSB on recordings (see the tests).
+const LOWPASS_CHUNK_OVERLAP: usize =
+    ((1 << 21) - LOWPASS_CHUNK_CORE - 2 * LOWPASS_ANTI_TURN_AROUND) / 2;
+/// Praat's zero padding on each side of the low-pass FFT.
+const LOWPASS_ANTI_TURN_AROUND: usize = 1000;
+
+/// The resampling low-pass applied chunk by chunk: each chunk of
+/// [`LOWPASS_CHUNK_CORE`] samples is filtered together with
+/// [`LOWPASS_CHUNK_OVERLAP`] samples of context on each side (fewer at the
+/// sound's ends), and only its core is kept. Not bit-identical to
+/// [`lowpass_whole`]: see [`LOWPASS_CHUNK_OVERLAP`] for the size of the
+/// difference (below one 16-bit LSB on recordings).
+#[cfg_attr(not(all(target_arch = "wasm32", feature = "chunked-lowpass")), allow(dead_code))]
+fn lowpass_chunked(samples: &[f64], upfactor: f64) -> Vec<f64> {
+    let n = samples.len();
+    let mut result = Vec::with_capacity(n);
+    let mut core_start = 0;
+    while core_start < n {
+        let core_end = (core_start + LOWPASS_CHUNK_CORE).min(n);
+        let seg_start = core_start.saturating_sub(LOWPASS_CHUNK_OVERLAP);
+        let seg_end = (core_end + LOWPASS_CHUNK_OVERLAP).min(n);
+        let filtered = lowpass_whole(&samples[seg_start..seg_end], upfactor);
+        result.extend_from_slice(&filtered[core_start - seg_start..core_end - seg_start]);
+        core_start = core_end;
+    }
+    result
+}
+
+/// Praat's whole-file resampling low-pass (see `Sound::fft_lowpass_filter`).
+fn lowpass_whole(samples: &[f64], upfactor: f64) -> Vec<f64> {
+    lowpass_whole_try(samples, upfactor).expect("resample low-pass: out of memory")
+}
+
+/// [`lowpass_whole`], returning `None` if its buffers cannot be allocated.
+fn lowpass_whole_try(samples: &[f64], upfactor: f64) -> Option<Vec<f64>> {
         use crate::utils::fft_fftpack::RealFftPlan;
 
-        let n = self.samples.len();
+        let n = samples.len();
         // Pad to power of 2 with turnaround (Praat uses 1000 on each side)
-        let anti_turn_around = 1000;
+        let anti_turn_around = LOWPASS_ANTI_TURN_AROUND;
         let nfft = (n + 2 * anti_turn_around).next_power_of_two();
 
         // Create padded signal: zeros, then signal, then zeros
-        let mut data = vec![0.0_f64; nfft];
-        for i in 0..n {
-            data[anti_turn_around + i] = self.samples[i];
-        }
+        let mut data = crate::utils::fft_fftpack::try_zeros(nfft)?;
+        data[anti_turn_around..anti_turn_around + n].copy_from_slice(samples);
 
         // Forward real FFT using Praat-compatible FFTPACK (drftf1). This
         // leaves `data` in FFTPACK's packed real-spectrum layout:
@@ -1066,7 +1122,7 @@ impl Sound {
         // `data[2]` (which is the Nyquist in the rotated layout). Below we
         // perform the same operations in Praat's ROTATED layout so that the
         // index arithmetic reads identically to Praat's source.
-        let mut plan = RealFftPlan::new(nfft);
+        let mut plan = RealFftPlan::try_new(nfft)?;
         crate::utils::fft_fftpack::realft_forward_praat(&mut plan, &mut data);
 
         // Praat (1-based): for (i = floor(upfactor * nfft); i <= nfft; i++)
@@ -1089,12 +1145,12 @@ impl Sound {
 
         // Extract the original window, scale by 1/nfft.
         let scale = 1.0 / nfft as f64;
-        let mut result = Vec::with_capacity(n);
+        let mut result = Vec::new();
+        result.try_reserve_exact(n).ok()?;
         for i in 0..n {
             result.push(data[anti_turn_around + i] * scale);
         }
-        result
-    }
+        Some(result)
 }
 
 /// Praat's `Sound_multiplyByWindow` (fon/Sound.cpp). `Gaussian` is Praat's
@@ -1277,6 +1333,52 @@ pub(crate) fn sinc_interpolate_1based(samples: &[f64], x: f64, max_depth: isize)
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+
+    /// The chunked low-pass (browser WASM, long sounds) stays within one
+    /// 16-bit LSB of Praat's whole-file filter, including at the sound's
+    /// ends and at every chunk boundary.
+    #[test]
+    fn lowpass_chunked_matches_whole() {
+        fn max_diff(samples: &[f64], upfactor: f64) -> f64 {
+            let whole = lowpass_whole(samples, upfactor);
+            let chunked = lowpass_chunked(samples, upfactor);
+            assert_eq!(chunked.len(), whole.len());
+            whole.iter().zip(&chunked).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max)
+        }
+        let lsb = 1.0 / 32768.0;
+        let n = 2 * LOWPASS_CHUNK_CORE + 12345; // three chunks, ragged last
+
+        // Real speech, tiled forwards and backwards to `n` samples so that no
+        // seam adds a click, resampled to 11 kHz as for formants. Tiling makes
+        // it periodic (a line spectrum), a worst case for the cutoff sliver.
+        let speech = Sound::from_file("tests/fixtures/one_two_three_four_five.wav").unwrap();
+        let s = speech.samples();
+        let tiled: Vec<f64> = s.iter().chain(s.iter().rev()).cycle().take(n).copied().collect();
+        let d_speech = max_diff(&tiled, 11000.0 / speech.sample_rate());
+
+        // Harsh case: harmonics plus full-band white noise 37 dB down, which
+        // puts real energy at the cutoff.
+        let fs = 44100.0;
+        let mut state: u64 = 0x2545_F491_4F6C_DD1D;
+        let noisy: Vec<f64> = (0..n)
+            .map(|i| {
+                let t = i as f64 / fs;
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let noise = (state >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+                let voice: f64 = (1..=35)
+                    .map(|h| crate::math::sin(2.0 * std::f64::consts::PI * 140.0 * h as f64 * t) / h as f64)
+                    .sum();
+                0.2 * voice + 0.05 * noise
+            })
+            .collect();
+        let d_noisy = max_diff(&noisy, 11000.0 / fs);
+
+        eprintln!("lowpass chunked vs whole: speech {d_speech:e}, noisy {d_noisy:e}");
+        assert!(d_speech < lsb, "speech: max |chunked - whole| = {d_speech:e}");
+        assert!(d_noisy < lsb, "noisy: max |chunked - whole| = {d_noisy:e}");
+    }
 
     #[test]
     fn test_from_samples() {

@@ -30,6 +30,7 @@ Last reviewed: 2026-11-02 (§8 re-measured with the `system-libm` feature);
 | 6 | HNR bandwidth on wideband (48 kHz) input | effectively band-limited | same as Praat | broadband | **No** |
 | 7 | Pipe `spectrogram`: too-short sound, `max_frequency <= 0` | errors | empty result / Nyquist (pipe only) | same as ours (shared spec) | **Yes** — interface choice, values unaffected |
 | 8 | Residual gaps found by `scripts/parity_sweep.py` | — | numerical floors (mostly math-library last bits; see `system-libm`) + too-short sounds return empty objects | n/a | documented, see §8 |
+| 9 | Resampling sounds too long for wasm32 memory (browser WASM only, ~2^26+ samples) | whole-sound FFT low-pass | browser WASM: low-pass in overlapping chunks, < 1 16-bit LSB from Praat; native and V8 bundle: whole-sound like Praat | n/a | **Yes** — only where the whole-sound filter cannot run (see §9) |
 
 ---
 
@@ -342,6 +343,23 @@ pitch, HNR and intensity here return an empty object instead (kept by user
 decision, 2026-11-01). The query helpers that used to differ (Intensity and
 Harmonicity mean/min/max, Harmonicity point queries, Sound value at time,
 pre-emphasis normalization) follow Praat since 0.1.15.
+
+## 9. Long sounds in the browser WASM build (unreleased, planned 0.1.17)
+
+Praat's `Sound_resample` low-passes the whole sound with one FFT. In wasm32
+the buffers for that FFT stop fitting at about 2^26 samples (the exact point
+depends on what else is on the heap), so resampling, and formant analysis
+through it, used to crash there ("capacity overflow"). The browser build
+(wasm crate feature `chunked-lowpass`, on by default) now attempts the
+whole-sound filter with fallible allocations and, only when they fail,
+filters in chunks of 2^20 samples with as much overlap as a 2^21-point FFT
+allows. Sounds that fit are untouched (verified by hash just below the old
+limit). For longer sounds the chunk's coarser frequency grid moves Praat's
+brick-wall cutoff by ~0.01 Hz; the resampled samples differ by ~1e-3 of the
+signal's broadband level at the cutoff (measured ≤ 2.7e-5 on periodic tiled
+speech and on harmonics + white noise 37 dB down, under one 16-bit LSB).
+Native builds and the embedded-V8 bundle always use the whole-sound filter
+(user decision, 2026-11-18).
 
 ## Related documents
 

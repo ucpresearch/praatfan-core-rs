@@ -10,7 +10,7 @@ description = "praatfan-gpl: WebAssembly bindings for praatfan-core-rs acoustic 
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["console_error_panic_hook", "decode"]
+default = ["console_error_panic_hook", "decode", "chunked-lowpass"]
 # Sound.from_bytes_channels: decode audio files with our own decoders, at the
 # file's own rate (the browser's decodeAudioData resamples).
 decode = ["praatfan-core-rs/decode"]
@@ -18,6 +18,10 @@ decode = ["praatfan-core-rs/decode"]
 # for the embedded-V8 bundle. Build that bundle without default features so
 # nothing touches `console`.
 pipe = ["praatfan-core-rs/pipe-core", "decode"]
+# Browser build only: chunked resampling low-pass so long sounds (past ~2^26
+# samples, ~25 min at 44.1 kHz) don't exhaust wasm32 memory. Results differ
+# from Praat by ~1e-6 only on those long sounds. Off in the V8 bundle.
+chunked-lowpass = ["praatfan-core-rs/chunked-lowpass"]
 
 [dependencies]
 wasm-bindgen = "0.2"

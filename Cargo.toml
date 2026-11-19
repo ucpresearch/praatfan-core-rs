@@ -28,6 +28,11 @@ pipe = ["pipe-core", "file-io", "parallel"]
 # Transcendentals from the platform C library instead of the pure-Rust libm
 # crate: last-bit agreement with Praat on the same host (see src/math.rs).
 system-libm = []
+# Resampling low-pass in overlapping chunks for very long sounds on wasm32
+# (the whole-file FFT does not fit there past ~2^26 samples). Only the
+# browser WASM build enables it; native and the embedded-V8 bundle keep
+# Praat's whole-file filter. No effect off wasm32.
+chunked-lowpass = []
 
 [dependencies]
 ndarray = "0.15"
