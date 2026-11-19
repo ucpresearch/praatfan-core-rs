@@ -344,7 +344,7 @@ decision, 2026-11-01). The query helpers that used to differ (Intensity and
 Harmonicity mean/min/max, Harmonicity point queries, Sound value at time,
 pre-emphasis normalization) follow Praat since 0.1.15.
 
-## 9. Long sounds in the browser WASM build (unreleased, planned 0.1.17)
+## 9. Long sounds in the browser WASM build (0.1.17-rc1)
 
 Praat's `Sound_resample` low-passes the whole sound with one FFT. In wasm32
 the buffers for that FFT stop fitting at about 2^26 samples (the exact point

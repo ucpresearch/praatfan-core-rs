@@ -3,7 +3,10 @@
 Notable changes to `praatfan-core-rs` (the crate) and `praatfan_gpl` (its
 Python bindings).
 
-## [Unreleased] (planned 2026-11-29)
+## [0.1.17-rc1] - 2026-11-18
+
+Release candidate, tagged but not released (no GitHub release, not on
+PyPI). The final 0.1.17 is planned for 2026-11-29.
 
 ### Fixed
 
