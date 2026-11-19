@@ -35,6 +35,14 @@ fits keeps exactly the result above, and longer sounds (tested to 1 h at
 samples. The embedded-V8 bundle below does not do this: it keeps the
 whole-sound filter and its size limit.
 
+Parity with Praat comes first in this project. If you need exact Praat
+output on a recording that long, or you use the V8 bundle, either use a
+native build (Python, the pipe binary), which has no such limit, or cut the
+recording into pieces under ~60M samples (about 20 min at 44.1/48 kHz)
+before analysis. Each piece then matches Praat run on that same piece. Let
+the pieces overlap by a few analysis windows, and drop the frames near each
+cut, since frames there see the cut edge.
+
 If loading the module fails with `CompileError: ... Invalid prefixed opcode
 263`, your local `wasm/Cargo.lock` has `pulp` 0.22.2, which emits relaxed-SIMD
 instructions. Run `cargo update -p pulp` in `wasm/` and rebuild.
@@ -49,6 +57,11 @@ bare V8 and no ES modules. The classes below are in it too, but only the pipe
 is part of the R package's contract. Build it
 with `wasm/v8/build.sh`. The main README covers loading and the V8 ≥ 9.6
 requirement.
+
+The bundle resamples (and so runs formant analysis) only up to roughly 2^26
+samples, about 25 min at 44.1 kHz; longer sounds fail. Cut longer recordings
+into overlapping pieces as described under "Long sounds" above, or use the
+native pipe binary.
 
 ## Usage in JavaScript
 
